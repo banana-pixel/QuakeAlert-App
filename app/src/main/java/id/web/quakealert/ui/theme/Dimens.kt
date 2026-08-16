@@ -157,11 +157,12 @@ object Dimens {
     /** Bottom padding below the last setting card (Figma padding-bottom 20). */
     val SettingsListBottomPadding = 20.dp
 
-    // Section header pill (EL-c963c95e)
-    val SectionHeaderPillHeight = 60.dp
-    val SectionHeaderPillPaddingHorizontal = 8.dp
-    val SectionHeaderPillPaddingVertical = 14.dp
+    // Section header pill (Figma node 1:856): hug-width capsule, height 23,
+    // padding 0x12, 2px white-30% stroke, radius 10.
+    val SectionHeaderPillHeight = 23.dp
+    val SectionHeaderPillPaddingHorizontal = 12.dp
     val SectionHeaderPillRadius = 10.dp
+
 
     // Setting row card (EL-002b7d17)
     val SettingCardPadding = 10.dp
@@ -223,4 +224,7 @@ object Dimens {
 
     // --- Stroke weights -----------------------------------------------------
     val BorderThin = 1.dp
+    /** 2px stroke used by the section header pill (Figma node 1:856). */
+    val BorderMedium = 2.dp
 }
+

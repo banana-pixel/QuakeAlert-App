@@ -23,7 +23,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import id.web.quakealert.R
+import id.web.quakealert.ui.theme.BorderLight
 import id.web.quakealert.ui.theme.CardBorder
+
 import id.web.quakealert.ui.theme.CardSubtitle
 import id.web.quakealert.ui.theme.CardSurface
 import id.web.quakealert.ui.theme.CardTitle
@@ -58,16 +60,14 @@ fun SectionHeaderPill(
             .height(Dimens.SectionHeaderPillHeight)
             .clip(shape)
             .background(SectionHeaderPillFill, shape)
-            .border(Dimens.BorderThin, CardBorder, shape)
-            .padding(
-                horizontal = Dimens.SectionHeaderPillPaddingHorizontal,
-                vertical = Dimens.SectionHeaderPillPaddingVertical
-            ),
+            .border(Dimens.BorderMedium, BorderLight, shape)
+            .padding(horizontal = Dimens.SectionHeaderPillPaddingHorizontal),
         contentAlignment = Alignment.CenterStart
     ) {
         Text(text = title, style = CardTitle)
     }
 }
+
 
 /**
  * Generic setting row card (Figma node 1:857 / EL-002b7d17): a dark rounded card

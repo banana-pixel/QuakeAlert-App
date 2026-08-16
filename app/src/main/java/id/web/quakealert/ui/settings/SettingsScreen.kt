@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,11 +27,12 @@ import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.fadingEdges
 import id.web.quakealert.ui.sensors.SensorMapCard
 import id.web.quakealert.ui.sensors.SensorMapOverview
-import id.web.quakealert.ui.theme.CardBorder
+import id.web.quakealert.ui.theme.BorderLight
 import id.web.quakealert.ui.theme.CardTitle
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.QuakeAlertTheme
 import id.web.quakealert.ui.theme.SectionHeaderPillFill
+
 
 /**
  * Stateful entry point wiring [SettingsViewModel] to the stateless
@@ -225,9 +228,9 @@ fun SettingsScreen(
 }
 
 /**
- * Centered section badge ("Location & Coverage", Figma node 1:846). Unlike the
- * full-width left-aligned [SectionHeaderPill], this is a wrap-content capsule
- * horizontally centered within the list.
+ * Centered section badge ("Location & Coverage", Figma node 1:856). A hug-width
+ * #2D2D2D capsule, fixed 23dp tall with 12dp horizontal padding, a 2px white-30%
+ * stroke and a 10dp radius, horizontally centered within the list.
  */
 @Composable
 private fun CenteredSectionBadge(
@@ -239,19 +242,18 @@ private fun CenteredSectionBadge(
         Box(
             modifier = Modifier
                 .wrapContentWidth()
+                .height(Dimens.SectionHeaderPillHeight)
                 .clip(shape)
                 .background(SectionHeaderPillFill, shape)
-                .border(Dimens.BorderThin, CardBorder, shape)
-                .padding(
-                    horizontal = Dimens.SectionHeaderPillPaddingHorizontal,
-                    vertical = Dimens.SectionHeaderPillPaddingVertical
-                ),
+                .border(Dimens.BorderMedium, BorderLight, shape)
+                .padding(horizontal = Dimens.SectionHeaderPillPaddingHorizontal),
             contentAlignment = Alignment.Center
         ) {
             Text(text = title, style = CardTitle)
         }
     }
 }
+
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
