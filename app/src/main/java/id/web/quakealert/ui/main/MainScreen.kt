@@ -49,6 +49,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import id.web.quakealert.R
 import id.web.quakealert.ui.history.HistoryRoute
+import id.web.quakealert.ui.sensors.SensorsRoute
+
 import id.web.quakealert.ui.theme.BackgroundGradientBottom
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.NavActiveFill
@@ -116,8 +118,12 @@ fun MainScreen(modifier: Modifier = Modifier) {
             ) {
                 when (destination) {
                     MainDestination.HISTORY -> HistoryRoute()
+                    MainDestination.SENSORS -> SensorsRoute(
+                        onOpenSettings = { selected = MainDestination.SETTINGS }
+                    )
                     else -> Unit // Placeholder until other flows are implemented.
                 }
+
             }
         }
     }

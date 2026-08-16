@@ -68,6 +68,31 @@ val NavActiveFill = Color(0x6300677E)           // active tab pill rgba(0,103,12
 val NavActiveText = Color(0xFF5C98AB)           // active tab label/icon tint
 val NavLabel = Color(0x99FFFFFF)                // inactive tab label (dimmed white)
 
+// ============================================================
+// Sensors screen palette — QuakeAlert (Figma node 1:1081)
+// ============================================================
+
+// Sensor "chip" badge (MPU-6050) — leading icon container
+val SensorChipFill = Color(0xFF7EB1C7)          // cpu-chip badge fill #7EB1C7
+val SensorChipBorder = Color(0xFF214F68)        // cpu-chip badge stroke #214F68
+
+// Station status chips
+val StatusOnlineFill = Color(0xFF0C3600)        // "Online" chip fill #0C3600
+val StatusOfflineFill = Color(0xFF360000)       // "Offline" chip fill #360000
+
+// Telemetry pills (Last Ping / RSSI / Latency)
+val TelemetryPillFill = Color(0xFF373737)       // telemetry pill fill #373737
+
+// Map preview card
+val MapLocationPillFill = Color(0x78000000)     // location pill rgba(0,0,0,0.47)
+val MapRangeBadgeFill = Color(0xFF1B536A)       // "Range : ..." badge fill #1B536A
+val MapSettingsShortcutFill = Color(0xFFD9D9D9) // settings shortcut circle #D9D9D9
+val MapSettingsShortcutBorder = Color(0x1A000000) // black 10% stroke
+
+// Highlighted station-id suffix ("NODE-...")
+val SensorNodeIdText = Color(0xFF7EB1C7)        // node-id accent #7EB1C7 (ts2 #7EB1C7)
+
+
 
 
 

@@ -1,0 +1,83 @@
+package id.web.quakealert.ui.sensors
+
+import androidx.compose.runtime.Immutable
+
+/**
+ * Connectivity state of a sensor station, driving the coloured status chip on a
+ * [SensorItemCard]. The Figma design (node 1:1081) shows a green "Online" and a
+ * red "Offline" treatment.
+ */
+enum class SensorStatus { ONLINE, OFFLINE }
+
+/**
+ * Live telemetry read-outs shown as pills on a station card. When a station is
+ * offline these are rendered as placeholder dashes in the mock data.
+ *
+ * @param lastPing e.g. "Last Ping : 33s ago".
+ * @param rssi e.g. "RSSI : -61 dBm".
+ * @param latency e.g. "Latency : 2 ms".
+ */
+@Immutable
+data class SensorTelemetry(
+    val lastPing: String,
+    val rssi: String,
+    val latency: String
+)
+
+/**
+ * A single sensor station row (Figma node 1:1111).
+ *
+ * @param id stable identity for list keys.
+ * @param stationId station identifier suffix (e.g. "NODE-163A149F").
+ * @param location human-readable placement (e.g. "Cimahi, West Java, ID").
+ * @param chipLabel sensor module label rendered inside the chip badge (e.g. "MPU 6050").
+ * @param status online/offline connectivity.
+ * @param telemetry live metric pills.
+ */
+@Immutable
+data class SensorStationItem(
+    val id: String,
+    val stationId: String,
+    val location: String,
+    val chipLabel: String,
+    val status: SensorStatus,
+    val telemetry: SensorTelemetry
+)
+
+/**
+ * Summary overlay data for the map preview card (Figma node 1:1091).
+ *
+ * @param locationLabel user-centred location pill (e.g. "Bandung, West Java, ID").
+ * @param rangeKm covered radius in kilometres.
+ * @param sensorCount number of sensors within range.
+ */
+@Immutable
+data class SensorMapOverview(
+    val locationLabel: String,
+    val rangeKm: Int,
+    val sensorCount: Int
+) {
+    /** Pre-formatted "Range : {km} km, {n} sensors" summary badge text. */
+    val summaryLabel: String
+        get() = "Range : $rangeKm km, $sensorCount sensors"
+}
+
+/** The two filter modes shown in the filter row (Figma "All" / "Near"). */
+enum class SensorFilter { ALL, NEAR }
+
+/**
+ * Immutable UI state for the Sensors screen (Figma node 1:1081). Hoisted into
+ * [SensorsViewModel] and consumed by the stateless [SensorsScreen].
+ */
+@Immutable
+data class SensorsUiState(
+    val isHealthy: Boolean = true,
+    val overview: SensorMapOverview = SensorMapOverview(
+        locationLabel = "Bandung, West Java, ID",
+        rangeKm = 500,
+        sensorCount = 2
+    ),
+    val selectedFilter: SensorFilter = SensorFilter.ALL,
+    val nearRadiusKm: Int = 39,
+    val sensors: List<SensorStationItem> = emptyList()
+)

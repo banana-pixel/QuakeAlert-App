@@ -82,7 +82,49 @@ object Dimens {
     // See-more vertical accent bar (right side)
     val SeeMoreBarWidth = 21.dp
 
+    // --- Sensors screen -----------------------------------------------------
+    /** Vertical gap between the (map + filter) header block and the list (Figma 20). */
+    val SensorsHeaderBlockGap = 20.dp
+    /** Map preview card height (Figma height 294). */
+    val MapCardHeight = 294.dp
+    /** Inner padding of the map preview card (Figma padding 12). */
+    val MapCardPadding = 12.dp
+    /** Location pill height on the map (Figma height 23). */
+    val MapLocationPillHeight = 23.dp
+    val MapLocationPillPaddingHorizontal = 5.dp
+    val MapLocationPillPaddingVertical = 2.dp
+    val MapLocationPillGap = 4.dp
+    /** "Range : ..." summary badge height (Figma height 22). */
+    val MapRangeBadgeHeight = 22.dp
+    val MapRangeBadgePaddingHorizontal = 5.dp
+    val MapRangeBadgePaddingVertical = 2.dp
+    /** Circular settings-shortcut button diameter (Figma width 64). */
+    val MapSettingsShortcutSize = 64.dp
+    val MapSettingsShortcutIconSize = 24.dp
+    val MapPinIconSize = 16.dp
+
+    // Sensor station card
+    /** Gap between the sensor chip column and the details column (Figma gap 20). */
+    val SensorCardContentGap = 20.dp
+    /** Leading chip column width (Figma group width 50). */
+    val SensorChipColumnWidth = 50.dp
+    /** cpu-chip icon container corner radius (Figma 22.5). */
+    val SensorChipRadius = 22.5.dp
+    val SensorChipIconPadding = 8.dp
+    val SensorChipIconSize = 24.dp
+    /** Details column fixed width (Figma width 216). */
+    val SensorDetailsColumnWidth = 216.dp
+    val SensorDetailsGap = 8.dp
+    /** Gap between status/telemetry chips in a row (Figma gap 6). */
+    val SensorChipRowGap = 6.dp
+    val SensorStatusChipPaddingHorizontal = 6.dp
+    val SensorStatusChipPaddingVertical = 4.dp
+    val SensorStatusChipTrailingPadding = 6.dp
+    val SensorTelemetryPillPaddingHorizontal = 6.dp
+    val SensorTelemetryPillPaddingVertical = 4.dp
+
     // --- Bottom navigation --------------------------------------------------
+
     val NavBarHeight = 71.dp
     val NavBarPaddingHorizontal = 8.dp
     val NavBarPaddingVertical = 10.dp
