@@ -34,12 +34,15 @@ object Dimens {
     /** Top padding above the first card in the scrolling list (Figma padding 20). */
     val CardListTopPadding = 20.dp
     /**
-     * Bottom padding below the last card. Kept at 0 so the final card sits flush
-     * against the top edge of the bottom navigation bar (no accumulated gap).
+     * Bottom padding below the last card. Now that the bottom navigation bar no
+     * longer contributes its top margin to the Scaffold inner padding, this is
+     * the single source of truth for the visual gap between the final card and
+     * the navigation pill.
      */
-    val CardListBottomPadding = 0.dp
-    /** Height of the soft fade drawn at the top edge of the list. */
+    val CardListBottomPadding = 10.dp
+    /** Height of the soft alpha-mask fade drawn at both edges of the list. */
     val ListFadeHeight = 16.dp
+
 
 
 

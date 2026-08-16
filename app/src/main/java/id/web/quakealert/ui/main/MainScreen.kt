@@ -101,6 +101,12 @@ fun MainScreen(modifier: Modifier = Modifier) {
  * 55×55 column pill containing a 24dp icon and a Nunito label. The active tab
  * uses a highlight fill with tinted icon/label, per the Figma design tokens.
  * Applies [navigationBarsPadding] so it clears the Android gesture bar.
+ *
+ * Only the *bottom* breathing-room padding is inside this composable's measured
+ * box; the top margin is intentionally omitted so it is NOT folded into the
+ * Scaffold's `innerPadding.bottom`. This keeps the content region's bottom edge
+ * flush with the visible pill top, letting the History list own the gap via
+ * [Dimens.CardListBottomPadding] as the single source of truth.
  */
 @Composable
 fun QuakeBottomNavigation(
@@ -113,9 +119,12 @@ fun QuakeBottomNavigation(
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(
-                horizontal = Dimens.ScreenHorizontalPadding,
-                vertical = Dimens.NavBarPaddingVertical
+                start = Dimens.ScreenHorizontalPadding,
+                end = Dimens.ScreenHorizontalPadding,
+                bottom = Dimens.NavBarPaddingVertical
             )
+
+
             .height(Dimens.NavBarHeight)
             .clip(RoundedCornerShape(Dimens.RadiusNavBar))
             .background(NavBarFill, RoundedCornerShape(Dimens.RadiusNavBar))
