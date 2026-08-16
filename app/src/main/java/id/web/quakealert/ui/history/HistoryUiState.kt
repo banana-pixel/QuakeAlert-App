@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.history
 
 import androidx.compose.runtime.Immutable
+import id.web.quakealert.ui.common.QuakeFilter
 
 /**
 
@@ -33,18 +34,16 @@ data class QuakeHistoryItem(
     val distanceLabel: String
 )
 
-/** The two filter modes shown in the filter row (Figma "All" / "Near"). */
-enum class HistoryFilter { ALL, NEAR }
-
 /**
  * Immutable UI state for the History screen. Hoisted into [HistoryViewModel] and
- * consumed by the stateless [HistoryScreen].
+ * consumed by the stateless [HistoryScreen]. The filter uses the shared
+ * [QuakeFilter] enum common to History and Sensors.
  */
 @Immutable
 data class HistoryUiState(
 
     val isHealthy: Boolean = true,
-    val selectedFilter: HistoryFilter = HistoryFilter.ALL,
+    val selectedFilter: QuakeFilter = QuakeFilter.ALL,
     val nearRadiusKm: Int = 39,
     val items: List<QuakeHistoryItem> = emptyList()
 )

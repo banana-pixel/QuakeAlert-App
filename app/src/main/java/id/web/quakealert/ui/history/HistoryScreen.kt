@@ -11,23 +11,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
-
-
-
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
-
+import id.web.quakealert.ui.common.QuakeAppBar
+import id.web.quakealert.ui.common.QuakeFilter
+import id.web.quakealert.ui.common.QuakeFilterRow
+import id.web.quakealert.ui.common.fadingEdges
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.QuakeAlertTheme
 
@@ -54,18 +44,20 @@ fun HistoryRoute(
 
 /**
  * Stateless History screen (Figma node 1:701). Structure, top → bottom:
- *  1. A static header [Column] pinned to the top: [QuakeTopBar] + [QuakeFilterRow].
+ *  1. A static header [Column] pinned to the top: shared [QuakeAppBar] +
+ *     [QuakeFilterRow].
  *  2. A weighted [LazyColumn] filling the remaining space between the filter row
  *     and the bottom navigation bar. Its bounds carry a soft vertical fading
- *     edge so cards dissolve in/out as they enter/leave the scroll area.
+ *     edge (shared [fadingEdges]) so cards dissolve in/out at the scroll bounds.
  *
- * All state and events are hoisted to the caller ([HistoryRoute] /
- * [HistoryViewModel]).
+ * The header and fade are shared with the Sensors screen via [ui.common] so both
+ * screens stay visually and behaviourally consistent. All state and events are
+ * hoisted to the caller ([HistoryRoute] / [HistoryViewModel]).
  */
 @Composable
 fun HistoryScreen(
     uiState: HistoryUiState,
-    onFilterSelected: (HistoryFilter) -> Unit,
+    onFilterSelected: (QuakeFilter) -> Unit,
     onCalendarClicked: () -> Unit,
     onShareClicked: (QuakeHistoryItem) -> Unit,
     onSeeMoreClicked: (QuakeHistoryItem) -> Unit,
@@ -77,7 +69,7 @@ fun HistoryScreen(
             .padding(horizontal = Dimens.ScreenHorizontalPadding)
     ) {
         // --- Static header ---------------------------------------------------
-        QuakeTopBar(isHealthy = uiState.isHealthy)
+        QuakeAppBar(title = "History", isHealthy = uiState.isHealthy)
 
         QuakeFilterRow(
             selectedFilter = uiState.selectedFilter,
@@ -93,7 +85,6 @@ fun HistoryScreen(
                 .weight(1f)
                 .fillMaxWidth()
                 .fadingEdges(),
-
             contentPadding = PaddingValues(
                 top = Dimens.CardListTopPadding,
                 bottom = Dimens.CardListBottomPadding
@@ -112,68 +103,8 @@ fun HistoryScreen(
                 )
             }
         }
-
     }
 }
-
-/**
- * Soft fade at BOTH the top and bottom edges of the list, implemented as an
- * alpha mask rather than an opaque colour overlay. This makes it fully
- * theme/background agnostic: it erases the content's alpha at the edges so the
- * real background (solid black now, or a gradient later) always shows through
- * with no colour-mismatch seam.
- *
- * How it works:
- *  - [graphicsLayer] with [CompositingStrategy.Offscreen] renders the list into
- *    an offscreen buffer so subsequent draws can composite against it.
- *  - After [drawContent], two gradients are drawn with [BlendMode.DstIn], which
- *    keeps the destination (the list) only where the source alpha is non-zero.
- *    The gradients run opaque→transparent at the top and transparent→opaque at
- *    the bottom, carving smooth fades into the content's alpha channel.
- *
- * Both brushes are hoisted via [remember] keyed on the density-resolved fade
- * height, so no `Brush`/`Color`/`List` allocations happen during the draw phase
- * (the lambda runs every scroll frame). The bottom brush is positioned from
- * `size.height` at draw time — a cheap primitive read, no allocation.
- */
-private fun Modifier.fadingEdges(): Modifier = composed {
-    val fadeHeightPx = with(LocalDensity.current) { Dimens.ListFadeHeight.toPx() }
-    // Top mask: opaque (keep) below the fade, transparent (erase) at the very top.
-    val topMask = remember(fadeHeightPx) {
-        Brush.verticalGradient(
-            colors = listOf(Color.Transparent, Color.Black),
-            startY = 0f,
-            endY = fadeHeightPx
-        )
-    }
-    // Bottom mask stops are reused; the brush is rebuilt only when height changes.
-    val bottomColors = remember { listOf(Color.Black, Color.Transparent) }
-
-    this
-        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-        .drawWithContent {
-            drawContent()
-            // Erase alpha at the top edge.
-            drawRect(
-                brush = topMask,
-                size = size.copy(height = fadeHeightPx),
-                blendMode = BlendMode.DstIn
-            )
-            // Erase alpha at the bottom edge.
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colors = bottomColors,
-                    startY = size.height - fadeHeightPx,
-                    endY = size.height
-                ),
-                topLeft = Offset(0f, size.height - fadeHeightPx),
-                size = size.copy(height = fadeHeightPx),
-                blendMode = BlendMode.DstIn
-            )
-        }
-}
-
-
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable

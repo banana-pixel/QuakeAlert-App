@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.sensors
 
 import androidx.lifecycle.ViewModel
+import id.web.quakealert.ui.common.QuakeFilter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,7 +19,7 @@ class SensorsViewModel : ViewModel() {
     val uiState: StateFlow<SensorsUiState> = _uiState.asStateFlow()
 
     /** Switches between the "All" and "Near" filter pills. */
-    fun onFilterSelected(filter: SensorFilter) {
+    fun onFilterSelected(filter: QuakeFilter) {
         _uiState.update { it.copy(selectedFilter = filter) }
     }
 

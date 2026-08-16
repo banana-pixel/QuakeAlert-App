@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.sensors
 
 import androidx.compose.runtime.Immutable
+import id.web.quakealert.ui.common.QuakeFilter
 
 /**
  * Connectivity state of a sensor station, driving the coloured status chip on a
@@ -62,12 +63,10 @@ data class SensorMapOverview(
         get() = "Range : $rangeKm km, $sensorCount sensors"
 }
 
-/** The two filter modes shown in the filter row (Figma "All" / "Near"). */
-enum class SensorFilter { ALL, NEAR }
-
 /**
  * Immutable UI state for the Sensors screen (Figma node 1:1081). Hoisted into
- * [SensorsViewModel] and consumed by the stateless [SensorsScreen].
+ * [SensorsViewModel] and consumed by the stateless [SensorsScreen]. The filter
+ * uses the shared [QuakeFilter] enum common to History and Sensors.
  */
 @Immutable
 data class SensorsUiState(
@@ -77,7 +76,7 @@ data class SensorsUiState(
         rangeKm = 500,
         sensorCount = 2
     ),
-    val selectedFilter: SensorFilter = SensorFilter.ALL,
+    val selectedFilter: QuakeFilter = QuakeFilter.ALL,
     val nearRadiusKm: Int = 39,
     val sensors: List<SensorStationItem> = emptyList()
 )

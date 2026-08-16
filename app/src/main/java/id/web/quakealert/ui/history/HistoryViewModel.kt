@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.history
 
 import androidx.lifecycle.ViewModel
+import id.web.quakealert.ui.common.QuakeFilter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,7 +19,7 @@ class HistoryViewModel : ViewModel() {
     val uiState: StateFlow<HistoryUiState> = _uiState.asStateFlow()
 
     /** Switches between the "All" and "Near" filter pills. */
-    fun onFilterSelected(filter: HistoryFilter) {
+    fun onFilterSelected(filter: QuakeFilter) {
         _uiState.update { it.copy(selectedFilter = filter) }
     }
 
