@@ -2,11 +2,8 @@ package id.web.quakealert.ui.onboarding
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,9 +18,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.web.quakealert.R
+import id.web.quakealert.ui.common.QuakeCard
 import id.web.quakealert.ui.theme.BorderFaint
 import id.web.quakealert.ui.theme.BorderLight
-import id.web.quakealert.ui.theme.CardDark
 import id.web.quakealert.ui.theme.NunitoFontFamily
 import id.web.quakealert.ui.theme.OverlayLight
 import id.web.quakealert.ui.theme.SuccessGreen
@@ -32,12 +29,14 @@ import id.web.quakealert.ui.theme.TextPrimary
 import id.web.quakealert.ui.theme.TextSecondary
 
 /**
- * Dark rounded card used on Onboarding Page 3 (Figma node 1:363) to request a
- * runtime permission. Shows a title and a status badge underneath:
+ * Dark rounded card used on the onboarding permission pages (Figma node 1:363)
+ * to request a runtime permission. Built on the shared [QuakeCard] so its
+ * chrome (surface, 1dp border, radius, padding) is byte-identical to the
+ * Settings setting rows. Shows a title and a status badge underneath:
  *  - Granted  → green badge with a check-circle and "Allowed".
  *  - Not yet  → neutral badge prompting the user to tap to allow.
  *
- * The whole card is clickable; tapping (when not yet granted) triggers
+ * The whole card is clickable while not yet granted; tapping triggers
  * [onClick], which the caller wires to the system permission launcher.
  */
 @Composable
@@ -48,35 +47,12 @@ fun PermissionCard(
     modifier: Modifier = Modifier,
     grantedLabel: String = "Allowed"
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(CardDark)
-            .border(
-                width = 2.dp,
-                color = BorderLight,
-                shape = RoundedCornerShape(16.dp)
-            )
-            .clickable(enabled = !isGranted, onClick = onClick)
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = title,
-                color = TextPrimary,
-                fontFamily = NunitoFontFamily,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-                lineHeight = 20.sp
-            )
-            StatusBadge(isGranted = isGranted, grantedLabel = grantedLabel)
-        }
-    }
+    QuakeCard(
+        title = title,
+        modifier = modifier,
+        onClick = if (isGranted) null else onClick,
+        detail = { StatusBadge(isGranted = isGranted, grantedLabel = grantedLabel) }
+    )
 }
 
 @Composable

@@ -6,16 +6,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-
-
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,8 +30,6 @@ import id.web.quakealert.ui.theme.AboutCardGradient
 import id.web.quakealert.ui.theme.BorderLight
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.CardSubtitle
-import id.web.quakealert.ui.theme.CardSurface
-
 import id.web.quakealert.ui.theme.CardTitle
 import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
@@ -45,11 +39,7 @@ import id.web.quakealert.ui.theme.SectionHeaderPillFill
 import id.web.quakealert.ui.theme.SegmentActiveFill
 import id.web.quakealert.ui.theme.SegmentInactiveFill
 import id.web.quakealert.ui.theme.TextPrimary
-
 import id.web.quakealert.ui.theme.TextSecondary
-
-
-
 
 /**
  * Full-width section header pill (Figma node 1:846 / EL-c963c95e) that labels a
@@ -74,64 +64,6 @@ fun SectionHeaderPill(
         ) {
             Text(text = title, style = CardTitle)
         }
-    }
-}
-
-
-
-/**
- * Generic setting row card (Figma node 1:868 / EL-002b7d17): a dark rounded card
- * with a leading text column (title + optional [detail] slot beneath it) and a
- * trailing control slot ([trailing]) laid out with [RowScope]. Reused for every
- * toggle / segmented / action row so the padding, border and radius stay
- * identical.
- *
- * The Figma cards do not carry a dimmed sub-line under the title; instead some
- * cards (e.g. "Sync Location Now") host an inline detail element such as the
- * "Last Sync : ..." info pill, exposed here via [detail].
- *
- * @param title primary card label (e.g. "Keep Alerting").
- * @param onClick optional whole-card click (used by action rows); null = inert.
- * @param detail optional content laid out beneath the title in the same column
- *   (e.g. an [InfoPill]); empty by default.
- * @param trailing trailing control content (switch, segmented pills, icon...).
- */
-@Composable
-fun SettingCard(
-    title: String,
-    modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = null,
-    detail: @Composable ColumnScope.() -> Unit = {},
-    trailing: @Composable RowScope.() -> Unit = {}
-) {
-    val shape = RoundedCornerShape(Dimens.SettingCardRadius)
-    val base = modifier
-        .fillMaxWidth()
-        .heightIn(min = Dimens.SettingCardHeight)
-        .clip(shape)
-        .background(CardSurface, shape)
-        .border(Dimens.BorderThin, CardBorder, shape)
-    val clickable = if (onClick != null) base.clickable(onClick = onClick) else base
-
-
-    Row(
-        modifier = clickable.padding(
-            horizontal = Dimens.SettingCardPaddingHorizontal,
-            vertical = Dimens.SettingCardPaddingVertical
-        ),
-
-        horizontalArrangement = Arrangement.spacedBy(Dimens.SettingCardContentGap),
-
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)
-        ) {
-            Text(text = title, style = CardTitle)
-            detail()
-        }
-        trailing()
     }
 }
 

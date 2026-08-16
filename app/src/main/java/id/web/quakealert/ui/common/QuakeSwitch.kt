@@ -1,4 +1,4 @@
-package id.web.quakealert.ui.settings
+package id.web.quakealert.ui.common
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -17,7 +17,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import id.web.quakealert.R
@@ -28,13 +27,14 @@ import id.web.quakealert.ui.theme.SwitchTrackActive
 import id.web.quakealert.ui.theme.SwitchTrackInactive
 
 /**
- * Custom flat, dark toggle switch used by the Settings setting-row cards (Figma
- * node 1:857). Unlike the default Material 3 [androidx.compose.material3.Switch],
- * this renders a subtle dark track with a white thumb that grows and carries a
- * small check glyph when enabled, matching the QuakeAlert dark design tokens.
+ * Custom flat, dark toggle switch (Figma node 1:857) shared across features
+ * (Settings setting rows, Onboarding "Keep Alerting"). Unlike the default
+ * Material 3 [androidx.compose.material3.Switch], this renders a subtle dark
+ * track with a white thumb that grows and carries a small check glyph when
+ * enabled (and a small cross when off), matching the QuakeAlert dark tokens.
  *
  * Fully stateless: the checked state and its toggle handler are hoisted to the
- * owning setting card / [SettingsViewModel].
+ * owning card / ViewModel.
  *
  * @param checked whether the switch is on.
  * @param onCheckedChange invoked with the new value when the track is tapped.
@@ -95,6 +95,5 @@ fun QuakeSwitch(
                 modifier = Modifier.size(Dimens.SwitchThumbIconSize)
             )
         }
-
     }
 }

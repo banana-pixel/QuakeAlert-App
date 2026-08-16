@@ -24,6 +24,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.ui.common.QuakeAppBar
+import id.web.quakealert.ui.common.QuakeCard
+import id.web.quakealert.ui.common.QuakeSwitch
 import id.web.quakealert.ui.common.fadingEdges
 import id.web.quakealert.ui.sensors.SensorMapCard
 import id.web.quakealert.ui.sensors.SensorMapOverview
@@ -127,7 +129,7 @@ fun SettingsScreen(
             }
 
             item(key = "card_coverage") {
-                SettingCard(title = "Coverage Range") {
+                QuakeCard(title = "Coverage Range") {
                     QuakeSegmentedControl(
                         options = CoverageRange.entries,
                         selected = uiState.coverageRange,
@@ -138,7 +140,7 @@ fun SettingsScreen(
             }
 
             item(key = "card_location") {
-                SettingCard(
+                QuakeCard(
                     title = uiState.locationLabel,
                     detail = { InfoPill(text = uiState.lastSyncPillLabel) }
                 ) {
@@ -147,7 +149,7 @@ fun SettingsScreen(
             }
 
             item(key = "card_autosync") {
-                SettingCard(title = "Auto Sync Location") {
+                QuakeCard(title = "Auto Sync Location") {
                     QuakeSwitch(
                         checked = uiState.autoSyncLocation,
                         onCheckedChange = onAutoSyncToggled
@@ -162,7 +164,7 @@ fun SettingsScreen(
             }
 
             item(key = "card_keep_alerting") {
-                SettingCard(title = "Keep Alerting") {
+                QuakeCard(title = "Keep Alerting") {
                     QuakeSwitch(
                         checked = uiState.keepAlerting,
                         onCheckedChange = onKeepAlertingToggled
@@ -171,7 +173,7 @@ fun SettingsScreen(
             }
 
             item(key = "card_test_alert") {
-                SettingCard(
+                QuakeCard(
                     title = "Test Alert Sound",
                     onClick = onTestAlertSound
                 )
@@ -184,7 +186,7 @@ fun SettingsScreen(
             }
 
             item(key = "card_light_mode") {
-                SettingCard(title = "Light Mode (Beta)") {
+                QuakeCard(title = "Light Mode (Beta)") {
                     QuakeSwitch(
                         checked = uiState.lightMode,
                         onCheckedChange = onLightModeToggled
@@ -194,7 +196,7 @@ fun SettingsScreen(
 
 
             item(key = "card_language") {
-                SettingCard(title = "Language") {
+                QuakeCard(title = "Language") {
                     QuakeSegmentedControl(
                         options = AppLanguage.entries,
                         selected = uiState.language,
