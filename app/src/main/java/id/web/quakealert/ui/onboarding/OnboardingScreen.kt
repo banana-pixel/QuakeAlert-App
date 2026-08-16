@@ -191,6 +191,9 @@ fun OnboardingScreen(
             // pageSpacing reads as a clean gap between pages while swiping.
             // Per-page horizontal padding lives inside OnboardingPageItem so the
             // resting content stays aligned with the bottom controls below.
+            // Hoisted outside the pager lambda so the identical page inset isn't
+            // re-allocated for every page composition.
+            val pageContentModifier = Modifier.padding(horizontal = ScreenHorizontalPadding)
             HorizontalPager(
                 state = pagerState,
                 pageSpacing = 32.dp,
@@ -209,7 +212,7 @@ fun OnboardingScreen(
                     onRequestBattery = requestBattery,
                     onKeepAlertingChange = { keepAlerting = it },
                     onTestAlert = fireTestAlert,
-                    modifier = Modifier.padding(horizontal = ScreenHorizontalPadding)
+                    modifier = pageContentModifier
                 )
             }
 
