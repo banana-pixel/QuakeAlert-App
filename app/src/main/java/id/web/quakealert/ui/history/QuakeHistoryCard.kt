@@ -27,16 +27,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.web.quakealert.R
+import id.web.quakealert.ui.common.QuakePill
 import id.web.quakealert.ui.theme.CardBorder
+import id.web.quakealert.ui.theme.CardSubtitle
 import id.web.quakealert.ui.theme.CardSurface
+import id.web.quakealert.ui.theme.CardTitle
 import id.web.quakealert.ui.theme.Dimens
-import id.web.quakealert.ui.theme.DistanceBadgeFill
 import id.web.quakealert.ui.theme.MapPlaceholder
 import id.web.quakealert.ui.theme.MmiOrange
 import id.web.quakealert.ui.theme.MmiOrangeContainer
@@ -45,7 +46,7 @@ import id.web.quakealert.ui.theme.MmiRedContainer
 import id.web.quakealert.ui.theme.NunitoFontFamily
 import id.web.quakealert.ui.theme.ShareButtonFill
 import id.web.quakealert.ui.theme.TextPrimary
-import id.web.quakealert.ui.theme.TextSecondary
+
 
 /**
  * A single earthquake history entry (Figma node 1:715). Layout, left → right:
@@ -157,29 +158,17 @@ private fun DetailsColumn(
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(Dimens.DetailTitleDistanceGap)) {
+            // Shared CardTitle — identical base size/weight to the Sensor card's
+            // "Station NODE-xxxx" header (single source of truth).
             Text(
                 text = item.location,
-                color = TextPrimary,
-                fontFamily = NunitoFontFamily,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 16.sp,
+                style = CardTitle,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(
-                text = item.date,
-                color = TextSecondary,
-                fontFamily = NunitoFontFamily,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 13.sp
-            )
-            Text(
-                text = item.time,
-                color = TextSecondary,
-                fontFamily = NunitoFontFamily,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 13.sp
-            )
+            // Shared CardSubtitle (dimmed) — matches the Sensor card's location line.
+            Text(text = item.date, style = CardSubtitle)
+            Text(text = item.time, style = CardSubtitle)
         }
 
         Row(
@@ -187,8 +176,10 @@ private fun DetailsColumn(
             horizontalArrangement = Arrangement.spacedBy(Dimens.DetailFooterGap),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            DistanceBadge(
-                label = item.distanceLabel,
+            // Shared QuakePill capsule — same fill/stroke/shape as the Sensor
+            // telemetry pills.
+            QuakePill(
+                text = item.distanceLabel,
                 modifier = Modifier.weight(1f)
             )
             ShareButton(onClick = onShareClicked)
@@ -197,30 +188,9 @@ private fun DetailsColumn(
     }
 }
 
-/** Rounded "X km Away" pill in the card footer (Figma node 1:726). */
-@Composable
-private fun DistanceBadge(label: String, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .height(Dimens.DistanceBadgeHeight)
-            .clip(RoundedCornerShape(Dimens.RadiusSmall))
-            .background(DistanceBadgeFill, RoundedCornerShape(Dimens.RadiusSmall))
-            .padding(horizontal = Dimens.DistanceBadgePadding),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = label,
-            color = TextPrimary,
-            fontFamily = NunitoFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 11.sp,
-            textAlign = TextAlign.Center
-        )
-    }
-}
-
 
 /** Small share icon button (Figma node 1:728). */
+
 @Composable
 private fun ShareButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(

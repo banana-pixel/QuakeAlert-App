@@ -139,8 +139,21 @@ object Dimens {
     val NavItemGap = 4.dp
     val NavIconSize = 24.dp
 
+    // --- Shared QuakePill capsule (History "km Away" + Sensor telemetry) -----
+    /** Uniform capsule height for every QuakePill (Figma 22). */
+    val PillHeight = 22.dp
+    val PillPaddingHorizontal = 10.dp
+    val PillPaddingVertical = 3.dp
+    /** Leading connectivity dot diameter on a status QuakePill (feedback: 6dp). */
+    val PillDotSize = 6.dp
+    /** Gap between the status dot and its label. */
+    val PillDotGap = 5.dp
+
     // --- Corner radii -------------------------------------------------------
     val RadiusSmall = 10.dp
+    /** Fully-rounded stadium radius for capsule pills. */
+    val RadiusStadium = 100.dp
+
     val RadiusCard = 14.dp
     val RadiusNavItem = 16.dp
     val RadiusNavBar = 22.dp

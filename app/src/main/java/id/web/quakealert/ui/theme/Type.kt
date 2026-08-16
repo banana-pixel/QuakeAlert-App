@@ -84,3 +84,49 @@ val Typography = Typography(
     )
 )
 
+// ============================================================
+// Shared card typography — single source of truth for the list
+// cards on History (node 1:715) and Sensors (node 1:1111).
+// ============================================================
+
+/**
+ * Primary card title used identically by the History card's location line
+ * ("Bandung, West Java, ID") and the Sensor card's station header
+ * ("Station NODE-xxxx"). Nunito Bold 16/18 so both share an identical base
+ * font size and baseline.
+ */
+val CardTitle = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 16.sp,
+    lineHeight = 18.sp,
+    color = TextPrimary
+)
+
+/**
+ * Dimmed secondary card line shared by the History card's date/time metadata
+ * and the Sensor card's location subtitle. Nunito SemiBold 13/16 in the
+ * secondary (dimmed white) colour.
+ */
+val CardSubtitle = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 13.sp,
+    lineHeight = 16.sp,
+    color = TextSecondary
+)
+
+/**
+ * Label inside a shared QuakePill capsule (History "km Away" badge, Sensor
+ * status + telemetry pills). Nunito Medium 11/12 to keep the capsules compact
+ * and identical across both cards.
+ */
+val PillLabel = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Medium,
+    fontSize = 11.sp,
+    lineHeight = 12.sp,
+    color = TextPrimary
+)
+
+

@@ -43,6 +43,14 @@ val HistoryBackground = Color(0xFF000000)       // frame fill #000000
 val CardSurface = Color(0xFF222222)             // history card fill #222222
 val CardBorder = Color(0x1AFFFFFF)              // white 10% card stroke
 
+/**
+ * Shared stadium-capsule fill for the QuakePill used by both the History card's
+ * "km Away" badge and the Sensor card's telemetry pills (#373737). Single source
+ * of truth so the two cards' capsules are byte-identical.
+ */
+val PillFill = Color(0xFF373737)                // shared capsule fill #373737
+
+
 // Top-bar "Healthy" status badge
 val HealthyBadgeFill = Color(0xFF0C3600)        // green badge fill #0C3600
 
