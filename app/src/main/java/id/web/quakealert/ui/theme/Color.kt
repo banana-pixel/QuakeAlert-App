@@ -100,6 +100,11 @@ val MapRangeBadgeFill = Color(0xFF1B536A)       // "Range : ..." badge fill #1B5
 val MapSettingsShortcutFill = Color(0xFFD9D9D9) // settings shortcut circle #D9D9D9
 val MapSettingsShortcutBorder = Color(0x1A000000) // black 10% stroke
 
+// Reactive coverage geofence circle (Settings "Location & Coverage" map)
+val GeofenceFill = Color(0x331B536A)            // translucent teal coverage fill
+val GeofenceStroke = Color(0xFF1B536A)          // solid teal coverage ring #1B536A
+
+
 // Highlighted station-id suffix ("NODE-...")
 val SensorNodeIdText = Color(0xFF7EB1C7)        // node-id accent #7EB1C7 (ts2 #7EB1C7)
 

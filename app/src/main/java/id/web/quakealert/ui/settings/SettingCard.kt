@@ -158,10 +158,11 @@ fun SyncRefreshButton(
 }
 
 /**
- * Horizontal segmented toggle control (Figma nodes 1:872 Coverage / 1:912
- * Language): a row of equal-weight pills where the selected [options] entry is
- * highlighted with [SegmentActiveFill]. Generic over the option type so it drives
- * both the [CoverageRange] and [AppLanguage] controls from a single component.
+ * Horizontal segmented toggle control (Figma node 1:872 Coverage): a row of
+ * equal-weight pills where the selected [options] entry is highlighted with
+ * [SegmentActiveFill]. Generic over the option type so it can drive the
+ * [CoverageRange] control (and any future segmented option) from one component.
+
  *
  * @param options the selectable values.
  * @param selected the currently selected value.
