@@ -1,8 +1,19 @@
 package id.web.quakealert.ui.main
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+
 import androidx.compose.foundation.border
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -18,8 +29,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
+
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,7 +41,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.ContentScale
+
 import androidx.compose.ui.res.painterResource
+
 import androidx.compose.ui.tooling.preview.Preview
 import id.web.quakealert.R
 import id.web.quakealert.ui.history.HistoryRoute
@@ -83,18 +98,31 @@ fun MainScreen(modifier: Modifier = Modifier) {
             )
         }
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            when (selected) {
-                MainDestination.HISTORY -> HistoryRoute()
-                else -> Unit // Placeholder until other flows are implemented.
+        // Smooth, non-blocking destination transition (Rule D). Enter fades and
+        // subtly scales in; exit fades out faster so the incoming screen leads.
+        AnimatedContent(
+            targetState = selected,
+            transitionSpec = {
+                (fadeIn(tween(200, easing = LinearOutSlowInEasing)) +
+                    scaleIn(initialScale = 0.98f, animationSpec = tween(200)))
+                    .togetherWith(fadeOut(tween(150, easing = FastOutLinearInEasing)))
+            },
+            label = "MainDestinationTransition"
+        ) { destination ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                when (destination) {
+                    MainDestination.HISTORY -> HistoryRoute()
+                    else -> Unit // Placeholder until other flows are implemented.
+                }
             }
         }
     }
 }
+
 
 /**
  * Custom flat, dark bottom navigation bar (Figma node 1:843). Each entry is a
@@ -171,12 +199,14 @@ private fun NavItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Dimens.NavItemGap, Alignment.CenterVertically)
     ) {
-        Icon(
+        Image(
             painter = painterResource(id = destination.icon),
             contentDescription = destination.label,
-            tint = if (selected) NavActiveText else TextPrimary,
+            contentScale = ContentScale.Fit,
+            colorFilter = ColorFilter.tint(if (selected) NavActiveText else TextPrimary),
             modifier = Modifier.size(Dimens.NavIconSize)
         )
+
         Text(
             text = destination.label,
             style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
