@@ -41,6 +41,7 @@ enum class AppLanguage(val label: String) {
  * @param keepAlerting "Keep Alerting" toggle (Alert & Notification section).
  * @param lightMode "Light Mode (Beta)" toggle (Appearance & Look section).
  * @param language selected app language (Language segmented control).
+ * @param appCredit multi-line credit / version line shown on the About card.
  */
 @Immutable
 data class SettingsUiState(
@@ -52,8 +53,10 @@ data class SettingsUiState(
     val autoSyncLocation: Boolean = true,
     val keepAlerting: Boolean = true,
     val lightMode: Boolean = false,
-    val language: AppLanguage = AppLanguage.EN
+    val language: AppLanguage = AppLanguage.EN,
+    val appCredit: String = "QuakeAlert v1.0.0\nMade with care in Bandung, ID"
 ) {
+
 
     /** Pre-formatted "Range : {km} km, {n} sensors" summary badge text. */
     val rangeSummaryLabel: String

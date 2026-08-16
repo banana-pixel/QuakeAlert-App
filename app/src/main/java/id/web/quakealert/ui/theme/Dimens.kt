@@ -172,16 +172,17 @@ object Dimens {
     /** Inner gap between a card title and its sub-line (Figma gap 4). */
     val SettingCardTitleGap = 4.dp
 
-    // Segmented toggle control container + pills (Coverage / Language)
-    /** Unified outer container radius wrapping the segmented pills. */
-    val SegmentContainerRadius = 14.dp
-    /** Inner padding of the segmented container around the pills. */
-    val SegmentContainerPadding = 3.dp
+    // Segmented toggle control pills (Coverage / Language). Figma has no outer
+    // container — each option is a standalone bordered pill (node 1:873 / 1:913)
+    // with a 2px white-30% stroke and a 12px radius.
     /** Gap between segmented pills (Figma gap 6). */
     val SegmentRowGap = 6.dp
+    /** Pill inner padding (Figma layout_c024a102: 14 vertical / 8 horizontal). */
     val SegmentPillPaddingHorizontal = 8.dp
-    val SegmentPillPaddingVertical = 10.dp
-    val SegmentPillRadius = 10.dp
+    val SegmentPillPaddingVertical = 14.dp
+    /** Pill corner radius (Figma 12px). */
+    val SegmentPillRadius = 12.dp
+
 
     // Sync-now refresh action — dark rounded container behind the icon
     val SyncButtonSize = 44.dp

@@ -139,18 +139,14 @@ fun SettingsScreen(
             item(key = "card_location") {
                 SettingCard(
                     title = uiState.locationLabel,
-                    subtitle = "Sync Location Now"
+                    detail = { InfoPill(text = uiState.lastSyncPillLabel) }
                 ) {
-                    InfoPill(text = uiState.lastSyncPillLabel)
                     SyncRefreshButton(onClick = onSyncLocationNow)
                 }
             }
 
             item(key = "card_autosync") {
-                SettingCard(
-                    title = "Auto Sync Location",
-                    subtitle = "Auto-update coverage as you move"
-                ) {
+                SettingCard(title = "Auto Sync Location") {
                     QuakeSwitch(
                         checked = uiState.autoSyncLocation,
                         onCheckedChange = onAutoSyncToggled
@@ -158,16 +154,14 @@ fun SettingsScreen(
                 }
             }
 
+
             // --- Alert & Notification -------------------------------------
             item(key = "header_alert") {
                 CenteredSectionBadge(title = "Alert & Notification")
             }
 
             item(key = "card_keep_alerting") {
-                SettingCard(
-                    title = "Keep Alerting",
-                    subtitle = "Repeat alert sound until acknowledged"
-                ) {
+                SettingCard(title = "Keep Alerting") {
                     QuakeSwitch(
                         checked = uiState.keepAlerting,
                         onCheckedChange = onKeepAlertingToggled
@@ -178,10 +172,10 @@ fun SettingsScreen(
             item(key = "card_test_alert") {
                 SettingCard(
                     title = "Test Alert Sound",
-                    subtitle = "Preview the earthquake alert tone",
                     onClick = onTestAlertSound
                 )
             }
+
 
             // --- Appearance & Look ----------------------------------------
             item(key = "header_appearance") {
@@ -189,16 +183,14 @@ fun SettingsScreen(
             }
 
             item(key = "card_light_mode") {
-                SettingCard(
-                    title = "Light Mode (Beta)",
-                    subtitle = "Switch to a bright color scheme"
-                ) {
+                SettingCard(title = "Light Mode (Beta)") {
                     QuakeSwitch(
                         checked = uiState.lightMode,
                         onCheckedChange = onLightModeToggled
                     )
                 }
             }
+
 
             item(key = "card_language") {
                 SettingCard(title = "Language") {
@@ -217,12 +209,12 @@ fun SettingsScreen(
             }
 
             item(key = "card_about") {
-                SettingCard(
-                    title = "QuakeAlert",
-                    subtitle = "More About Us",
-                    onClick = onMoreAboutUs
+                AboutCard(
+                    credit = uiState.appCredit,
+                    onMoreAboutUs = onMoreAboutUs
                 )
             }
+
         }
     }
 }
