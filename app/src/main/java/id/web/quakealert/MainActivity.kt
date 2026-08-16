@@ -6,7 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
-import id.web.quakealert.ui.onboarding.OnboardingScreen
+import id.web.quakealert.ui.main.MainScreen
 import id.web.quakealert.ui.theme.QuakeAlertTheme
 
 class MainActivity : ComponentActivity() {
@@ -15,8 +15,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             QuakeAlertTheme {
-                OnboardingScreen(modifier = Modifier.fillMaxSize())
+                MainScreen(modifier = Modifier.fillMaxSize())
             }
         }
     }
 }
+
