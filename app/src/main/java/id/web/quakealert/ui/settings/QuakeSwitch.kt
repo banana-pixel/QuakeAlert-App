@@ -1,0 +1,97 @@
+package id.web.quakealert.ui.settings
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import id.web.quakealert.R
+import id.web.quakealert.ui.theme.Dimens
+import id.web.quakealert.ui.theme.SwitchThumbActive
+import id.web.quakealert.ui.theme.SwitchThumbInactive
+import id.web.quakealert.ui.theme.SwitchTrackActive
+import id.web.quakealert.ui.theme.SwitchTrackInactive
+
+/**
+ * Custom flat, dark toggle switch used by the Settings setting-row cards (Figma
+ * node 1:857). Unlike the default Material 3 [androidx.compose.material3.Switch],
+ * this renders a subtle dark track with a white thumb that grows and carries a
+ * small check glyph when enabled, matching the QuakeAlert dark design tokens.
+ *
+ * Fully stateless: the checked state and its toggle handler are hoisted to the
+ * owning setting card / [SettingsViewModel].
+ *
+ * @param checked whether the switch is on.
+ * @param onCheckedChange invoked with the new value when the track is tapped.
+ */
+@Composable
+fun QuakeSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val trackColor by animateColorAsState(
+        targetValue = if (checked) SwitchTrackActive else SwitchTrackInactive,
+        animationSpec = tween(durationMillis = 180),
+        label = "SwitchTrackColor"
+    )
+    val thumbColor by animateColorAsState(
+        targetValue = if (checked) SwitchThumbActive else SwitchThumbInactive,
+        animationSpec = tween(durationMillis = 180),
+        label = "SwitchThumbColor"
+    )
+    val thumbSize by animateDpAsState(
+        targetValue = if (checked) Dimens.SwitchThumbActiveSize else Dimens.SwitchThumbInactiveSize,
+        animationSpec = tween(durationMillis = 180),
+        label = "SwitchThumbSize"
+    )
+    val alignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
+    val interactionSource = remember { MutableInteractionSource() }
+
+    Box(
+        modifier = modifier
+            .size(width = Dimens.SwitchWidth, height = Dimens.SwitchHeight)
+            .clip(CircleShape)
+            .background(trackColor, CircleShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Switch,
+                onClick = { onCheckedChange(!checked) }
+            )
+            .padding(Dimens.SwitchPadding),
+        contentAlignment = alignment
+    ) {
+        Box(
+            modifier = Modifier
+                .size(thumbSize)
+                .clip(CircleShape)
+                .background(thumbColor, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            if (checked) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_check),
+                    contentDescription = null,
+                    tint = SwitchTrackActive,
+                    modifier = Modifier.size(Dimens.SwitchThumbIconSize)
+                )
+            }
+        }
+    }
+}

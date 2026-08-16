@@ -50,6 +50,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import id.web.quakealert.R
 import id.web.quakealert.ui.history.HistoryRoute
 import id.web.quakealert.ui.sensors.SensorsRoute
+import id.web.quakealert.ui.settings.SettingsRoute
+
 
 import id.web.quakealert.ui.theme.BackgroundGradientBottom
 import id.web.quakealert.ui.theme.Dimens
@@ -121,7 +123,9 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     MainDestination.SENSORS -> SensorsRoute(
                         onOpenSettings = { selected = MainDestination.SETTINGS }
                     )
+                    MainDestination.SETTINGS -> SettingsRoute()
                     else -> Unit // Placeholder until other flows are implemented.
+
                 }
 
             }

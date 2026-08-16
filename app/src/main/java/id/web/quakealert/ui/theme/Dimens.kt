@@ -149,8 +149,60 @@ object Dimens {
     /** Gap between the status dot and its label. */
     val PillDotGap = 5.dp
 
+    // --- Settings screen ----------------------------------------------------
+    /** Vertical gap between the header block and the scrolling content (Figma 16). */
+    val SettingsHeaderGap = 16.dp
+    /** Vertical spacing between setting cards / section blocks (Figma gap 20). */
+    val SettingsSectionSpacing = 20.dp
+    /** Bottom padding below the last setting card (Figma padding-bottom 20). */
+    val SettingsListBottomPadding = 20.dp
+
+    // Section header pill (EL-c963c95e)
+    val SectionHeaderPillHeight = 60.dp
+    val SectionHeaderPillPaddingHorizontal = 8.dp
+    val SectionHeaderPillPaddingVertical = 14.dp
+    val SectionHeaderPillRadius = 10.dp
+
+    // Setting row card (EL-002b7d17)
+    val SettingCardPadding = 10.dp
+    val SettingCardRadius = 16.dp
+    /** Gap between a card's text column and its trailing control (Figma gap 2). */
+    val SettingCardContentGap = 2.dp
+    /** Inner gap between a card title and its sub-line (Figma gap 4). */
+    val SettingCardTitleGap = 4.dp
+
+    // Segmented toggle pills (Coverage / Language — layout_c024a102)
+    /** Gap between segmented pills (Figma gap 6). */
+    val SegmentRowGap = 6.dp
+    val SegmentPillPaddingHorizontal = 8.dp
+    val SegmentPillPaddingVertical = 14.dp
+    val SegmentPillRadius = 12.dp
+
+    // Info pill ("Last Sync : ...")
+    val InfoPillHeight = 22.dp
+    val InfoPillPaddingHorizontal = 8.dp
+    val InfoPillPaddingVertical = 2.dp
+    val InfoPillRadius = 10.dp
+
+    // Sync-now refresh icon
+    val SyncRefreshIconSize = 32.dp
+
+    // Custom M3-style switch (EL-d7322fd0)
+    val SwitchWidth = 52.dp
+    val SwitchHeight = 32.dp
+    val SwitchPadding = 4.dp
+    val SwitchThumbActiveSize = 24.dp
+    val SwitchThumbInactiveSize = 16.dp
+    val SwitchThumbIconSize = 16.dp
+
+    // About card CTA button
+    val AboutButtonPaddingHorizontal = 60.dp
+    val AboutButtonPaddingVertical = 8.dp
+    val AboutButtonRadius = 12.dp
+
     // --- Corner radii -------------------------------------------------------
     val RadiusSmall = 10.dp
+
     /** Fully-rounded stadium radius for capsule pills. */
     val RadiusStadium = 100.dp
 

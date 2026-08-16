@@ -103,6 +103,40 @@ val MapSettingsShortcutBorder = Color(0x1A000000) // black 10% stroke
 // Highlighted station-id suffix ("NODE-...")
 val SensorNodeIdText = Color(0xFF7EB1C7)        // node-id accent #7EB1C7 (ts2 #7EB1C7)
 
+// ============================================================
+// Settings screen palette — QuakeAlert (Figma node 1:845)
+// ============================================================
+
+// Section header pill ("Location & Coverage", "About", ...)
+val SectionHeaderPillFill = Color(0xFF2D2D2D)   // header pill fill #2D2D2D
+
+// Setting row cards reuse CardSurface (#222222); border uses white 30%.
+val SettingCardBorder = Color(0x4DFFFFFF)       // white 30% setting-card stroke
+
+// Coverage / Language segmented toggle pills
+val SegmentActiveFill = Color(0xFF1B536A)       // active segment fill #1B536A
+val SegmentInactiveFill = Color(0x47161616)     // inactive segment rgba(22,22,22,0.28)
+
+// Custom M3-style switch
+val SwitchTrackActive = Color(0xFF333333)       // active track fill #333333
+val SwitchTrackInactive = Color(0xFF2A2A2A)     // inactive track fill
+val SwitchThumbActive = Color(0xFFFFFFFF)       // active thumb (white)
+val SwitchThumbInactive = Color(0x99FFFFFF)     // inactive thumb (dimmed white)
+
+// "More About Us" call-to-action button
+val AboutButtonFill = Color(0xFF6A411B)         // about CTA fill #6A411B
+
+// About card gradient (linear 90deg khaki → green, both 28% alpha)
+val AboutGradientStart = Color(0x47807A41)      // rgba(128,122,65,0.28)
+val AboutGradientEnd = Color(0x47087900)        // rgba(8,121,0,0.28)
+val AboutCardGradient = Brush.horizontalGradient(
+    colors = listOf(AboutGradientStart, AboutGradientEnd)
+)
+
+// Last-sync / info pill on setting cards
+val InfoPillFill = Color(0x78000000)            // rgba(0,0,0,0.47) info pill fill
+
+
 
 
 
