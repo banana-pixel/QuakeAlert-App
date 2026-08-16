@@ -27,11 +27,12 @@ import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.fadingEdges
 import id.web.quakealert.ui.sensors.SensorMapCard
 import id.web.quakealert.ui.sensors.SensorMapOverview
-import id.web.quakealert.ui.theme.BorderLight
+import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.CardTitle
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.QuakeAlertTheme
 import id.web.quakealert.ui.theme.SectionHeaderPillFill
+
 
 
 /**
@@ -211,9 +212,11 @@ fun SettingsScreen(
             item(key = "card_about") {
                 AboutCard(
                     credit = uiState.appCredit,
+                    version = uiState.appVersion,
                     onMoreAboutUs = onMoreAboutUs
                 )
             }
+
 
         }
     }
@@ -221,15 +224,15 @@ fun SettingsScreen(
 
 /**
  * Centered section badge ("Location & Coverage", Figma node 1:856). A hug-width
- * #2D2D2D capsule, fixed 23dp tall with 12dp horizontal padding, a 2px white-30%
- * stroke and a 10dp radius, horizontally centered within the list.
+ * #2D2D2D slim stadium capsule, fixed 23dp tall with 14dp horizontal padding and
+ * a 1px white-10% stroke, horizontally centered within the list.
  */
 @Composable
 private fun CenteredSectionBadge(
     title: String,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(Dimens.SectionHeaderPillRadius)
+    val shape = RoundedCornerShape(Dimens.RadiusStadium)
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier
@@ -237,7 +240,7 @@ private fun CenteredSectionBadge(
                 .height(Dimens.SectionHeaderPillHeight)
                 .clip(shape)
                 .background(SectionHeaderPillFill, shape)
-                .border(Dimens.BorderMedium, BorderLight, shape)
+                .border(Dimens.BorderThin, CardBorder, shape)
                 .padding(horizontal = Dimens.SectionHeaderPillPaddingHorizontal),
             contentAlignment = Alignment.Center
         ) {
@@ -245,6 +248,7 @@ private fun CenteredSectionBadge(
         }
     }
 }
+
 
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)

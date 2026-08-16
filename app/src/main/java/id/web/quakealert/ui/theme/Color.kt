@@ -118,8 +118,9 @@ val SectionHeaderPillFill = Color(0xFF2D2D2D)   // header pill fill #2D2D2D
 // Setting row cards reuse CardSurface (#222222); border uses white 30%.
 val SettingCardBorder = Color(0x4DFFFFFF)       // white 30% setting-card stroke
 
-// Coverage / Language segmented toggle pills
-val SegmentActiveFill = Color(0xFF1B536A)       // active segment fill #1B536A
+// Coverage / Language segmented toggle pills. Active option uses the solid cyan
+// FilterActiveFill (shared with the History filter row) per the Figma spec.
+val SegmentActiveFill = FilterActiveFill        // active segment cyan #003346
 val SegmentInactiveFill = Color(0x47161616)     // inactive segment rgba(22,22,22,0.28)
 
 // Custom M3-style switch
@@ -129,7 +130,7 @@ val SwitchThumbActive = Color(0xFFFFFFFF)       // active thumb (white)
 val SwitchThumbInactive = Color(0x99FFFFFF)     // inactive thumb (dimmed white)
 
 // "More About Us" call-to-action button
-val AboutButtonFill = Color(0xFF6A411B)         // about CTA fill #6A411B
+val AboutButtonFill = Color(0xFF6A411B)         // about CTA fill #6A411B (caramel)
 
 // About card gradient (linear 90deg khaki → green, both 28% alpha)
 val AboutGradientStart = Color(0x47807A41)      // rgba(128,122,65,0.28)
@@ -137,6 +138,9 @@ val AboutGradientEnd = Color(0x47087900)        // rgba(8,121,0,0.28)
 val AboutCardGradient = Brush.horizontalGradient(
     colors = listOf(AboutGradientStart, AboutGradientEnd)
 )
+/** Soft green stroke around the About card (Figma node 1:918). */
+val AboutCardBorder = Color(0x66087900)         // green 40% about-card stroke
+
 
 // Last-sync / info pill on setting cards
 val InfoPillFill = Color(0x78000000)            // rgba(0,0,0,0.47) info pill fill

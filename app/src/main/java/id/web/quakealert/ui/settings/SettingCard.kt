@@ -26,8 +26,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import id.web.quakealert.R
 import id.web.quakealert.ui.theme.AboutButtonFill
+import id.web.quakealert.ui.theme.AboutCardBorder
 import id.web.quakealert.ui.theme.AboutCardGradient
 import id.web.quakealert.ui.theme.BorderLight
+import id.web.quakealert.ui.theme.CardBorder
+import id.web.quakealert.ui.theme.CardSubtitle
 import id.web.quakealert.ui.theme.CardSurface
 
 import id.web.quakealert.ui.theme.CardTitle
@@ -43,6 +46,8 @@ import id.web.quakealert.ui.theme.TextPrimary
 import id.web.quakealert.ui.theme.TextSecondary
 
 
+
+
 /**
  * Full-width section header pill (Figma node 1:846 / EL-c963c95e) that labels a
  * group of setting cards, e.g. "Location & Coverage". A flat dark capsule with a
@@ -53,20 +58,22 @@ fun SectionHeaderPill(
     title: String,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(Dimens.SectionHeaderPillRadius)
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(Dimens.SectionHeaderPillHeight)
-            .clip(shape)
-            .background(SectionHeaderPillFill, shape)
-            .border(Dimens.BorderMedium, BorderLight, shape)
-            .padding(horizontal = Dimens.SectionHeaderPillPaddingHorizontal),
-        contentAlignment = Alignment.CenterStart
-    ) {
-        Text(text = title, style = CardTitle)
+    val shape = RoundedCornerShape(Dimens.RadiusStadium)
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .height(Dimens.SectionHeaderPillHeight)
+                .clip(shape)
+                .background(SectionHeaderPillFill, shape)
+                .border(Dimens.BorderThin, CardBorder, shape)
+                .padding(horizontal = Dimens.SectionHeaderPillPaddingHorizontal),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = title, style = CardTitle)
+        }
     }
 }
+
 
 
 /**
@@ -103,8 +110,12 @@ fun SettingCard(
     val clickable = if (onClick != null) base.clickable(onClick = onClick) else base
 
     Row(
-        modifier = clickable.padding(Dimens.SettingCardPadding),
+        modifier = clickable.padding(
+            horizontal = Dimens.SettingCardPaddingHorizontal,
+            vertical = Dimens.SettingCardPaddingVertical
+        ),
         horizontalArrangement = Arrangement.spacedBy(Dimens.SettingCardContentGap),
+
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(
@@ -238,15 +249,18 @@ private fun SegmentPill(
 
 /**
  * "About" card (Figma node 1:918): a gradient (khaki → green, 28% alpha) rounded
- * card with a 2px white-30% stroke that stacks a multi-line credit line above a
- * full-width "More About Us" call-to-action button (node 1:922).
+ * card with a soft green stroke that stacks a two-line credit block (bold app
+ * credit + dimmed version) above a full-width caramel "More About Us"
+ * call-to-action button (node 1:922).
  *
- * @param credit multi-line credit / version text.
+ * @param credit primary credit line ("QuakeAlert App by @banana-pixel").
+ * @param version secondary version line ("v 1.0.1 (Beta)"), dimmed.
  * @param onMoreAboutUs invoked when the CTA button is tapped.
  */
 @Composable
 fun AboutCard(
     credit: String,
+    version: String,
     onMoreAboutUs: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -256,13 +270,20 @@ fun AboutCard(
             .fillMaxWidth()
             .clip(shape)
             .background(AboutCardGradient, shape)
-            .border(Dimens.BorderMedium, BorderLight, shape)
-            .padding(Dimens.SettingCardPadding),
+            .border(Dimens.BorderThin, AboutCardBorder, shape)
+            .padding(
+                horizontal = Dimens.SettingCardPaddingHorizontal,
+                vertical = Dimens.SettingCardPaddingVertical
+            ),
         verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardContentGap)
     ) {
-        Text(text = credit, style = CardTitle)
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)) {
+            Text(text = credit, style = CardTitle)
+            Text(text = version, style = CardSubtitle)
+        }
 
         val buttonShape = RoundedCornerShape(Dimens.AboutButtonRadius)
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()

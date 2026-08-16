@@ -157,20 +157,27 @@ object Dimens {
     /** Bottom padding below the last setting card (Figma padding-bottom 20). */
     val SettingsListBottomPadding = 20.dp
 
-    // Section header pill (Figma node 1:856): hug-width capsule, height 23,
-    // padding 0x12, 2px white-30% stroke, radius 10.
+    // Section header pill (Figma node 1:856): hug-width slim stadium capsule,
+    // height 23, padding 0x14, 1px white-10% stroke, fully-rounded stadium.
     val SectionHeaderPillHeight = 23.dp
-    val SectionHeaderPillPaddingHorizontal = 12.dp
+    val SectionHeaderPillPaddingHorizontal = 14.dp
     val SectionHeaderPillRadius = 10.dp
 
 
-    // Setting row card (EL-002b7d17)
-    val SettingCardPadding = 10.dp
+    // Setting row card (EL-002b7d17). Standardized container so every card
+    // (Coverage, Sync, Auto Sync, Test Sound, Keep Alerting, Light Mode,
+    // Language) shares identical chrome: 16dp radius, 16h/14v inner padding,
+    // 1dp white-10% stroke.
     val SettingCardRadius = 16.dp
-    /** Gap between a card's text column and its trailing control (Figma gap 2). */
-    val SettingCardContentGap = 2.dp
-    /** Inner gap between a card title and its sub-line (Figma gap 4). */
-    val SettingCardTitleGap = 4.dp
+    /** Uniform horizontal inner padding for every setting card. */
+    val SettingCardPaddingHorizontal = 16.dp
+    /** Uniform vertical inner padding for every setting card. */
+    val SettingCardPaddingVertical = 14.dp
+    /** Gap between a card's text column and its trailing control (Figma gap 12). */
+    val SettingCardContentGap = 12.dp
+    /** Inner gap between a card title and its sub-line (Figma gap 6). */
+    val SettingCardTitleGap = 6.dp
+
 
     // Segmented toggle control pills (Coverage / Language). Figma has no outer
     // container — each option is a standalone bordered pill (node 1:873 / 1:913)

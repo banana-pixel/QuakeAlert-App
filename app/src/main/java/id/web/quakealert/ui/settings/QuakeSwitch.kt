@@ -84,14 +84,17 @@ fun QuakeSwitch(
                 .background(thumbColor, CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            if (checked) {
-                Icon(
-                    painter = painterResource(id = R.drawable.ic_check),
-                    contentDescription = null,
-                    tint = SwitchTrackActive,
-                    modifier = Modifier.size(Dimens.SwitchThumbIconSize)
-                )
-            }
+            // Active thumb carries a check glyph; inactive thumb carries a small
+            // cross (X), matching the Figma "Light Mode (Beta)" off state.
+            Icon(
+                painter = painterResource(
+                    id = if (checked) R.drawable.ic_check else R.drawable.ic_close
+                ),
+                contentDescription = null,
+                tint = if (checked) SwitchTrackActive else SwitchTrackInactive,
+                modifier = Modifier.size(Dimens.SwitchThumbIconSize)
+            )
         }
+
     }
 }
