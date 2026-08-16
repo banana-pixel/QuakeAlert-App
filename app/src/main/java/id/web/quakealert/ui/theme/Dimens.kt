@@ -106,22 +106,29 @@ object Dimens {
     // Sensor station card
     /** Gap between the sensor chip column and the details column (Figma gap 20). */
     val SensorCardContentGap = 20.dp
-    /** Leading chip column width (Figma group width 50). */
-    val SensorChipColumnWidth = 50.dp
+    /** Leading chip column width (Figma group width 50; widened so "MPU 6050" fits). */
+    val SensorChipColumnWidth = 56.dp
+    /** cpu-chip icon badge diameter (Figma frame ~45, fills column). */
+    val SensorChipBadgeSize = 50.dp
     /** cpu-chip icon container corner radius (Figma 22.5). */
     val SensorChipRadius = 22.5.dp
     val SensorChipIconPadding = 8.dp
     val SensorChipIconSize = 24.dp
+    /** Gap between the chip badge and the "MPU 6050" label (Figma gap 2). */
+    val SensorChipLabelGap = 4.dp
     /** Details column fixed width (Figma width 216). */
     val SensorDetailsColumnWidth = 216.dp
     val SensorDetailsGap = 8.dp
-    /** Gap between status/telemetry chips in a row (Figma gap 6). */
+    /** Gap between status/telemetry pills in a row (Figma gap 6). */
     val SensorChipRowGap = 6.dp
-    val SensorStatusChipPaddingHorizontal = 6.dp
-    val SensorStatusChipPaddingVertical = 4.dp
-    val SensorStatusChipTrailingPadding = 6.dp
-    val SensorTelemetryPillPaddingHorizontal = 6.dp
-    val SensorTelemetryPillPaddingVertical = 4.dp
+    /** Uniform pill height so status + telemetry pills align on a row. */
+    val SensorPillHeight = 22.dp
+    val SensorPillPaddingHorizontal = 10.dp
+    /** Solid connectivity dot diameter on the status pill (feedback: 6dp). */
+    val SensorStatusDotSize = 6.dp
+    /** Gap between the status dot and its label. */
+    val SensorStatusDotGap = 5.dp
+
 
     // --- Bottom navigation --------------------------------------------------
 

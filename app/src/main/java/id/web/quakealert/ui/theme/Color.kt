@@ -79,6 +79,9 @@ val SensorChipBorder = Color(0xFF214F68)        // cpu-chip badge stroke #214F68
 // Station status chips
 val StatusOnlineFill = Color(0xFF0C3600)        // "Online" chip fill #0C3600
 val StatusOfflineFill = Color(0xFF360000)       // "Offline" chip fill #360000
+val StatusOnlineDot = Color(0xFF4CAF50)         // solid green dot indicator (online)
+val StatusOfflineDot = Color(0xFFF31D1D)        // solid red dot indicator (offline)
+
 
 // Telemetry pills (Last Ping / RSSI / Latency)
 val TelemetryPillFill = Color(0xFF373737)       // telemetry pill fill #373737

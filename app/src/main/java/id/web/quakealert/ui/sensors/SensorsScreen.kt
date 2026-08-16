@@ -69,10 +69,11 @@ fun SensorsRoute(
 
 /**
  * Stateless Sensors screen (Figma node 1:1081). Structure, top → bottom:
- *  1. A static header [Column] pinned to the top: title + "Healthy" badge,
- *     a filter row, and the [SensorMapCard].
- *  2. A weighted [LazyColumn] of [SensorItemCard]s filling the remaining space
- *     between the map and the bottom navigation bar.
+ *  1. A static header pinned to the top: the "Sensors" title + "Healthy" badge.
+ *  2. A single [LazyColumn] whose content order matches Figma:
+ *       item { SensorMapCard }   — map preview at the very top of the content
+ *       item { SensorsFilterRow } — filters directly beneath the map
+ *       items { SensorItemCard } — the scrolling list of stations
  *
  * All state and events are hoisted to the caller ([SensorsRoute] /
  * [SensorsViewModel]).
@@ -94,31 +95,33 @@ fun SensorsScreen(
         // --- Static header ---------------------------------------------------
         SensorsTopBar(isHealthy = uiState.isHealthy)
 
-        SensorsFilterRow(
-            selectedFilter = uiState.selectedFilter,
-            nearRadiusKm = uiState.nearRadiusKm,
-            onFilterSelected = onFilterSelected,
-            onCalendarClicked = onCalendarClicked,
-            modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
-        )
-
-        SensorMapCard(
-            overview = uiState.overview,
-            onSettingsShortcut = onOpenSettings,
-            modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
-        )
-
-        // --- Scrolling list of stations -------------------------------------
+        // --- Scrolling content: map → filter → station list -----------------
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
             contentPadding = PaddingValues(
-                top = Dimens.SensorsHeaderBlockGap,
+                top = Dimens.HeaderSectionGap,
                 bottom = Dimens.CardListBottomPadding
             ),
             verticalArrangement = Arrangement.spacedBy(Dimens.CardListSpacing)
         ) {
+            item(key = "map", contentType = "SensorMapCard") {
+                SensorMapCard(
+                    overview = uiState.overview,
+                    onSettingsShortcut = onOpenSettings
+                )
+            }
+
+            item(key = "filter", contentType = "SensorsFilterRow") {
+                SensorsFilterRow(
+                    selectedFilter = uiState.selectedFilter,
+                    nearRadiusKm = uiState.nearRadiusKm,
+                    onFilterSelected = onFilterSelected,
+                    onCalendarClicked = onCalendarClicked
+                )
+            }
+
             items(
                 items = uiState.sensors,
                 key = { it.id },
@@ -132,6 +135,7 @@ fun SensorsScreen(
         }
     }
 }
+
 
 /** Sensors header: "Sensors" title + optional "Healthy" status badge. */
 @Composable
