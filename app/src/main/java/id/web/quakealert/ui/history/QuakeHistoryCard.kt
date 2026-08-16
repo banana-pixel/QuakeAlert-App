@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -25,7 +25,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.web.quakealert.R
@@ -179,10 +181,13 @@ private fun DetailsColumn(
             horizontalArrangement = Arrangement.spacedBy(Dimens.DetailFooterGap),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            DistanceBadge(label = item.distanceLabel)
-            Spacer(modifier = Modifier.weight(1f))
+            DistanceBadge(
+                label = item.distanceLabel,
+                modifier = Modifier.weight(1f)
+            )
             ShareButton(onClick = onShareClicked)
         }
+
     }
 }
 
@@ -202,10 +207,12 @@ private fun DistanceBadge(label: String, modifier: Modifier = Modifier) {
             color = TextPrimary,
             fontFamily = NunitoFontFamily,
             fontWeight = FontWeight.Bold,
-            fontSize = 11.sp
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center
         )
     }
 }
+
 
 /** Small share icon button (Figma node 1:728). */
 @Composable

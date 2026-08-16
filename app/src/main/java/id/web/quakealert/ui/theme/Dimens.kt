@@ -33,6 +33,9 @@ object Dimens {
     val CardListSpacing = 20.dp
     /** Top/bottom padding around the scrolling card list (Figma padding 20 0). */
     val CardListVerticalPadding = 20.dp
+    /** Height of the soft fade drawn at the top/bottom edges of the list. */
+    val ListFadeHeight = 24.dp
+
 
     // --- History card -------------------------------------------------------
     val CardHeight = 132.dp

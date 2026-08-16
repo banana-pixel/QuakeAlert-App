@@ -6,12 +6,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -63,9 +64,11 @@ fun QuakeFilterRow(
             selected = selectedFilter == HistoryFilter.NEAR,
             onClick = { onFilterSelected(HistoryFilter.NEAR) }
         )
+        Spacer(modifier = Modifier.weight(1f))
         CalendarButton(onClick = onCalendarClicked)
     }
 }
+
 
 /** Stadium/pill toggle used for the "All" and "Near" filters. */
 @Composable
@@ -99,22 +102,28 @@ private fun FilterPill(
     }
 }
 
-/** Circular calendar icon button that opens a date-range picker. */
+/**
+ * Rounded-square (squircle) calendar icon button that opens a date-range
+ * picker. Uses the same height, corner radius and border token as the filter
+ * pills so it aligns flush with them (Figma node 1:701).
+ */
 @Composable
 private fun CalendarButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val shape = RoundedCornerShape(Dimens.RadiusSmall)
     Box(
         modifier = modifier
             .size(Dimens.FilterPillHeight)
-            .clip(CircleShape)
-            .background(FilterInactiveFill, CircleShape)
-            .border(Dimens.BorderThin, CardBorder, CircleShape)
+            .clip(shape)
+            .background(FilterInactiveFill, shape)
+            .border(Dimens.BorderThin, CardBorder, shape)
             .clickable(onClick = onClick)
             .padding(Dimens.CalendarButtonPadding),
         contentAlignment = Alignment.Center
     ) {
+
         Icon(
             painter = painterResource(id = R.drawable.ic_calendar),
             contentDescription = "Filter by date",

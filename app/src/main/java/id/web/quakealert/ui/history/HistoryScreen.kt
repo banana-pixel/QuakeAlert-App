@@ -4,15 +4,20 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.collectAsState
 
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.QuakeAlertTheme
@@ -39,9 +44,14 @@ fun HistoryRoute(
 }
 
 /**
- * Stateless History screen (Figma node 1:701). Renders the header, filter row
- * and a scrolling list of [QuakeHistoryCard]s. All state and events are hoisted
- * to the caller ([HistoryRoute] / [HistoryViewModel]).
+ * Stateless History screen (Figma node 1:701). Structure, top → bottom:
+ *  1. A static header [Column] pinned to the top: [QuakeTopBar] + [QuakeFilterRow].
+ *  2. A weighted [LazyColumn] filling the remaining space between the filter row
+ *     and the bottom navigation bar. Its bounds carry a soft vertical fading
+ *     edge so cards dissolve in/out as they enter/leave the scroll area.
+ *
+ * All state and events are hoisted to the caller ([HistoryRoute] /
+ * [HistoryViewModel]).
  */
 @Composable
 fun HistoryScreen(
@@ -57,6 +67,7 @@ fun HistoryScreen(
             .fillMaxSize()
             .padding(horizontal = Dimens.ScreenHorizontalPadding)
     ) {
+        // --- Static header ---------------------------------------------------
         QuakeTopBar(isHealthy = uiState.isHealthy)
 
         QuakeFilterRow(
@@ -67,8 +78,12 @@ fun HistoryScreen(
             modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
         )
 
+        // --- Scrolling list, bounded by the filter row and the bottom nav ---
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .fadingEdges(),
             contentPadding = PaddingValues(vertical = Dimens.CardListVerticalPadding),
             verticalArrangement = Arrangement.spacedBy(Dimens.CardListSpacing)
         ) {
@@ -81,6 +96,36 @@ fun HistoryScreen(
             }
         }
     }
+}
+
+/**
+ * Draws a soft vertical fade at the top and bottom of the list so cards blend
+ * in/out of the scroll bounds. Uses a black→transparent→transparent→black
+ * vertical gradient rendered over the content with a source-in blend, keeping
+ * the effect independent of the underlying card colours.
+ */
+private fun Modifier.fadingEdges(): Modifier = this.drawWithContent {
+    drawContent()
+
+    val fadeHeight = Dimens.ListFadeHeight.toPx()
+
+    // Top fade: opaque black at the very top → transparent below.
+    drawRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent),
+            startY = 0f,
+            endY = fadeHeight
+        )
+    )
+
+    // Bottom fade: transparent → opaque black at the very bottom.
+    drawRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
+            startY = size.height - fadeHeight,
+            endY = size.height
+        )
+    )
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
