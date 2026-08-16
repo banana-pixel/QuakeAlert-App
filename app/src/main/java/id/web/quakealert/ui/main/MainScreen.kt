@@ -4,19 +4,23 @@ import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,7 +33,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import id.web.quakealert.R
-
 import id.web.quakealert.ui.history.HistoryRoute
 import id.web.quakealert.ui.theme.BackgroundGradientBottom
 import id.web.quakealert.ui.theme.Dimens
@@ -37,6 +40,7 @@ import id.web.quakealert.ui.theme.NavActiveFill
 import id.web.quakealert.ui.theme.NavActiveText
 import id.web.quakealert.ui.theme.NavBarBorder
 import id.web.quakealert.ui.theme.NavBarFill
+import id.web.quakealert.ui.theme.NavLabel
 import id.web.quakealert.ui.theme.QuakeAlertTheme
 import id.web.quakealert.ui.theme.TextPrimary
 
@@ -48,7 +52,6 @@ enum class MainDestination(
     @param:DrawableRes val icon: Int,
     val label: String
 ) {
-
     HISTORY(R.drawable.ic_nav_history, "History"),
     SENSORS(R.drawable.ic_nav_sensors, "Sensors"),
     WARNING(R.drawable.ic_nav_warning, "Warning"),
@@ -60,6 +63,10 @@ enum class MainDestination(
  * Main app scaffold hosting the custom [QuakeBottomNavigation] and swapping the
  * body content for the currently selected [MainDestination]. Only History is
  * implemented for now; other tabs render a placeholder.
+ *
+ * The [Scaffold] disables its default window insets so the custom bars can own
+ * their own inset handling: the History content applies its status-bar padding
+ * internally, while [QuakeBottomNavigation] applies navigation-bar padding.
  */
 @Composable
 fun MainScreen(modifier: Modifier = Modifier) {
@@ -90,9 +97,10 @@ fun MainScreen(modifier: Modifier = Modifier) {
 }
 
 /**
- * Custom flat, dark bottom navigation bar. The active tab is rendered inside a
- * rounded pill container with a highlight fill and tinted icon, per the Figma
- * design tokens.
+ * Custom flat, dark bottom navigation bar (Figma node 1:843). Each entry is a
+ * 55×55 column pill containing a 24dp icon and a Nunito label. The active tab
+ * uses a highlight fill with tinted icon/label, per the Figma design tokens.
+ * Applies [navigationBarsPadding] so it clears the Android gesture bar.
  */
 @Composable
 fun QuakeBottomNavigation(
@@ -103,6 +111,7 @@ fun QuakeBottomNavigation(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
             .padding(
                 horizontal = Dimens.ScreenHorizontalPadding,
                 vertical = Dimens.NavBarPaddingVertical
@@ -125,7 +134,10 @@ fun QuakeBottomNavigation(
     }
 }
 
-/** A single navigation entry; highlighted with a pill container when active. */
+/**
+ * A single navigation entry: a 55×55 column pill with a 24dp icon above its
+ * label. The container fill, icon tint and label colour highlight when active.
+ */
 @Composable
 private fun NavItem(
     destination: MainDestination,
@@ -134,10 +146,10 @@ private fun NavItem(
     modifier: Modifier = Modifier
 ) {
     val containerColor = if (selected) NavActiveFill else Color.Transparent
-    val tint = if (selected) NavActiveText else TextPrimary
+    val contentColor = if (selected) NavActiveText else NavLabel
     val interactionSource = remember { MutableInteractionSource() }
 
-    Box(
+    Column(
         modifier = modifier
             .size(Dimens.NavItemSize)
             .clip(RoundedCornerShape(Dimens.RadiusNavItem))
@@ -147,13 +159,19 @@ private fun NavItem(
                 indication = null,
                 onClick = onClick
             ),
-        contentAlignment = Alignment.Center
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Dimens.NavItemGap, Alignment.CenterVertically)
     ) {
         Icon(
             painter = painterResource(id = destination.icon),
             contentDescription = destination.label,
-            tint = tint,
+            tint = if (selected) NavActiveText else TextPrimary,
             modifier = Modifier.size(Dimens.NavIconSize)
+        )
+        Text(
+            text = destination.label,
+            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+            color = contentColor
         )
     }
 }

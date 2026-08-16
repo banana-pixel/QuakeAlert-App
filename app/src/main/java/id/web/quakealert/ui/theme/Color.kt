@@ -66,6 +66,8 @@ val NavBarFill = Color(0xFF232323)              // nav container fill #232323
 val NavBarBorder = Color(0x26FFFFFF)            // white 15% nav stroke
 val NavActiveFill = Color(0x6300677E)           // active tab pill rgba(0,103,126,0.39)
 val NavActiveText = Color(0xFF5C98AB)           // active tab label/icon tint
+val NavLabel = Color(0x99FFFFFF)                // inactive tab label (dimmed white)
+
 
 
 

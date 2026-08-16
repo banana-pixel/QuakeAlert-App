@@ -73,5 +73,14 @@ val Typography = Typography(
         fontWeight = FontWeight.Bold,
         fontSize = 15.sp,
         lineHeight = 36.sp
+    ),
+    // Bottom-nav tab label (Figma style_b7774c0e: Nunito Bold 10/16, +0.05em)
+    labelSmall = TextStyle(
+        fontFamily = NunitoFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 10.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.5.sp
     )
 )
+
