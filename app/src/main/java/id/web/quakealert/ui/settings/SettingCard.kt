@@ -44,8 +44,8 @@ import id.web.quakealert.ui.theme.PillLabel
 import id.web.quakealert.ui.theme.SectionHeaderPillFill
 import id.web.quakealert.ui.theme.SegmentActiveFill
 import id.web.quakealert.ui.theme.SegmentInactiveFill
-import id.web.quakealert.ui.theme.SettingCardBorder
 import id.web.quakealert.ui.theme.TextPrimary
+
 import id.web.quakealert.ui.theme.TextSecondary
 
 
@@ -110,8 +110,9 @@ fun SettingCard(
         .heightIn(min = Dimens.SettingCardHeight)
         .clip(shape)
         .background(CardSurface, shape)
-        .border(Dimens.BorderThin, SettingCardBorder, shape)
+        .border(Dimens.BorderThin, CardBorder, shape)
     val clickable = if (onClick != null) base.clickable(onClick = onClick) else base
+
 
     Row(
         modifier = clickable.padding(
