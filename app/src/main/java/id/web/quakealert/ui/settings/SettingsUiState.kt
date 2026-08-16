@@ -17,6 +17,16 @@ enum class CoverageRange(val km: Int, val label: String, val geofenceFraction: F
 }
 
 /**
+ * Selectable app languages shown in the "Language" segmented control (Figma node
+ * 1:912). Mirrors the "EN / ID" pills.
+ */
+enum class AppLanguage(val label: String) {
+    EN("EN"),
+    ID("ID")
+}
+
+
+/**
  * Immutable UI state for the Settings screen (Figma node 1:845, "Location &
  * Coverage" section). Hoisted into [SettingsViewModel] and consumed by the
  * stateless [SettingsScreen] following unidirectional data flow.
@@ -28,6 +38,9 @@ enum class CoverageRange(val km: Int, val label: String, val geofenceFraction: F
  * @param sensorCount number of sensors within the selected range (map summary).
  * @param lastSyncLabel human-readable last-sync time (e.g. "2 min. ago").
  * @param autoSyncLocation "Auto Sync Location / Intelligent Location Sync" toggle.
+ * @param keepAlerting "Keep Alerting" toggle (Alert & Notification section).
+ * @param lightMode "Light Mode (Beta)" toggle (Appearance & Look section).
+ * @param language selected app language (Language segmented control).
  */
 @Immutable
 data class SettingsUiState(
@@ -36,8 +49,12 @@ data class SettingsUiState(
     val coverageRange: CoverageRange = CoverageRange.KM_500,
     val sensorCount: Int = 2,
     val lastSyncLabel: String = "2 min. ago",
-    val autoSyncLocation: Boolean = true
+    val autoSyncLocation: Boolean = true,
+    val keepAlerting: Boolean = true,
+    val lightMode: Boolean = false,
+    val language: AppLanguage = AppLanguage.EN
 ) {
+
     /** Pre-formatted "Range : {km} km, {n} sensors" summary badge text. */
     val rangeSummaryLabel: String
         get() = "Range : ${coverageRange.km} km, $sensorCount sensors"

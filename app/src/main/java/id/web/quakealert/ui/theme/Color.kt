@@ -141,6 +141,10 @@ val AboutCardGradient = Brush.horizontalGradient(
 // Last-sync / info pill on setting cards
 val InfoPillFill = Color(0x78000000)            // rgba(0,0,0,0.47) info pill fill
 
+// "Sync Location Now" refresh action — dark rounded container behind the icon
+val SyncButtonFill = Color(0xFF2A2A2A)          // refresh action container fill #2A2A2A
+
+
 
 
 

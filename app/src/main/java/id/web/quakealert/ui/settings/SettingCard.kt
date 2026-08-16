@@ -29,14 +29,17 @@ import id.web.quakealert.ui.theme.CardSurface
 import id.web.quakealert.ui.theme.CardTitle
 import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
+import id.web.quakealert.ui.theme.FilterActiveFill
 import id.web.quakealert.ui.theme.InfoPillFill
 import id.web.quakealert.ui.theme.PillLabel
 import id.web.quakealert.ui.theme.SectionHeaderPillFill
-import id.web.quakealert.ui.theme.SegmentActiveFill
 import id.web.quakealert.ui.theme.SegmentInactiveFill
 import id.web.quakealert.ui.theme.SettingCardBorder
+import id.web.quakealert.ui.theme.SyncButtonFill
 import id.web.quakealert.ui.theme.TextPrimary
 import id.web.quakealert.ui.theme.TextSecondary
+
+
 
 /**
  * Full-width section header pill (Figma node 1:846 / EL-c963c95e) that labels a
@@ -158,11 +161,11 @@ fun SyncRefreshButton(
 }
 
 /**
- * Horizontal segmented toggle control (Figma node 1:872 Coverage): a row of
- * equal-weight pills where the selected [options] entry is highlighted with
- * [SegmentActiveFill]. Generic over the option type so it can drive the
- * [CoverageRange] control (and any future segmented option) from one component.
-
+ * Horizontal segmented toggle control (Figma node 1:872 Coverage / 1:912
+ * Language): an inset dark container wrapping a row of equal-weight pills where
+ * the selected [options] entry is highlighted with [FilterActiveFill]. Generic
+ * over the option type so it can drive the [CoverageRange] and [AppLanguage]
+ * controls (and any future segmented option) from one component.
  *
  * @param options the selectable values.
  * @param selected the currently selected value.
@@ -177,8 +180,13 @@ fun <T> QuakeSegmentedControl(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val containerShape = RoundedCornerShape(Dimens.SegmentContainerRadius)
     Row(
-        modifier = modifier,
+        modifier = modifier
+            .clip(containerShape)
+            .background(SegmentInactiveFill, containerShape)
+            .border(Dimens.BorderThin, CardBorder, containerShape)
+            .padding(Dimens.SegmentContainerPadding),
         horizontalArrangement = Arrangement.spacedBy(Dimens.SegmentRowGap),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -201,12 +209,11 @@ private fun SegmentPill(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(Dimens.SegmentPillRadius)
-    val fill = if (selected) SegmentActiveFill else SegmentInactiveFill
+    val fill = if (selected) FilterActiveFill else Color.Transparent
     Box(
         modifier = modifier
             .clip(shape)
             .background(fill, shape)
-            .border(Dimens.BorderThin, CardBorder, shape)
             .clickable(onClick = onClick)
             .padding(
                 horizontal = Dimens.SegmentPillPaddingHorizontal,
@@ -222,3 +229,4 @@ private fun SegmentPill(
         )
     }
 }
+

@@ -47,19 +47,26 @@ fun SettingsRoute(
         onCoverageSelected = viewModel::onCoverageSelected,
         onAutoSyncToggled = viewModel::onAutoSyncToggled,
         onSyncLocationNow = viewModel::onSyncLocationNow,
+        onKeepAlertingToggled = viewModel::onKeepAlertingToggled,
+        onTestAlertSound = viewModel::onTestAlertSound,
+        onLightModeToggled = viewModel::onLightModeToggled,
+        onLanguageSelected = viewModel::onLanguageSelected,
+        onMoreAboutUs = viewModel::onMoreAboutUs,
         modifier = modifier
     )
 }
 
 /**
- * Stateless Settings screen ("Settings Page (Fix)", Figma node 1:845). Focused
- * purely on the "Location & Coverage" section, top → bottom:
+ * Stateless Settings screen ("Settings Page (Fix)", Figma node 1:845). Sections,
+ * top → bottom:
  *  1. A static [QuakeAppBar] header ("Settings" + Healthy badge).
- *  2. A centered "Location & Coverage" section badge.
- *  3. A reactive [SensorMapCard] whose coverage geofence circle scales with the
- *     selected [CoverageRange].
- *  4. Three setting cards: Coverage range segmented control, "Sync Location Now"
- *     action, and the "Auto Sync Location" switch.
+ *  2. "Location & Coverage": reactive [SensorMapCard] whose coverage geofence
+ *     circle scales with the selected [CoverageRange], the Coverage segmented
+ *     control, "Sync Location Now" action, and the "Auto Sync Location" switch.
+ *  3. "Alert & Notification": "Keep Alerting" switch + "Test Alert Sound" action.
+ *  4. "Appearance & Look": "Light Mode (Beta)" switch + "Language" segmented
+ *     control.
+ *  5. "About": "More About Us" action card.
  *
  * The scrolling body carries the shared soft [fadingEdges] so content dissolves
  * at the scroll bounds, matching the History / Sensors screens. All state and
@@ -71,6 +78,11 @@ fun SettingsScreen(
     onCoverageSelected: (CoverageRange) -> Unit,
     onAutoSyncToggled: (Boolean) -> Unit,
     onSyncLocationNow: () -> Unit,
+    onKeepAlertingToggled: (Boolean) -> Unit,
+    onTestAlertSound: () -> Unit,
+    onLightModeToggled: (Boolean) -> Unit,
+    onLanguageSelected: (AppLanguage) -> Unit,
+    onMoreAboutUs: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -91,18 +103,22 @@ fun SettingsScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(Dimens.SettingsSectionSpacing)
         ) {
+            // --- Location & Coverage --------------------------------------
             item(key = "header_location") {
                 CenteredSectionBadge(title = "Location & Coverage")
             }
 
             item(key = "map_coverage") {
+                // Same linked map as the Sensors screen, minus the settings
+                // shortcut (Settings passes no onSettingsShortcut). The coverage
+                // radius drives the shared geofence circle via the overview.
                 SensorMapCard(
                     overview = SensorMapOverview(
                         locationLabel = uiState.locationLabel,
                         rangeKm = uiState.coverageRange.km,
-                        sensorCount = uiState.sensorCount
-                    ),
-                    geofenceFraction = uiState.coverageRange.geofenceFraction
+                        sensorCount = uiState.sensorCount,
+                        geofenceFraction = uiState.coverageRange.geofenceFraction
+                    )
                 )
             }
 
@@ -137,6 +153,72 @@ fun SettingsScreen(
                         onCheckedChange = onAutoSyncToggled
                     )
                 }
+            }
+
+            // --- Alert & Notification -------------------------------------
+            item(key = "header_alert") {
+                CenteredSectionBadge(title = "Alert & Notification")
+            }
+
+            item(key = "card_keep_alerting") {
+                SettingCard(
+                    title = "Keep Alerting",
+                    subtitle = "Repeat alert sound until acknowledged"
+                ) {
+                    QuakeSwitch(
+                        checked = uiState.keepAlerting,
+                        onCheckedChange = onKeepAlertingToggled
+                    )
+                }
+            }
+
+            item(key = "card_test_alert") {
+                SettingCard(
+                    title = "Test Alert Sound",
+                    subtitle = "Preview the earthquake alert tone",
+                    onClick = onTestAlertSound
+                )
+            }
+
+            // --- Appearance & Look ----------------------------------------
+            item(key = "header_appearance") {
+                CenteredSectionBadge(title = "Appearance & Look")
+            }
+
+            item(key = "card_light_mode") {
+                SettingCard(
+                    title = "Light Mode (Beta)",
+                    subtitle = "Switch to a bright color scheme"
+                ) {
+                    QuakeSwitch(
+                        checked = uiState.lightMode,
+                        onCheckedChange = onLightModeToggled
+                    )
+                }
+            }
+
+            item(key = "card_language") {
+                SettingCard(title = "Language") {
+                    QuakeSegmentedControl(
+                        options = AppLanguage.entries,
+                        selected = uiState.language,
+                        labelOf = { it.label },
+                        onSelect = onLanguageSelected
+                    )
+                }
+            }
+
+            // --- About ----------------------------------------------------
+            item(key = "header_about") {
+                CenteredSectionBadge(title = "About")
+            }
+
+            item(key = "card_about") {
+                SettingCard(
+                    title = "QuakeAlert",
+                    subtitle = "More About Us",
+                    onClick = onMoreAboutUs
+                )
             }
         }
     }
@@ -179,7 +261,12 @@ private fun SettingsScreenPreview() {
             uiState = SettingsUiState(),
             onCoverageSelected = {},
             onAutoSyncToggled = {},
-            onSyncLocationNow = {}
+            onSyncLocationNow = {},
+            onKeepAlertingToggled = {},
+            onTestAlertSound = {},
+            onLightModeToggled = {},
+            onLanguageSelected = {},
+            onMoreAboutUs = {}
         )
     }
 }

@@ -32,4 +32,30 @@ class SettingsViewModel : ViewModel() {
     fun onSyncLocationNow() {
         // Intentionally empty until a real location sync source is wired in.
     }
+
+    /** Toggles the "Keep Alerting" switch (Alert & Notification section). */
+    fun onKeepAlertingToggled(enabled: Boolean) {
+        _uiState.update { it.copy(keepAlerting = enabled) }
+    }
+
+    /** Placeholder hook for the "Test Alert Sound" action card. */
+    fun onTestAlertSound() {
+        // Intentionally empty until a real alert-sound source is wired in.
+    }
+
+    /** Toggles the "Light Mode (Beta)" switch (Appearance & Look section). */
+    fun onLightModeToggled(enabled: Boolean) {
+        _uiState.update { it.copy(lightMode = enabled) }
+    }
+
+    /** Selects the app language from the Language segmented control. */
+    fun onLanguageSelected(language: AppLanguage) {
+        _uiState.update { it.copy(language = language) }
+    }
+
+    /** Placeholder hook for the "More About Us" call-to-action. */
+    fun onMoreAboutUs() {
+        // Intentionally empty until an about/destination target is wired in.
+    }
 }
+
