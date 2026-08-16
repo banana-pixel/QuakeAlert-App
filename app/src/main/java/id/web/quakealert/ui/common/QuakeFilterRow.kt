@@ -19,16 +19,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import id.web.quakealert.R
 import id.web.quakealert.ui.theme.CardBorder
+import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.FilterActiveFill
 import id.web.quakealert.ui.theme.FilterInactiveFill
-import id.web.quakealert.ui.theme.NunitoFontFamily
 import id.web.quakealert.ui.theme.TextPrimary
+
 
 /**
  * Shared row of filter controls beneath a screen header, used identically by
@@ -92,15 +91,13 @@ private fun FilterPill(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = label,
-            color = TextPrimary,
-            fontFamily = NunitoFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 13.sp
-        )
+        // Shared ChipLabel: centered metrics (includeFontPadding=false +
+        // LineHeightStyle.Center) so the glyph sits optically centered in the
+        // fixed-height pill instead of drifting toward the bottom edge.
+        Text(text = label, style = ChipLabel)
     }
 }
+
 
 /**
  * Rounded-square (squircle) calendar icon button that opens a date-range picker.

@@ -22,19 +22,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import id.web.quakealert.R
 import id.web.quakealert.ui.theme.CardBorder
+import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
+
 import id.web.quakealert.ui.theme.MapLocationPillFill
 import id.web.quakealert.ui.theme.MapPlaceholder
 import id.web.quakealert.ui.theme.MapRangeBadgeFill
 import id.web.quakealert.ui.theme.MapSettingsShortcutBorder
 import id.web.quakealert.ui.theme.MapSettingsShortcutFill
-import id.web.quakealert.ui.theme.NunitoFontFamily
 import id.web.quakealert.ui.theme.TextPrimary
+
 
 /**
  * Map preview card at the top of the Sensors screen (Figma node 1:1091). A
@@ -106,15 +106,12 @@ private fun LocationPill(label: String, modifier: Modifier = Modifier) {
             tint = TextPrimary,
             modifier = Modifier.size(Dimens.MapPinIconSize)
         )
-        Text(
-            text = label,
-            color = TextPrimary,
-            fontFamily = NunitoFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp
-        )
+        // Shared ChipLabel with centered metrics so the label is optically
+        // centered against the pin glyph instead of sitting low.
+        Text(text = label, style = ChipLabel)
     }
 }
+
 
 /** Range/sensor-count summary badge (Figma node 1:1099). */
 @Composable
@@ -132,17 +129,14 @@ private fun RangeBadge(label: String, modifier: Modifier = Modifier) {
             ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = label,
-            color = TextPrimary,
-            fontFamily = NunitoFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 13.sp
-        )
+        // Shared ChipLabel: centered metrics keep the summary text vertically
+        // centered within the fixed-height badge.
+        Text(text = label, style = ChipLabel)
     }
 }
 
 /** Circular settings shortcut button (Figma node 1:1101). */
+
 @Composable
 private fun SettingsShortcut(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(

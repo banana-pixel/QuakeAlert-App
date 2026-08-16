@@ -1,13 +1,35 @@
 package id.web.quakealert.ui.theme
 
 import androidx.compose.material3.Typography
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.googlefonts.Font
 import androidx.compose.ui.text.googlefonts.GoogleFont
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.sp
 import id.web.quakealert.R
+
+/**
+ * Optically-centered vertical metrics for compact single-line labels (chips,
+ * pills, badges).
+ *
+ * Root cause of "bottom-heavy" text: Compose defaults `includeFontPadding` to
+ * true, which bakes Nunito's asymmetric ascent/descent metrics into the line
+ * box, and the default [LineHeightStyle] does not center the glyph within that
+ * box. Inside a `contentAlignment = Center` capsule this makes the text sit low.
+ *
+ * Disabling font padding and forcing [LineHeightStyle.Alignment.Center] with
+ * [LineHeightStyle.Trim.None] yields perfect geometric/optical centering that is
+ * background-agnostic. Shared here so every capsule label stays consistent.
+ */
+private val CenteredPlatformStyle = PlatformTextStyle(includeFontPadding = false)
+private val CenteredLineHeight = LineHeightStyle(
+    alignment = LineHeightStyle.Alignment.Center,
+    trim = LineHeightStyle.Trim.None
+)
+
 
 /**
  * Downloadable Google Fonts provider (backed by Google Play Services).
@@ -100,8 +122,11 @@ val CardTitle = TextStyle(
     fontWeight = FontWeight.Bold,
     fontSize = 16.sp,
     lineHeight = 18.sp,
-    color = TextPrimary
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
 )
+
 
 /**
  * Dimmed secondary card line shared by the History card's date/time metadata
@@ -113,8 +138,11 @@ val CardSubtitle = TextStyle(
     fontWeight = FontWeight.SemiBold,
     fontSize = 13.sp,
     lineHeight = 16.sp,
-    color = TextSecondary
+    color = TextSecondary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
 )
+
 
 /**
  * Label inside a shared QuakePill capsule (History "km Away" badge, Sensor
@@ -126,7 +154,26 @@ val PillLabel = TextStyle(
     fontWeight = FontWeight.Medium,
     fontSize = 11.sp,
     lineHeight = 12.sp,
-    color = TextPrimary
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
 )
+
+/**
+ * Bold label used by the filter chips ("All", "Near - 39km") and the map-card
+ * overlay badges (location pill, range summary). Nunito Bold 13/16 with the
+ * shared centered metrics so the glyphs sit optically centered in their
+ * fixed-height capsules rather than drifting toward the bottom edge.
+ */
+val ChipLabel = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 13.sp,
+    lineHeight = 16.sp,
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
 
 
