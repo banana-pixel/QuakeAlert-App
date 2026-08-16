@@ -1,6 +1,9 @@
 package id.web.quakealert.ui.history
 
+import androidx.compose.runtime.Immutable
+
 /**
+
  * Modified Mercalli Intensity severity buckets used to colour the MMI badge and
  * intensity label on a history card. The Figma design shows two treatments:
  * a moderate (orange) and a severe (red) variant.
@@ -18,7 +21,9 @@ enum class MmiSeverity { MODERATE, SEVERE }
  * @param time formatted time incl. zone (e.g. "07:19:18 WIB").
  * @param distanceLabel distance-from-user pill text (e.g. "20 km Away").
  */
+@Immutable
 data class QuakeHistoryItem(
+
     val id: String,
     val intensity: String,
     val severity: MmiSeverity,
@@ -35,7 +40,9 @@ enum class HistoryFilter { ALL, NEAR }
  * Immutable UI state for the History screen. Hoisted into [HistoryViewModel] and
  * consumed by the stateless [HistoryScreen].
  */
+@Immutable
 data class HistoryUiState(
+
     val isHealthy: Boolean = true,
     val selectedFilter: HistoryFilter = HistoryFilter.ALL,
     val nearRadiusKm: Int = 39,

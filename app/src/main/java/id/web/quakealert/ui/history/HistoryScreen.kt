@@ -11,11 +11,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -83,11 +86,18 @@ fun HistoryScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .fadingEdges(),
-            contentPadding = PaddingValues(vertical = Dimens.CardListVerticalPadding),
+                .topFadingEdge(),
+            contentPadding = PaddingValues(
+                top = Dimens.CardListTopPadding,
+                bottom = Dimens.CardListBottomPadding
+            ),
             verticalArrangement = Arrangement.spacedBy(Dimens.CardListSpacing)
         ) {
-            items(items = uiState.items, key = { it.id }) { item ->
+            items(
+                items = uiState.items,
+                key = { it.id },
+                contentType = { "QuakeHistoryCard" }
+            ) { item ->
                 QuakeHistoryCard(
                     item = item,
                     onShareClicked = { onShareClicked(item) },
@@ -95,38 +105,35 @@ fun HistoryScreen(
                 )
             }
         }
+
     }
 }
 
 /**
- * Draws a soft vertical fade at the top and bottom of the list so cards blend
- * in/out of the scroll bounds. Uses a black→transparent→transparent→black
- * vertical gradient rendered over the content with a source-in blend, keeping
- * the effect independent of the underlying card colours.
+ * Draws a thin soft fade at the top of the list so cards dissolve gently as
+ * they scroll up under the header, without eating the last card at the bottom
+ * (that edge sits flush against the bottom navigation bar).
+ *
+ * The gradient [Brush] and its height are hoisted with [remember] so no
+ * `Brush`/`Color`/`List` objects are allocated during the draw phase — the
+ * lambda passed to [drawWithContent] runs on every scroll frame, so keeping it
+ * allocation-free avoids GC churn and frame drops.
  */
-private fun Modifier.fadingEdges(): Modifier = this.drawWithContent {
-    drawContent()
-
-    val fadeHeight = Dimens.ListFadeHeight.toPx()
-
-    // Top fade: opaque black at the very top → transparent below.
-    drawRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent),
+private fun Modifier.topFadingEdge(): Modifier = composed {
+    val fadeHeightPx = with(LocalDensity.current) { Dimens.ListFadeHeight.toPx() }
+    val topBrush = remember(fadeHeightPx) {
+        Brush.verticalGradient(
+            colors = listOf(Color.Black, Color.Transparent),
             startY = 0f,
-            endY = fadeHeight
+            endY = fadeHeightPx
         )
-    )
-
-    // Bottom fade: transparent → opaque black at the very bottom.
-    drawRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
-            startY = size.height - fadeHeight,
-            endY = size.height
-        )
-    )
+    }
+    drawWithContent {
+        drawContent()
+        drawRect(brush = topBrush, size = size.copy(height = fadeHeightPx))
+    }
 }
+
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable

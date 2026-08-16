@@ -19,7 +19,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -61,15 +63,19 @@ fun QuakeHistoryCard(
     val accent = if (item.severity == MmiSeverity.SEVERE) MmiRed else MmiOrange
     val badgeContainer =
         if (item.severity == MmiSeverity.SEVERE) MmiRedContainer else MmiOrangeContainer
+    // Hoist the repeated card shape so clip/background/border share one instance
+    // instead of allocating three identical shapes per (re)composition.
+    val cardShape = remember { RoundedCornerShape(Dimens.RadiusCard) }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(Dimens.CardHeight)
-            .clip(RoundedCornerShape(Dimens.RadiusCard))
-            .background(CardSurface, RoundedCornerShape(Dimens.RadiusCard))
-            .border(Dimens.BorderThin, CardBorder, RoundedCornerShape(Dimens.RadiusCard))
+            .clip(cardShape)
+            .background(CardSurface, cardShape)
+            .border(Dimens.BorderThin, CardBorder, cardShape)
             .clickable(onClick = onSeeMoreClicked)
+
             .padding(
                 start = Dimens.CardPaddingStart,
                 top = Dimens.CardPaddingTop,

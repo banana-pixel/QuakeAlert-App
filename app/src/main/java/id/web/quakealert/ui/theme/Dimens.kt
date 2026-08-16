@@ -31,10 +31,16 @@ object Dimens {
     // --- History list -------------------------------------------------------
     /** Vertical spacing between history cards (Figma gap 20). */
     val CardListSpacing = 20.dp
-    /** Top/bottom padding around the scrolling card list (Figma padding 20 0). */
-    val CardListVerticalPadding = 20.dp
-    /** Height of the soft fade drawn at the top/bottom edges of the list. */
-    val ListFadeHeight = 24.dp
+    /** Top padding above the first card in the scrolling list (Figma padding 20). */
+    val CardListTopPadding = 20.dp
+    /**
+     * Bottom padding below the last card. Kept at 0 so the final card sits flush
+     * against the top edge of the bottom navigation bar (no accumulated gap).
+     */
+    val CardListBottomPadding = 0.dp
+    /** Height of the soft fade drawn at the top edge of the list. */
+    val ListFadeHeight = 16.dp
+
 
 
     // --- History card -------------------------------------------------------
