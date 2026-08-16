@@ -4,25 +4,38 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="#FFFFFF">
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M23,4 L23,10 L17,10" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M1,20 L1,14 L7,14" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M3.51,9 C4.01,7.57 4.87,6.29 6,5.28 C7.13,4.27 8.51,3.55 10,3.21 C11.49,2.86 13.04,2.9 14.51,3.32 C15.98,3.74 17.32,4.52 18.41,5.6 L23,10 M1,14 L5.59,18.4 C6.68,19.48 8.02,20.26 9.49,20.68 C10.96,21.1 12.51,21.14 14,20.79 C15.49,20.45 16.87,19.73 18,18.72 C19.13,17.71 19.99,16.43 20.49,15" />
+    <!--
+     Inset the glyph inside its own viewport so the 2px round-capped stroke
+     (whose caps otherwise spill to x=0/24 & y~2/22) keeps a 1.5px margin on
+     every side and is not clipped when the vector is scaled up into the 32dp
+     icon slot. scale 0.875 + translate 1.5 recenters the 24u artwork.
+    -->
+    <group
+        android:scaleX="0.875"
+        android:scaleY="0.875"
+        android:translateX="1.5"
+        android:translateY="1.5">
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M23,4 L23,10 L17,10" />
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M1,20 L1,14 L7,14" />
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M3.51,9 C4.01,7.57 4.87,6.29 6,5.28 C7.13,4.27 8.51,3.55 10,3.21 C11.49,2.86 13.04,2.9 14.51,3.32 C15.98,3.74 17.32,4.52 18.41,5.6 L23,10 M1,14 L5.59,18.4 C6.68,19.48 8.02,20.26 9.49,20.68 C10.96,21.1 12.51,21.14 14,20.79 C15.49,20.45 16.87,19.73 18,18.72 C19.13,17.71 19.99,16.43 20.49,15" />
+    </group>
 </vector>
+

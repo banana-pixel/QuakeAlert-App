@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+
+
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -104,9 +107,10 @@ fun SettingCard(
     val shape = RoundedCornerShape(Dimens.SettingCardRadius)
     val base = modifier
         .fillMaxWidth()
+        .heightIn(min = Dimens.SettingCardHeight)
         .clip(shape)
         .background(CardSurface, shape)
-        .border(Dimens.BorderMedium, SettingCardBorder, shape)
+        .border(Dimens.BorderThin, SettingCardBorder, shape)
     val clickable = if (onClick != null) base.clickable(onClick = onClick) else base
 
     Row(
@@ -114,6 +118,7 @@ fun SettingCard(
             horizontal = Dimens.SettingCardPaddingHorizontal,
             vertical = Dimens.SettingCardPaddingVertical
         ),
+
         horizontalArrangement = Arrangement.spacedBy(Dimens.SettingCardContentGap),
 
         verticalAlignment = Alignment.CenterVertically

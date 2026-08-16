@@ -169,10 +169,18 @@ object Dimens {
     // Language) shares identical chrome: 16dp radius, 16h/14v inner padding,
     // 1dp white-10% stroke.
     val SettingCardRadius = 16.dp
-    /** Uniform horizontal inner padding for every setting card. */
+    /**
+     * Fixed card height so every setting row (Coverage, Sync, Auto Sync, Test
+     * Sound, Keep Alerting, Light Mode, Language) is byte-identical regardless of
+     * its trailing control. Derived from the Figma card (node 1:868): 10dp top +
+     * 36dp title line-height + 10dp bottom = 56dp.
+     */
+    val SettingCardHeight = 56.dp
+    /** Uniform horizontal inner padding for every setting card (Figma 10). */
     val SettingCardPaddingHorizontal = 16.dp
-    /** Uniform vertical inner padding for every setting card. */
-    val SettingCardPaddingVertical = 14.dp
+    /** Uniform vertical inner padding for every setting card (Figma 10). */
+    val SettingCardPaddingVertical = 10.dp
+
     /** Gap between a card's text column and its trailing control (Figma gap 12). */
     val SettingCardContentGap = 12.dp
     /** Inner gap between a card title and its sub-line (Figma gap 6). */
