@@ -25,6 +25,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeCard
+import id.web.quakealert.ui.common.QuakePill
 import id.web.quakealert.ui.common.QuakeSwitch
 import id.web.quakealert.ui.common.fadingEdges
 import id.web.quakealert.ui.sensors.SensorMapCard
@@ -140,9 +141,12 @@ fun SettingsScreen(
             }
 
             item(key = "card_location") {
+                // Static "Sync Location Now" title (Figma node 1:876). The
+                // detected location name lives only on the map card header above
+                // to avoid duplicating location text across the section.
                 QuakeCard(
-                    title = uiState.locationLabel,
-                    detail = { InfoPill(text = uiState.lastSyncPillLabel) }
+                    title = "Sync Location Now",
+                    detail = { QuakePill(text = uiState.lastSyncPillLabel) }
                 ) {
                     SyncRefreshButton(onClick = onSyncLocationNow)
                 }
