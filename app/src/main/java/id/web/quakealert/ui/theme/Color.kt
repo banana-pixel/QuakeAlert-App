@@ -145,6 +145,30 @@ val AboutCardBorder = Color(0x66087900)         // green 40% about-card stroke
 // Last-sync / info pill on setting cards
 val InfoPillFill = Color(0x78000000)            // rgba(0,0,0,0.47) info pill fill
 
+// ============================================================
+// Chat screen palette — QuakeAlert (Figma node 1:925)
+// ============================================================
+
+// Channel/Network card gradient (linear 90deg, teal-blue → olive-green)
+// linear-gradient(90deg, rgba(0,52,86,1) 0%, rgba(32,52,0,1) 100%)
+val ChatChannelGradientStart = Color(0xFF003456)  // rgba(0,52,86,1)
+val ChatChannelGradientEnd = Color(0xFF203400)    // rgba(32,52,0,1)
+val ChatChannelCardGradient = Brush.horizontalGradient(
+    colors = listOf(ChatChannelGradientStart, ChatChannelGradientEnd)
+)
+
+// Incoming message bubble reuses CardSurface (#222222) + CardBorder (white 10%).
+val ChatIncomingFill = CardSurface                // #222222
+// Outgoing message bubble — dark teal/cyan fill #032B39 with a cyan accent stroke.
+val ChatOutgoingFill = Color(0xFF032B39)          // outgoing bubble fill #032B39
+val ChatOutgoingBorder = Color(0x4D0998CC)        // cyan 30% outgoing bubble stroke
+
+// Chat input field & send button
+val ChatInputFill = Color(0x47FFFFFF)             // input container rgba(255,255,255,0.28)
+val ChatSendButtonFill = Color(0x470998CC)        // send button rgba(9,152,204,0.28)
+
+
+
 // "Sync Location Now" refresh action — dark rounded container behind the icon
 val SyncButtonFill = Color(0xFF2A2A2A)          // refresh action container fill #2A2A2A
 

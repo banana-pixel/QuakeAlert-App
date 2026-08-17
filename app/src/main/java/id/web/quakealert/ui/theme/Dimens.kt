@@ -227,8 +227,63 @@ object Dimens {
     val AboutButtonPaddingVertical = 8.dp
     val AboutButtonRadius = 12.dp
 
+    // --- Chat screen --------------------------------------------------------
+    /** Gap between the header block (title + channel card) and the message list (Figma 16). */
+    val ChatHeaderGap = 16.dp
+    /** Channel/network card height (Figma node 1:934: fixed 69). */
+    val ChatChannelCardHeight = 69.dp
+    /** Channel card inner padding (Figma padding 10 20). */
+    val ChatChannelCardPaddingHorizontal = 20.dp
+    val ChatChannelCardPaddingVertical = 10.dp
+    /** Gap between the channel text block and the trailing switch icon (Figma gap 11). */
+    val ChatChannelCardContentGap = 11.dp
+    /** Gap between the channel globe icon and its title (Figma gap 5). */
+    val ChatChannelIconGap = 5.dp
+    /** Inner gap between the channel title and the "N users online" subtitle (Figma gap 4). */
+    val ChatChannelTitleGap = 4.dp
+    val ChatChannelGlobeWidth = 19.dp
+    val ChatChannelGlobeHeight = 20.dp
+    val ChatChannelSwitchIconSize = 22.dp
+
+    /** Vertical spacing between message bubbles / date separators in the list. */
+    val ChatMessageSpacing = 10.dp
+    /** Top padding above the first bubble in the scrolling list (Figma padding 20). */
+    val ChatListTopPadding = 20.dp
+    /** Bottom padding below the last bubble, above the input bar. */
+    val ChatListBottomPadding = 20.dp
+    /** Max fraction of the row width a single bubble may occupy. */
+    val ChatBubbleMaxWidthFraction = 0.78f
+
+    // Message bubble
+    val ChatBubblePaddingHorizontal = 10.dp
+    val ChatBubblePaddingVertical = 5.dp
+    /** Inner gap between the (optional) sender name and the message body (Figma gap 0 / tight). */
+    val ChatBubbleContentGap = 2.dp
+    /** Gap between the bubble body and its trailing timestamp (Figma gap 10). */
+    val ChatBubbleTimeGap = 10.dp
+    val ChatBubbleRadius = 10.dp
+
+    // Date separator pill (Figma template EL-c963c95e)
+    val ChatDateSeparatorHeight = 23.dp
+    val ChatDateSeparatorPaddingHorizontal = 12.dp
+    val ChatDateSeparatorRadius = 10.dp
+
+    // Input bar (Figma node 1:1017)
+    /** Gap between the text field and the send button (Figma gap 18). */
+    val ChatInputRowGap = 18.dp
+    /** Bottom padding below the input row (Figma padding-bottom 20). */
+    val ChatInputBottomPadding = 20.dp
+    val ChatInputFieldPaddingHorizontal = 14.dp
+    val ChatInputFieldPaddingVertical = 12.dp
+    val ChatInputFieldRadius = 10.dp
+    /** Send button is a fixed 50×50 rounded square (Figma node 1:1020). */
+    val ChatSendButtonSize = 50.dp
+    val ChatSendButtonRadius = 10.dp
+    val ChatSendIconSize = 30.dp
+
     // --- Corner radii -------------------------------------------------------
     val RadiusSmall = 10.dp
+
 
     /** Fully-rounded stadium radius for capsule pills. */
     val RadiusStadium = 100.dp

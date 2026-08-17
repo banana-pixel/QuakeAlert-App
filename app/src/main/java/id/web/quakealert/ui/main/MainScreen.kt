@@ -48,6 +48,7 @@ import androidx.compose.ui.res.painterResource
 
 import androidx.compose.ui.tooling.preview.Preview
 import id.web.quakealert.R
+import id.web.quakealert.ui.chat.ChatRoute
 import id.web.quakealert.ui.history.HistoryRoute
 import id.web.quakealert.ui.sensors.SensorsRoute
 import id.web.quakealert.ui.settings.SettingsRoute
@@ -123,6 +124,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     MainDestination.SENSORS -> SensorsRoute(
                         onOpenSettings = { selected = MainDestination.SETTINGS }
                     )
+                    MainDestination.CHAT -> ChatRoute()
                     MainDestination.SETTINGS -> SettingsRoute()
                     else -> Unit // Placeholder until other flows are implemented.
 
