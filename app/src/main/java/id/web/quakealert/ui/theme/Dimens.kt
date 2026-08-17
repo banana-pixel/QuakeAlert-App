@@ -281,6 +281,57 @@ object Dimens {
     val ChatSendButtonRadius = 10.dp
     val ChatSendIconSize = 30.dp
 
+    // --- Warning screen (Figma node 1:1024) ---------------------------------
+    /** Vertical gap between the top header block and the scrolling content. */
+    val WarningHeaderGap = 16.dp
+    /** Vertical spacing between the banner block, divider, tips and CTA. */
+    val WarningSectionSpacing = 20.dp
+    /** Bottom padding below the last element in the scrolling list. */
+    val WarningListBottomPadding = CardListSpacing
+
+    // Alert banner card (Figma node 1:1035)
+    /** Banner fixed height (Figma 162). */
+    val AlertBannerHeight = 162.dp
+    /** Banner inner padding (Figma 20). */
+    val AlertBannerPadding = 20.dp
+    val AlertBannerRadius = 14.dp
+    /** Inner gap between the title line and "20 minutes ago". */
+    val AlertBannerTitleGap = 2.dp
+    /** Seismograph waveform icon size (Figma 74). */
+    val AlertWaveIconSize = 74.dp
+    /** "SEE DETAILS" capsule width (Figma 101) + padding (Figma 8/10). */
+    val AlertActionWidth = 101.dp
+    val AlertActionPaddingHorizontal = 10.dp
+    val AlertActionPaddingVertical = 8.dp
+    val AlertActionRadius = 10.dp
+
+    // Divider (Figma node 1:1036/1:1037)
+    /** Short centered drag-handle bar width (Figma 100). */
+    val WarningDividerWidth = 100.dp
+    /** Drag-handle stroke weight (Figma 3px). */
+    val WarningDividerThickness = 3.dp
+    /** Vertical padding around the divider (Figma 10). */
+    val WarningDividerPaddingVertical = 10.dp
+
+    // Preparedness tips list (Figma node 1:1038)
+    /** Vertical spacing between tip rows (Figma gap 20). */
+    val PrepTipSpacing = 20.dp
+    /** Gap between the section title and the first tip (Figma gap 20). */
+    val PrepSectionGap = 20.dp
+    /** Gap between a tip's icon circle and its text column (Figma gap 10). */
+    val PrepTipContentGap = 10.dp
+    /** Circular tip icon container diameter. */
+    val PrepIconCircleSize = 55.dp
+    /** Glyph size inside the tip icon circle (Figma 35). */
+    val PrepIconGlyphSize = 35.dp
+    /** Inner gap between a tip title and its description (Figma gap 2). */
+    val PrepTipTextGap = 2.dp
+
+    // Emergency bottom CTA (Figma node 1:1039)
+    /** CTA fixed height (Figma 34). */
+    val EmergencyCtaHeight = 34.dp
+    val EmergencyCtaRadius = 10.dp
+
     // --- Corner radii -------------------------------------------------------
     val RadiusSmall = 10.dp
 

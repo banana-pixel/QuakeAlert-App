@@ -178,6 +178,32 @@ val SyncButtonFill = Color(0xFF2A2A2A)          // refresh action container fill
 
 
 
+// ============================================================
+// Warning screen palette — QuakeAlert (Figma node 1:1024)
+// ============================================================
+
+// Alert banner card — deep crimson vertical gradient
+// linear-gradient(180deg, rgba(175,0,0,1) 0%, rgba(76,2,2,1) 100%)
+val AlertBannerGradientTop = Color(0xFFAF0000)     // rgba(175,0,0,1)
+val AlertBannerGradientBottom = Color(0xFF4C0202)  // rgba(76,2,2,1)
+val AlertBannerGradient = Brush.verticalGradient(
+    colors = listOf(AlertBannerGradientTop, AlertBannerGradientBottom)
+)
+
+/** "SEE DETAILS" capsule stroke — translucent white 30% (Figma fill_a7745cf9). */
+val AlertActionBorder = Color(0x4DFFFFFF)          // white 30%
+
+/** Short subtle drag-handle divider between the banner and the tips (Figma 1:1037). */
+val WarningDividerColor = Color(0x66FFFFFF)        // white 40%
+
+/** Preparedness tip circle icon — transparent fill + thin white stroke. */
+val PrepIconBorder = Color(0x4DFFFFFF)             // white 30% icon-circle stroke
+
+/** Emergency bottom CTA — dark wine/crimson container rgba(179,54,54,0.31). */
+val EmergencyCtaFill = Color(0x4FB33636)           // rgba(179,54,54,0.31)
+val EmergencyCtaBorder = Color(0x4DFFFFFF)         // white 30% CTA stroke
+
+
 /**
  * Vertical background gradient used across onboarding screens,
  * mirroring the Figma frame fill.
@@ -185,3 +211,4 @@ val SyncButtonFill = Color(0xFF2A2A2A)          // refresh action container fill
 val OnboardingBackgroundBrush = Brush.verticalGradient(
     colors = listOf(BackgroundGradientTop, BackgroundGradientBottom)
 )
+
