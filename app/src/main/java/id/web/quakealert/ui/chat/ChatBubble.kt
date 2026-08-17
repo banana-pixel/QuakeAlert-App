@@ -36,8 +36,12 @@ import id.web.quakealert.ui.theme.TextSecondary
  * A single chat message row (Figma node 1:925). Incoming messages
  * ([ChatAuthor.OTHER]) align to the start with a grey [ChatIncomingFill] bubble
  * that shows the sender's name; outgoing messages ([ChatAuthor.ME]) align to
- * the end with a cyan [ChatOutgoingFill] bubble. A dimmed timestamp trails the
- * bubble on the appropriate side.
+ * the end with a cyan [ChatOutgoingFill] bubble.
+ *
+ * Following modern chat-UI convention, the timestamp lives *inside* the bubble,
+ * locked to the bottom-end corner via a trailing [Row] aligned with
+ * [Alignment.End]. Layout order inside the bubble: sender name (incoming only),
+ * message body, then the bottom-end timestamp.
  *
  * The bubble is width-constrained to [Dimens.ChatBubbleMaxWidthFraction] of the
  * row so long messages wrap instead of stretching edge-to-edge.
@@ -52,13 +56,8 @@ fun ChatBubble(
 
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Bottom
+        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
     ) {
-        if (isMine) {
-            Timestamp(message.time, Modifier.padding(end = Dimens.ChatBubbleTimeGap))
-        }
-
         val bubbleModifier = Modifier
             .fillMaxWidth(Dimens.ChatBubbleMaxWidthFraction)
             .wrapContentWidth(if (isMine) Alignment.End else Alignment.Start)
@@ -91,10 +90,11 @@ fun ChatBubble(
                 )
             }
             Text(text = message.body, style = CardTitle, fontWeight = FontWeight.Normal)
-        }
 
-        if (!isMine) {
-            Timestamp(message.time, Modifier.padding(start = Dimens.ChatBubbleTimeGap))
+            // Timestamp locked to the bottom-end corner inside the bubble.
+            Row(modifier = Modifier.align(Alignment.End)) {
+                Timestamp(message.time)
+            }
         }
     }
 }
