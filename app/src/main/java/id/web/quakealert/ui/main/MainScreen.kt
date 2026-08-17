@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -117,7 +118,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    // Reserve the bottom-bar space AND mark those insets consumed
+                    // so a descendant's imePadding() subtracts the already-applied
+                    // bottom offset instead of double-counting it (Rule A).
                     .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding)
             ) {
                 when (destination) {
                     MainDestination.HISTORY -> HistoryRoute()
