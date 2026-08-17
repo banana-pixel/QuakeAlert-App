@@ -27,9 +27,8 @@ import id.web.quakealert.ui.theme.ChatIncomingFill
 import id.web.quakealert.ui.theme.ChatOutgoingBorder
 import id.web.quakealert.ui.theme.ChatOutgoingFill
 import id.web.quakealert.ui.theme.Dimens
-import id.web.quakealert.ui.theme.NunitoFontFamily
 import id.web.quakealert.ui.theme.QuakeAlertTheme
-import id.web.quakealert.ui.theme.TextPrimary
+import id.web.quakealert.ui.theme.SectionHeaderPillFill
 import id.web.quakealert.ui.theme.TextSecondary
 
 /**
@@ -107,6 +106,12 @@ private fun Timestamp(time: String, modifier: Modifier = Modifier) {
 /**
  * A centered date-separator pill (Figma date chip) marking a new calendar day in
  * the message stream (e.g. "Today", "Yesterday").
+ *
+ * Styled consistently with the Settings [SectionHeaderPill] ("Location &
+ * Coverage") — same [Dimens.RadiusStadium] capsule, [SectionHeaderPillFill] fill,
+ * [CardBorder] stroke, [Dimens.SectionHeaderPillHeight] height,
+ * [Dimens.SectionHeaderPillPaddingHorizontal] internal padding and [CardTitle]
+ * label — so date chips read as the same design element as section headers.
  */
 @Composable
 fun ChatDateSeparatorRow(
@@ -117,22 +122,22 @@ fun ChatDateSeparatorRow(
         modifier = modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center
     ) {
-        val shape = RoundedCornerShape(Dimens.ChatDateSeparatorRadius)
-        Text(
-            text = separator.label,
-            fontFamily = NunitoFontFamily,
-            fontWeight = FontWeight.Bold,
-            style = CardSubtitle,
-            color = TextPrimary,
-            textAlign = TextAlign.Center,
+        val shape = RoundedCornerShape(Dimens.RadiusStadium)
+        Box(
             modifier = Modifier
-                .height(Dimens.ChatDateSeparatorHeight)
+                .height(Dimens.SectionHeaderPillHeight)
                 .clip(shape)
-                .background(ChatIncomingFill, shape)
+                .background(SectionHeaderPillFill, shape)
                 .border(Dimens.BorderThin, CardBorder, shape)
-                .padding(horizontal = Dimens.ChatDateSeparatorPaddingHorizontal)
-                .wrapContentWidth()
-        )
+                .padding(horizontal = Dimens.SectionHeaderPillPaddingHorizontal),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = separator.label,
+                style = CardTitle,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
