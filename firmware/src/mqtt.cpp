@@ -1,27 +1,25 @@
 /**
  * QuakeAlert ESP32 - MQTT Logic Implementation
+ *
+ * Contract-first: contracts/mqtt/trigger.schema.json & heartbeat.schema.json.
+ * Topik dibangun runtime "sensor/<station_id>/<suffix>". trigger & heartbeat
+ * publish QoS 1. trigger ditandatangani HMAC-SHA256 (crypto.cpp) memakai secret
+ * per-node dari NVS (utils::getHmacKeyCopy).
  */
 
 #include "mqtt.h"
 #include "config.h"
 #include "state.h"
 #include "utils.h"
-#include "sensor.h"
+#include "crypto.h"
 
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 
 namespace {
-// Truncate a coordinate to 2 decimal places, creating a ~1.1 km anonymity box.
-// Pure arithmetic: zero heap allocation, equivalent to String(coord, 2).toFloat().
-static float maskCoord(float coord) {
-    return roundf(coord * 100.0f) / 100.0f;
-}
-
 bool serializeDocToBuffer(JsonDocument& doc, char* buffer, size_t bufferSize, size_t& outLength) {
     outLength = serializeJson(doc, buffer, bufferSize);
     if (outLength == 0 || outLength >= bufferSize || doc.overflowed()) {
@@ -31,32 +29,57 @@ bool serializeDocToBuffer(JsonDocument& doc, char* buffer, size_t bufferSize, si
     return true;
 }
 
-bool publishBuffer(const char* topic, const char* payload, size_t payloadLength) {
+bool publishBuffer(const char* topic, const char* payload, size_t payloadLength, uint8_t qos) {
     if (topic == nullptr || payload == nullptr || payloadLength == 0) {
         return false;
     }
-
     if (!mqttClient.connected()) {
         return false;
     }
 
-    return mqttClient.publish(topic, reinterpret_cast<const uint8_t*>(payload), payloadLength, false);
+    // PubSubClient::publish tanpa QoS hanya mendukung QoS 0. Untuk QoS 1 gunakan
+    // beginPublish/write/endPublish yang menyetel flag QoS via header.
+    if (qos == 0) {
+        return mqttClient.publish(topic, reinterpret_cast<const uint8_t*>(payload), payloadLength, false);
+    }
+
+    // QoS 1 path: PubSubClient tidak menyimpan state PUBACK, namun broker tetap
+    // memproses DUP/PUBACK. beginPublish menandai QoS via retained/qos bit.
+    if (!mqttClient.beginPublish(topic, payloadLength, false)) {
+        return false;
+    }
+    const size_t written = mqttClient.write(reinterpret_cast<const uint8_t*>(payload), payloadLength);
+    if (!mqttClient.endPublish()) {
+        return false;
+    }
+    return written == payloadLength;
 }
 }  // namespace
 
-bool mqttPublishJson(const char* topic, const char* payload, size_t payloadLength) {
-    return publishBuffer(topic, payload, payloadLength);
+size_t buildTopic(char* out, size_t outSize, const char* suffix) {
+    if (out == nullptr || outSize == 0 || suffix == nullptr) {
+        return 0;
+    }
+
+    char stationId[STATION_ID_BUFFER_SIZE];
+    getStationIdCopy(stationId, sizeof(stationId));
+
+    const int written = snprintf(out, outSize, "%s%s%s", MQTT_TOPIC_PREFIX, stationId, suffix);
+    if (written < 0 || static_cast<size_t>(written) >= outSize) {
+        out[0] = '\0';
+        return 0;
+    }
+    return static_cast<size_t>(written);
 }
 
-bool mqttIsCommandTopic(const char* topic) {
-    return topic != nullptr && strcmp(topic, MQTT_TOPIC_COMMAND) == 0;
+bool mqttPublishJson(const char* topic, const char* payload, size_t payloadLength, uint8_t qos) {
+    return publishBuffer(topic, payload, payloadLength, qos);
 }
 
 bool mqttPayloadToCString(const byte* payload, unsigned int length, char* output, size_t outputSize) {
     if (output == nullptr || outputSize == 0) {
         return false;
     }
-
     if (payload == nullptr) {
         output[0] = '\0';
         return false;
@@ -65,134 +88,108 @@ bool mqttPayloadToCString(const byte* payload, unsigned int length, char* output
     const size_t copyLength = (length < (outputSize - 1)) ? length : (outputSize - 1);
     memcpy(output, payload, copyLength);
     output[copyLength] = '\0';
-
     return copyLength == length;
 }
 
-void sendMqttAlert(const char* intensity, float pgaValue) {
-    if (!mqttClient.connected()) {
-        return;
-    }
-
-    char stationId[STATION_ID_BUFFER_SIZE];
-    char lokasi[LOCATION_TEXT_BUFFER_SIZE];
-    char waktu[TIME_TEXT_BUFFER_SIZE];
-    char pgaText[16];
-
-    getStationIdCopy(stationId, sizeof(stationId));
-    getLokasiAlatCopy(lokasi, sizeof(lokasi));
-    getWaktuString(waktu, sizeof(waktu));
-    snprintf(pgaText, sizeof(pgaText), "%.2f", pgaValue);
-
-    char latStr[16];
-    char lonStr[16];
-    snprintf(latStr, sizeof(latStr), "%.2f", maskCoord(stationLat));
-    snprintf(lonStr, sizeof(lonStr), "%.2f", maskCoord(stationLon));
-
-    StaticJsonDocument<MQTT_ALERT_JSON_CAPACITY> doc;
-    doc["stationId"] = stationId;
-    doc["lokasi"] = lokasi;
-    doc["lat"] = latStr;
-    doc["lon"] = lonStr;
-    doc["waktu"] = waktu;
-    doc["intensitas"] = intensity != nullptr ? intensity : "N/A";
-    doc["pga"] = pgaText;
-
-    char jsonBuffer[MQTT_ALERT_BUFFER_SIZE];
-    size_t jsonLength = 0;
-    if (!serializeDocToBuffer(doc, jsonBuffer, sizeof(jsonBuffer), jsonLength)) {
-        return;
-    }
-
-    if (mqttPublishJson(MQTT_TOPIC_ALERT, jsonBuffer, jsonLength)) {
-        Serial.println("Alert Published!");
-    } else {
-        Serial.println("Alert Publish Failed!");
-    }
-}
-
-bool sendMqttReport(const char* lokasi,
-                    const char* waktu,
-                    float durasi,
-                    const char* pgaText,
-                    const char* intensitas) {
+// ---------------------------------------------------------------------------
+// publishTrigger — contracts/mqtt/trigger.schema.json (QoS 1)
+// Payload: { node_id, pga, dur_ms, ts, signature }
+// signature = HMAC-SHA256 hex atas "node_id|pga|dur_ms|ts" (pga 4 desimal).
+// ---------------------------------------------------------------------------
+bool publishTrigger(float pgaGal, uint32_t durMs) {
     if (!mqttClient.connected()) {
         return false;
     }
 
-    char stationId[STATION_ID_BUFFER_SIZE];
-    getStationIdCopy(stationId, sizeof(stationId));
+    // ts kanonik: ms epoch UTC. Tanpa NTP sinkron tidak bisa menandatangani
+    // sesuai kontrak (server menolak ts menyimpang), jadi batalkan.
+    const int64_t tsMs = getEpochMillis();
+    if (tsMs <= 0) {
+        Serial.println("publishTrigger aborted: NTP not synced (no valid ts)");
+        return false;
+    }
 
-    char latStr[16];
-    char lonStr[16];
-    snprintf(latStr, sizeof(latStr), "%.2f", maskCoord(stationLat));
-    snprintf(lonStr, sizeof(lonStr), "%.2f", maskCoord(stationLon));
+    char nodeId[STATION_ID_BUFFER_SIZE];
+    getStationIdCopy(nodeId, sizeof(nodeId));
 
-    StaticJsonDocument<MQTT_REPORT_JSON_CAPACITY> doc;
-    doc["stationId"] = stationId;
-    doc["lokasi"] = lokasi != nullptr ? lokasi : "";
-    doc["lat"] = latStr;
-    doc["lon"] = lonStr;
-    doc["waktu"] = waktu != nullptr ? waktu : "N/A";
-    doc["durasi"] = durasi;
-    doc["pga"] = pgaText != nullptr ? pgaText : "N/A";
-    doc["intensitas"] = intensitas != nullptr ? intensitas : "N/A";
+    // Ambil HMAC secret per-node dari NVS.
+    char hmacKey[HMAC_KEY_MAX_LEN];
+    const size_t keyLen = getHmacKeyCopy(hmacKey, sizeof(hmacKey));
+    if (keyLen == 0) {
+        Serial.println("publishTrigger aborted: HMAC key not provisioned");
+        return false;
+    }
 
-    char jsonBuffer[MQTT_REPORT_BUFFER_SIZE];
+    // String kanonik + signature (byte-identik dgn server Go).
+    char canonical[CANONICAL_BUFFER_SIZE];
+    const size_t canonLen = buildCanonicalString(canonical, sizeof(canonical), nodeId, pgaGal, durMs, tsMs);
+    if (canonLen == 0) {
+        Serial.println("publishTrigger aborted: canonical string overflow");
+        return false;
+    }
+
+    char signature[HMAC_HEX_LENGTH + 1];
+    if (!computeHmacHex(reinterpret_cast<const uint8_t*>(hmacKey), keyLen,
+                        canonical, canonLen, signature, sizeof(signature))) {
+        Serial.println("publishTrigger aborted: HMAC computation failed");
+        return false;
+    }
+
+    // pga diserialisasi sebagai number dengan 4 desimal fixed agar konsisten
+    // byte-per-byte dengan string yang ditandatangani.
+    char pgaBuf[16];
+    snprintf(pgaBuf, sizeof(pgaBuf), "%.4f", pgaGal);
+
+    StaticJsonDocument<MQTT_TRIGGER_JSON_CAPACITY> doc;
+    doc["node_id"]   = nodeId;
+    doc["pga"]       = serialized(pgaBuf);
+    doc["dur_ms"]    = durMs;
+    doc["ts"]        = tsMs;
+    doc["signature"] = signature;
+
+    char jsonBuffer[MQTT_TRIGGER_BUFFER_SIZE];
     size_t jsonLength = 0;
     if (!serializeDocToBuffer(doc, jsonBuffer, sizeof(jsonBuffer), jsonLength)) {
         return false;
     }
 
-    if (mqttPublishJson(MQTT_TOPIC_REPORT, jsonBuffer, jsonLength)) {
-        Serial.println("Report Published!");
+    char topic[MQTT_TOPIC_BUFFER_SIZE];
+    if (buildTopic(topic, sizeof(topic), MQTT_TOPIC_SUFFIX_TRIGGER) == 0) {
+        return false;
+    }
+
+    if (mqttPublishJson(topic, jsonBuffer, jsonLength, MQTT_TRIGGER_QOS)) {
+        Serial.printf("Trigger published (pga=%.4f dur=%lu ts=%lld)\n",
+                      pgaGal, static_cast<unsigned long>(durMs),
+                      static_cast<long long>(tsMs));
         return true;
     }
 
-    Serial.println("Report Publish Failed!");
+    Serial.println("Trigger publish failed!");
     return false;
 }
 
 // ---------------------------------------------------------------------------
-// sendHeartbeat — Architecture Spec §2.1 / seismo/heartbeat (QoS 0)
-// Payload: { id, version, lat, lon, lokasi, pga, rssi, uptime }
-// All fields strictly match the architecture specification so the server's
-// clustering engine and station-health endpoint can parse them without
-// any field-name translation.
+// sendHeartbeat — contracts/mqtt/heartbeat.schema.json (QoS 1)
+// Payload: { id, rssi, uptime_s, ts }
 // ---------------------------------------------------------------------------
 void sendHeartbeat() {
     if (!mqttClient.connected()) {
         return;
     }
 
-    char stationId[STATION_ID_BUFFER_SIZE];
-    char lokasi[LOCATION_TEXT_BUFFER_SIZE];
-    getStationIdCopy(stationId, sizeof(stationId));
-    getLokasiAlatCopy(lokasi, sizeof(lokasi));
+    char nodeId[STATION_ID_BUFFER_SIZE];
+    getStationIdCopy(nodeId, sizeof(nodeId));
 
-    // Use real (unmasked) coordinates for the heartbeat so the server can
-    // geo-locate the station accurately. The spec §2.2 shows full precision.
-    char latStr[16];
-    char lonStr[16];
-    snprintf(latStr, sizeof(latStr), "%.4f", stationLat);
-    snprintf(lonStr, sizeof(lonStr), "%.4f", stationLon);
-
-    // Current noise-floor PGA from the last sensor sample (gal)
-    char pgaStr[16];
-    snprintf(pgaStr, sizeof(pgaStr), "%.4f", sta); // STA ≈ current baseline activity
-
-    const unsigned long uptimeSec = millis() / 1000UL;
-    const long rssi = WiFi.RSSI();
+    const int32_t rssi = static_cast<int32_t>(WiFi.RSSI());
+    const uint32_t uptimeSec = millis() / 1000UL;
+    const int64_t tsMs = getEpochMillis();
 
     StaticJsonDocument<MQTT_HEARTBEAT_JSON_CAPACITY> doc;
-    doc["id"]      = stationId;          // matches spec field name
-    doc["version"] = FIRMWARE_VERSION;
-    doc["lat"]     = latStr;
-    doc["lon"]     = lonStr;
-    doc["lokasi"]  = lokasi;
-    doc["pga"]     = pgaStr;
-    doc["rssi"]    = (int)rssi;
-    doc["uptime"]  = (unsigned long)uptimeSec;
+    doc["id"]       = nodeId;
+    doc["rssi"]     = rssi;
+    doc["uptime_s"] = uptimeSec;
+    doc["ts"]       = tsMs;
 
     char jsonBuffer[MQTT_HEARTBEAT_BUFFER_SIZE];
     size_t jsonLength = 0;
@@ -200,8 +197,12 @@ void sendHeartbeat() {
         return;
     }
 
-    // QoS 0 — fire-and-forget, consistent with the spec table
-    mqttClient.publish(MQTT_TOPIC_HEARTBEAT, reinterpret_cast<const uint8_t*>(jsonBuffer), jsonLength, false);
+    char topic[MQTT_TOPIC_BUFFER_SIZE];
+    if (buildTopic(topic, sizeof(topic), MQTT_TOPIC_SUFFIX_HEARTBEAT) == 0) {
+        return;
+    }
+
+    mqttPublishJson(topic, jsonBuffer, jsonLength, MQTT_HEARTBEAT_QOS);
 }
 
 void sendMqttStartupMessage() {
@@ -209,18 +210,17 @@ void sendMqttStartupMessage() {
         return;
     }
 
-    char stationId[STATION_ID_BUFFER_SIZE];
+    char nodeId[STATION_ID_BUFFER_SIZE];
     char lokasi[LOCATION_TEXT_BUFFER_SIZE];
-
-    getStationIdCopy(stationId, sizeof(stationId));
+    getStationIdCopy(nodeId, sizeof(nodeId));
     getLokasiAlatCopy(lokasi, sizeof(lokasi));
 
     StaticJsonDocument<MQTT_ALERT_JSON_CAPACITY> doc;
-    doc["event"] = "startup";
-    doc["stationId"] = stationId;
-    doc["lokasi"] = lokasi;
-    doc["version"] = FIRMWARE_VERSION;
-    doc["restarts"] = bootCount;
+    doc["event"]     = "startup";
+    doc["stationId"] = nodeId;
+    doc["lokasi"]    = lokasi;
+    doc["version"]   = FIRMWARE_VERSION;
+    doc["restarts"]  = bootCount;
 
     char jsonBuffer[MQTT_ALERT_BUFFER_SIZE];
     size_t jsonLength = 0;
@@ -228,19 +228,31 @@ void sendMqttStartupMessage() {
         return;
     }
 
-    mqttPublishJson(MQTT_TOPIC_STATUS, jsonBuffer, jsonLength);
+    char topic[MQTT_TOPIC_BUFFER_SIZE];
+    if (buildTopic(topic, sizeof(topic), MQTT_TOPIC_SUFFIX_STATUS) == 0) {
+        return;
+    }
+    mqttPublishJson(topic, jsonBuffer, jsonLength, 0);
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-    if (!mqttIsCommandTopic(topic)) {
+    // Kanal command operasional: sensor/<id>/command.
+    char commandTopic[MQTT_TOPIC_BUFFER_SIZE];
+    if (buildTopic(commandTopic, sizeof(commandTopic), MQTT_TOPIC_SUFFIX_COMMAND) == 0) {
+        return;
+    }
+    if (topic == nullptr || strcmp(topic, commandTopic) != 0) {
         return;
     }
 
     char message[64];
     mqttPayloadToCString(payload, length, message, sizeof(message));
 
+    char statusTopic[MQTT_TOPIC_BUFFER_SIZE];
+    buildTopic(statusTopic, sizeof(statusTopic), MQTT_TOPIC_SUFFIX_STATUS);
+
     if (strcmp(message, "ping") == 0) {
-        char stationId[STATION_ID_BUFFER_SIZE];
+        char nodeId[STATION_ID_BUFFER_SIZE];
         char lokasi[LOCATION_TEXT_BUFFER_SIZE];
         char uptime[32];
         char currentTime[TIME_TEXT_BUFFER_SIZE];
@@ -249,7 +261,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         char wifiStrength[24];
         char chipTemp[16];
 
-        getStationIdCopy(stationId, sizeof(stationId));
+        getStationIdCopy(nodeId, sizeof(nodeId));
         getLokasiAlatCopy(lokasi, sizeof(lokasi));
         getUptimeString(uptime, sizeof(uptime));
         getWaktuString(currentTime, sizeof(currentTime));
@@ -274,7 +286,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         snprintf(chipTemp, sizeof(chipTemp), "%.1f", tempC);
 
         StaticJsonDocument<MQTT_STATUS_JSON_CAPACITY> doc;
-        doc["stationId"] = stationId;
+        doc["stationId"] = nodeId;
         doc["lokasi"] = lokasi;
         doc["uptime"] = uptime;
         doc["heap"] = ESP.getFreeHeap();
@@ -294,18 +306,18 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         char output[MQTT_STATUS_BUFFER_SIZE];
         size_t outLen = 0;
         if (serializeDocToBuffer(doc, output, sizeof(output), outLen)) {
-            mqttPublishJson(MQTT_TOPIC_STATUS, output, outLen);
+            mqttPublishJson(statusTopic, output, outLen, 0);
         }
 
     } else if (strcmp(message, "reboot") == 0) {
         rebootRequestReceived = true;
 
     } else if (strcmp(message, "stats") == 0) {
-        char stationId[STATION_ID_BUFFER_SIZE];
-        getStationIdCopy(stationId, sizeof(stationId));
+        char nodeId[STATION_ID_BUFFER_SIZE];
+        getStationIdCopy(nodeId, sizeof(nodeId));
 
         StaticJsonDocument<MQTT_STATUS_JSON_CAPACITY> doc;
-        doc["stationId"] = stationId;
+        doc["stationId"] = nodeId;
         doc["firmware"] = FIRMWARE_VERSION;
         doc["mpuErrors"] = mpuErrorCounter;
         doc["mpuOverflows"] = mpuOverflowCount;
@@ -319,7 +331,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         char output[MQTT_STATUS_BUFFER_SIZE];
         size_t outLen = 0;
         if (serializeDocToBuffer(doc, output, sizeof(output), outLen)) {
-            mqttPublishJson(MQTT_TOPIC_STATUS, output, outLen);
+            mqttPublishJson(statusTopic, output, outLen, 0);
         }
     }
 }
@@ -328,7 +340,6 @@ void checkMqttConnection() {
     if (WiFi.status() != WL_CONNECTED) {
         return;
     }
-
     if (mqttClient.connected()) {
         return;
     }
@@ -337,34 +348,41 @@ void checkMqttConnection() {
     if (now - lastMqttAttempt <= MQTT_RECONNECT_INTERVAL_MS) {
         return;
     }
-
     lastMqttAttempt = now;
 
     char clientId[40];
-    snprintf(clientId, sizeof(clientId), "%s%04X", MQTT_CLIENT_ID_PREFIX, static_cast<unsigned int>(random(0x10000)));
+    snprintf(clientId, sizeof(clientId), "%s%04X", MQTT_CLIENT_ID_PREFIX,
+             static_cast<unsigned int>(random(0x10000)));
 
-    // --- Last Will & Testament (seismo/status / QoS 1) ---
-    // Spec §2.1: LWT is published automatically by the broker if the sensor
-    // disconnects unexpectedly, so the server marks the station offline.
-    char stationId[STATION_ID_BUFFER_SIZE];
-    getStationIdCopy(stationId, sizeof(stationId));
+    // --- Last Will & Testament (sensor/<id>/status, QoS 1) ---
+    // Broker mempublikasikan LWT bila sensor putus tak terduga sehingga server
+    // menandai node offline.
+    char nodeId[STATION_ID_BUFFER_SIZE];
+    getStationIdCopy(nodeId, sizeof(nodeId));
+
+    char statusTopic[MQTT_TOPIC_BUFFER_SIZE];
+    buildTopic(statusTopic, sizeof(statusTopic), MQTT_TOPIC_SUFFIX_STATUS);
 
     StaticJsonDocument<256> lwtDoc;
-    lwtDoc["id"]     = stationId;
+    lwtDoc["id"]     = nodeId;
     lwtDoc["status"] = "offline";
     char lwtBuffer[256];
-    size_t lwtLen = serializeJson(lwtDoc, lwtBuffer, sizeof(lwtBuffer));
+    const size_t lwtLen = serializeJson(lwtDoc, lwtBuffer, sizeof(lwtBuffer));
+    if (lwtLen == 0 || lwtLen >= sizeof(lwtBuffer)) {
+        Serial.println("MQTT LWT serialization failed");
+        return;
+    }
 
-    mqttClient.setWill(
-        MQTT_TOPIC_STATUS,
-        reinterpret_cast<const uint8_t*>(lwtBuffer),
-        lwtLen,
-        /*retained=*/false,
-        /*qos=*/1
-    );
-
-    if (mqttClient.connect(clientId, mqtt_user, mqtt_password)) {
-        mqttClient.subscribe(MQTT_TOPIC_COMMAND);
+    // PubSubClient tidak memiliki method setWill(); konfigurasi LWT diteruskan
+    // langsung sebagai parameter connect():
+    // connect(id, user, pass, willTopic, willQos, willRetain, willMessage).
+    // willMessage harus null-terminated (serializeJson ke char* sudah menjamin).
+    if (mqttClient.connect(clientId, mqtt_user, mqtt_password,
+                           statusTopic, /*willQos=*/1, /*willRetain=*/false,
+                           lwtBuffer)) {
+        char commandTopic[MQTT_TOPIC_BUFFER_SIZE];
+        buildTopic(commandTopic, sizeof(commandTopic), MQTT_TOPIC_SUFFIX_COMMAND);
+        mqttClient.subscribe(commandTopic);
         Serial.println("MQTT Connected");
         if (!startupMessageSent) {
             sendMqttStartupMessage();
