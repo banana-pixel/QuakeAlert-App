@@ -3,12 +3,17 @@
  */
 
 #include "utils.h"
+#include "config.h"
 #include "state.h"
 
+#include <Preferences.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <sys/time.h>
+
+
 
 namespace {
 bool copyStringLocked(char* destination, size_t destinationSize, const char* source) {
@@ -219,7 +224,31 @@ bool getStationIdCopy(char* destination, size_t destinationSize) {
     return ok;
 }
 
+size_t getHmacKeyCopy(char* destination, size_t destinationSize) {
+    if (destination == nullptr || destinationSize == 0) {
+        return 0;
+    }
+
+    // HMAC secret disimpan di NVS namespace "quake-app" saat provisioning.
+    // Baca read-only agar tidak menulis ulang partisi NVS.
+    Preferences prefs;
+    if (!prefs.begin("quake-app", true)) {
+        destination[0] = '\0';
+        return 0;
+    }
+
+    size_t len = prefs.getString(NVS_KEY_HMAC, destination, destinationSize);
+    prefs.end();
+
+    if (len == 0 || len >= destinationSize) {
+        destination[0] = '\0';
+        return 0;
+    }
+    return len;
+}
+
 bool getLastEventTimeCopy(char* destination, size_t destinationSize) {
+
     if (destination == nullptr || destinationSize == 0) {
         return false;
     }
@@ -295,7 +324,33 @@ bool getUptimeString(char* destination, size_t destinationSize) {
     return formatStringSafe(destination, destinationSize, "%lud %luh %lum", days, hours, minutes);
 }
 
+int64_t getEpochMillis() {
+    bool ntpReady = isNtpSynced;
+    if (stateMutex != nullptr) {
+        xSemaphoreTake(stateMutex, portMAX_DELAY);
+        ntpReady = isNtpSynced;
+        xSemaphoreGive(stateMutex);
+    }
+
+    if (!ntpReady) {
+        return 0;
+    }
+
+    struct timeval tv;
+    if (gettimeofday(&tv, nullptr) != 0) {
+        return 0;
+    }
+
+    // Guard terhadap clock yang belum benar-benar disetel (masih ~1970).
+    if (tv.tv_sec < 1000000000L) {  // sebelum 2001-09-09
+        return 0;
+    }
+
+    return (int64_t)tv.tv_sec * 1000LL + (int64_t)(tv.tv_usec / 1000);
+}
+
 const char* intensityToText(float pgaValue) {
+
     if (pgaValue < 0.5f) {
         return "I (Tidak Terasa)";
     }
