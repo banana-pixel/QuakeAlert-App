@@ -1,0 +1,84 @@
+# ============================================================================
+# QuakeAlert — Local Dev Environment
+# Target produksi: 1 vCPU / 1 GB VPS. mem_limit di sini mendekati batas produksi
+# agar perilaku OOM/tekanan memori terlihat sejak dev (ADR-0001).
+#
+# Jalankan:  docker compose up -d
+# Migrasi :  lihat contracts/db/migrations (mis. golang-migrate)
+#
+# CATATAN KEAMANAN: konfigurasi ini untuk DEV LOKAL.
+#  - Mosquitto memakai plaintext 1883 + allow_anonymous HANYA untuk dev.
+#    Di PRODUKSI WAJIB MQTTS 8883 + TLS + auth (ADR-0003); 1883 dilarang.
+#  - Kredensial di bawah adalah default dev; JANGAN dipakai di produksi.
+# ============================================================================
+
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: quakealert-postgis
+    restart: unless-stopped
+    mem_limit: 350m
+    environment:
+      POSTGRES_USER: quakealert
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+      POSTGRES_DB: quakealert
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=20"
+      - "-c"
+      - "shared_buffers=96MB"
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../contracts/db/migrations:/contracts-migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quakealert -d quakealert"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: quakealert-redis
+    restart: unless-stopped
+    mem_limit: 64m
+    command:
+      - "redis-server"
+      - "--maxmemory"
+      - "48mb"
+      - "--maxmemory-policy"
+      - "noeviction"
+      - "--save"
+      - ""
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: quakealert-mosquitto
+    restart: unless-stopped
+    mem_limit: 64m
+    ports:
+      - "1883:1883"   # DEV plaintext only — DILARANG di produksi (pakai 8883/TLS)
+      - "9001:9001"   # WebSocket (opsional, dev)
+    volumes:
+      - ../deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 -W 3 -i healthcheck || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  mosquitto_data:
+  mosquitto_log:
