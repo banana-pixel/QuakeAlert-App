@@ -125,7 +125,18 @@ void initWifi() {
                     p.putFloat("lat", lat);
                     p.putFloat("lon", lon);
                 }
+
+                // HMAC secret per-node (contracts/mqtt + ADR-0003). Disimpan di
+                // NVS key NVS_KEY_HMAC; dipakai publishTrigger untuk menandatangani
+                // payload byte-identik dengan server Go. Hanya di-set bila dikirim
+                // saat provisioning agar tidak menimpa key yang sudah ada.
+                const char* hmacKey = doc["hmac_key"] | "";
+                if (hmacKey[0] != '\0') {
+                    p.putString(NVS_KEY_HMAC, hmacKey);
+                    Serial.println("HMAC key provisioned to NVS.");
+                }
                 p.end();
+
                 
                 configServer->send(200, "application/json", "{\"status\":\"success\"}");
                 Serial.println("Successfully saved new credentials via /config API.");
@@ -449,55 +460,3 @@ void networkMaintenanceTask(void* pvParameters) {
     }
 }
 
-// ============================================================
-// sendHeartbeat — coordinates masked to 2 dp before publish
-// ============================================================
-void sendHeartbeat() {
-    if (!mqttClient.connected()) {
-        return;
-    }
-
-    static unsigned long lastLatency = 0;
-    const unsigned long startTimer   = millis();
-
-    char stationId[STATION_ID_BUFFER_SIZE];
-    char lokasi[LOCATION_TEXT_BUFFER_SIZE];
-    char rssiText[20];
-    char latencyText[20];
-
-    getStationIdCopy(stationId, sizeof(stationId));
-    getLokasiAlatCopy(lokasi, sizeof(lokasi));
-
-    snprintf(rssiText,    sizeof(rssiText),    "%ld dBm", WiFi.RSSI());
-    snprintf(latencyText, sizeof(latencyText), "%lu ms",  lastLatency);
-
-    StaticJsonDocument<MQTT_HEARTBEAT_JSON_CAPACITY> doc;
-    doc["stationId"] = stationId;
-    doc["rssi"]      = rssiText;
-    doc["status"]    = "online";
-    doc["lokasi"]    = lokasi;
-    doc["latency"]   = latencyText;
-
-    // Mask to 2 decimal places, then format as a strict string to avoid
-    // IEEE-754 binary approximation artifacts when ArduinoJson serializes
-    // a raw float (e.g. -6.15 → "-6.150000095").
-    if (stationLat != 0.0f || stationLon != 0.0f) {
-        char latStr[16];
-        char lonStr[16];
-        snprintf(latStr, sizeof(latStr), "%.2f", maskCoord(stationLat));
-        snprintf(lonStr, sizeof(lonStr), "%.2f", maskCoord(stationLon));
-        doc["lat"] = latStr;
-        doc["lon"] = lonStr;
-    }
-
-    char jsonBuffer[MQTT_HEARTBEAT_BUFFER_SIZE];
-    const size_t jsonLength = serializeJson(doc, jsonBuffer, sizeof(jsonBuffer));
-    if (jsonLength == 0 || jsonLength >= sizeof(jsonBuffer) || doc.overflowed()) {
-        Serial.println("Heartbeat serialization failed");
-        return;
-    }
-
-    if (mqttPublishJson("seismo/heartbeat", jsonBuffer, jsonLength)) {
-        lastLatency = millis() - startTimer;
-    }
-}
