@@ -91,3 +91,79 @@ func (s *Store) UpdateLastSeen(ctx context.Context, stationID string, ts int64) 
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+// NodeLocation adalah koordinat + nama lokasi sebuah node, dipakai konsensus
+// untuk pengelompokan spasial & weighted centroid.
+type NodeLocation struct {
+	StationID    string
+	Lat          float64
+	Lon          float64
+	LocationName string
+}
+
+// GetNodeLocation mengambil koordinat node dari kolom GEOGRAPHY(Point,4326).
+// ST_Y = latitude, ST_X = longitude (urutan lon/lat pada tipe geometry).
+func (s *Store) GetNodeLocation(ctx context.Context, stationID string) (*NodeLocation, error) {
+	const q = `
+		SELECT station_id,
+		       ST_Y(location::geometry) AS lat,
+		       ST_X(location::geometry) AS lon,
+		       location_name
+		FROM iot_nodes
+		WHERE station_id = $1`
+	row := s.pool.QueryRow(ctx, q, stationID)
+
+	var n NodeLocation
+	err := row.Scan(&n.StationID, &n.Lat, &n.Lon, &n.LocationName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNodeNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("scan node location: %w", err)
+	}
+	return &n, nil
+}
+
+// EarthquakeEvent adalah data event yang akan dipersistensikan ke
+// earthquake_events setelah konsensus CONFIRMED.
+type EarthquakeEvent struct {
+	EventID          string
+	Status           string  // 'HAPPENING' | 'RESOLVED'
+	CentroidLat      float64 // estimated_centroid (BUKAN episenter)
+	CentroidLon      float64
+	LocationName     string
+	MMIScale         string
+	IntensityLabel   string
+	MaxPGA           float64 // gal (satuan kanonik)
+	TriggeredNodes   int
+	StartedAtMs      int64 // ms epoch UTC
+}
+
+// SaveEvent menyimpan event gempa ke earthquake_events dan mengembalikan
+// event_id yang di-generate DB. estimated_centroid dibangun via ST_MakePoint
+// (lon, lat) lalu di-cast ke GEOGRAPHY(4326).
+func (s *Store) SaveEvent(ctx context.Context, e *EarthquakeEvent) (string, error) {
+	const q = `
+		INSERT INTO earthquake_events (
+			status, estimated_centroid, location_name,
+			mmi_scale, intensity_label, max_pga,
+			triggered_nodes_count, started_at
+		) VALUES (
+			$1,
+			ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
+			$4, $5, $6, $7,
+			to_timestamp($8::double precision / 1000.0)
+		)
+		RETURNING event_id`
+	var id string
+	err := s.pool.QueryRow(ctx, q,
+		e.Status, e.CentroidLon, e.CentroidLat, e.LocationName,
+		e.MMIScale, e.IntensityLabel, e.MaxPGA,
+		e.TriggeredNodes, e.StartedAtMs,
+	).Scan(&id)
+	if err != nil {
+		return "", fmt.Errorf("insert earthquake_event: %w", err)
+	}
+	return id, nil
+}
+

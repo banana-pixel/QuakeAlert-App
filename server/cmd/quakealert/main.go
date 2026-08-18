@@ -6,7 +6,9 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -15,11 +17,15 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 
+
 	"github.com/banana-pixel/quakealert/server/internal/config"
+	"github.com/banana-pixel/quakealert/server/internal/consensus"
 	"github.com/banana-pixel/quakealert/server/internal/crypto"
+	"github.com/banana-pixel/quakealert/server/internal/dispatch"
 	"github.com/banana-pixel/quakealert/server/internal/ingest"
 	"github.com/banana-pixel/quakealert/server/internal/store"
 )
+
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -55,10 +61,44 @@ func run(log *slog.Logger) error {
 
 	verifier := ingest.NewVerifier(st, cipher, log)
 
-	// Handler trigger yang lolos verifikasi. Konsensus/dispatch akan di-wire di fase berikut.
+	// --- Dispatch tier: WebSocket Hub + FCM (opsional) ---
+	// CheckOrigin: produksi harus membatasi origin; default menolak lintas-origin.
+	hub := dispatch.NewHub(log, func(r *http.Request) bool {
+		if len(cfg.WSAllowedOrigins) == 0 {
+			return false
+		}
+		origin := r.Header.Get("Origin")
+		for _, o := range cfg.WSAllowedOrigins {
+			if o == origin || o == "*" {
+				return true
+			}
+		}
+		return false
+	})
+
+	var fcm dispatch.FCMSender
+	if cfg.FCMProjectID != "" && cfg.FCMCredentialsFile != "" {
+		saJSON, rerr := os.ReadFile(cfg.FCMCredentialsFile)
+		if rerr != nil {
+			return rerr
+		}
+		fcm, err = dispatch.NewHTTPV1Sender(bootCtx, cfg.FCMProjectID, saJSON, log)
+		if err != nil {
+			return err
+		}
+		log.Info("FCM sender aktif", "project_id", cfg.FCMProjectID)
+	} else {
+		log.Warn("FCM tidak dikonfigurasi — delivery background nonaktif (hanya WebSocket)")
+	}
+
+	dispatcher := dispatch.NewDispatcher(st, hub, fcm, log)
+
+	// --- Consensus tier: spatial engine ---
+	engine := consensus.NewEngine(cfg.ConsensusWindow, st, dispatcher.Dispatch, log)
+
+	// Handler trigger yang lolos verifikasi -> masukkan ke consensus engine.
 	handler := func(ctx context.Context, t *ingest.Trigger) {
-		log.Info("trigger valid — TODO konsensus/dispatch",
-			"node_id", t.NodeID, "pga_gal", t.PGA, "dur_ms", t.DurMs, "ts", t.TS)
+		engine.Ingest(ctx, t.NodeID, t.PGA, t.TS)
 	}
 
 	client, err := newMQTTClient(cfg, log)
@@ -71,17 +111,46 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	// --- HTTP server (WebSocket WSS via reverse proxy TLS di produksi) ---
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", hub.ServeWS)
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	httpSrv := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		log.Info("http server listen", "addr", cfg.HTTPAddr)
+		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("http server error", "err", err)
+		}
+	}()
+
 	// --- Graceful shutdown (Aturan Server #4) ---
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
 	<-stop
 	log.Info("sinyal shutdown diterima, drain koneksi")
 
-	// Putuskan MQTT dengan quiesce 250ms lalu tutup pool (via defer).
+	// Putuskan MQTT dengan quiesce 250ms.
 	client.Disconnect(250)
-	log.Info("mqtt terputus, shutdown selesai")
+
+	// Tutup HTTP server (drain WS) dengan timeout.
+	shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutCancel()
+	if err := httpSrv.Shutdown(shutCtx); err != nil {
+		log.Warn("http shutdown error", "err", err)
+	}
+
+	// Pool pgx ditutup via defer st.Close().
+	log.Info("shutdown selesai")
 	return nil
 }
+
 
 // newMQTTClient membuat client MQTT. Untuk skema tls:///ssl:// mengaktifkan
 // TLS dengan verifikasi CA sistem (ADR-0003: TLS everywhere, plaintext dilarang

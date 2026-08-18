@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
+
 
 // Config adalah konfigurasi tervalidasi untuk server QuakeAlert.
 type Config struct {
@@ -32,7 +34,17 @@ type Config struct {
 
 	// HTTP
 	HTTPAddr string
+
+	// WebSocket: daftar origin yang diizinkan (comma-separated di env).
+	// Kosong = tolak semua lintas-origin (aman secara default). "*" = izinkan semua.
+	WSAllowedOrigins []string
+
+	// FCM (opsional): project ID + path file service account JSON.
+	// Bila keduanya kosong, delivery background dinonaktifkan (hanya WebSocket).
+	FCMProjectID       string
+	FCMCredentialsFile string
 }
+
 
 // Load membaca & memvalidasi konfigurasi dari environment.
 func Load() (*Config, error) {
@@ -45,7 +57,19 @@ func Load() (*Config, error) {
 		HTTPAddr:        getEnv("HTTP_ADDR", ":8080"),
 		ConsensusWindow: time.Duration(getEnvInt("CONSENSUS_WINDOW_MS", 8000)) * time.Millisecond,
 		IOTimeout:       time.Duration(getEnvInt("IO_TIMEOUT_MS", 2000)) * time.Millisecond,
+
+		FCMProjectID:       getEnv("FCM_PROJECT_ID", ""),
+		FCMCredentialsFile: getEnv("FCM_CREDENTIALS_FILE", ""),
 	}
+
+	if origins := os.Getenv("WS_ALLOWED_ORIGINS"); origins != "" {
+		for _, o := range strings.Split(origins, ",") {
+			if trimmed := strings.TrimSpace(o); trimmed != "" {
+				cfg.WSAllowedOrigins = append(cfg.WSAllowedOrigins, trimmed)
+			}
+		}
+	}
+
 
 	// Master key wajib untuk verifikasi HMAC (decrypt secret node).
 	keyHex := os.Getenv("MASTER_KEY_HEX")
