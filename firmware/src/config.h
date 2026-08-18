@@ -36,13 +36,28 @@
 // 3. MQTT CONFIGURATION
 // ========================================
 #define CUSTOM_MQTT_KEEPALIVE 15
-#define MQTT_TOPIC_ALERT     "seismo/alert"
-#define MQTT_TOPIC_REPORT    "seismo/report"
-#define MQTT_TOPIC_COMMAND   "seismo/command"
-#define MQTT_TOPIC_STATUS    "seismo/status"
-// QoS-0 health beacon published every HEARTBEAT_INTERVAL_MS (see §2.1 of arch spec)
-#define MQTT_TOPIC_HEARTBEAT "seismo/heartbeat"
+// Contract-first topics (contracts/mqtt/*.schema.json): pola sensor/<station_id>/...
+// dibangun runtime dari StationID. Suffix statis di bawah ini digabung di mqtt.cpp.
+#define MQTT_TOPIC_PREFIX      "sensor/"
+#define MQTT_TOPIC_SUFFIX_TRIGGER   "/trigger"
+#define MQTT_TOPIC_SUFFIX_HEARTBEAT "/heartbeat"
+#define MQTT_TOPIC_SUFFIX_STATUS    "/status"
+#define MQTT_TOPIC_SUFFIX_COMMAND   "/command"
+// Panjang maksimum topik penuh: "sensor/" + node_id(<=32) + "/heartbeat" + NUL.
+#define MQTT_TOPIC_BUFFER_SIZE 64
 #define MQTT_CLIENT_ID_PREFIX "ESP32-Seismo-"
+#define MQTT_TRIGGER_QOS   1
+#define MQTT_HEARTBEAT_QOS 1
+#define HMAC_HEX_LENGTH 64
+#define HMAC_KEY_MAX_LEN 128
+#define CANONICAL_BUFFER_SIZE 96
+
+// Trigger payload (contracts/mqtt/trigger.schema.json): {node_id,pga,dur_ms,ts,signature}
+#define MQTT_TRIGGER_JSON_CAPACITY 256
+#define MQTT_TRIGGER_BUFFER_SIZE   256
+// NVS key untuk HMAC secret per-node (di-set saat provisioning).
+#define NVS_KEY_HMAC "hmac_key"
+
 
 // ========================================
 // 4. DETECTION CONFIGURATION (STA/LTA)
