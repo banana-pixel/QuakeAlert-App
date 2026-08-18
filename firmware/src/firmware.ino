@@ -216,20 +216,16 @@ static void startWorkerTasks() {
 // ALERT HANDLER (glue: sensor -> mqtt)
 // ========================================
 void handleAlerts() {
-    bool shouldSendAlert = false;
-
+    // eventTriggered menandai onset terkonfirmasi. Trigger kanonik hanya boleh
+    // dipublish saat event SELESAI karena pga & durasi final baru diketahui di
+    // pendingReport (kontrak trigger butuh pga=peak gal, dur_ms=durasi total).
+    // Di sini kita hanya reset flag onset agar tidak menumpuk.
     portENTER_CRITICAL(&eventTriggerMux);
     if (eventTriggered) {
         eventTriggered = false;
-        shouldSendAlert = true;
-    }
-    portEXIT_CRITICAL(&eventTriggerMux);
-
-    if (shouldSendAlert) {
-        const char* intensity = toIntensity(pga);
-        sendMqttAlert(intensity, pga);
         alertSent = true;
     }
+    portEXIT_CRITICAL(&eventTriggerMux);
 
     bool shouldSendReport = false;
     float reportPga = 0.0f;
@@ -247,10 +243,8 @@ void handleAlerts() {
     if (shouldSendReport) {
         const char* intensity = toIntensity(reportPga);
         char waktu[TIME_TEXT_BUFFER_SIZE];
-        char lokasi[LOCATION_TEXT_BUFFER_SIZE];
 
         getWaktuString(waktu, sizeof(waktu));
-        getLokasiAlatCopy(lokasi, sizeof(lokasi));
 
         char pgaText[16];
         snprintf(pgaText, sizeof(pgaText), "%.2f gal", reportPga);
@@ -259,15 +253,10 @@ void handleAlerts() {
         setLastIntensity(intensity);
         setLastPga(pgaText);
 
-        bool success = sendMqttReport(
-            lokasi,
-            waktu,
-            reportDuration,
-            pgaText,
-            intensity
-        );
-
-        if (success) {
+        // Publikasikan trigger sesuai contracts/mqtt/trigger.schema.json.
+        // durasi (detik, float) -> dur_ms (ms). PGA sudah dalam gal.
+        const uint32_t durMs = (uint32_t)(reportDuration * 1000.0f);
+        if (publishTrigger(reportPga, durMs)) {
             totalEventsDetected++;
         }
 
@@ -277,6 +266,7 @@ void handleAlerts() {
         portEXIT_CRITICAL(&reportMux);
     }
 }
+
 
 // ========================================
 // SETUP & LOOP
