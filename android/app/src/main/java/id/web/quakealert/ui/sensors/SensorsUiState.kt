@@ -46,22 +46,31 @@ data class SensorStationItem(
 )
 
 /**
- * Summary overlay data for the map preview card (Figma node 1:1091).
+ * Summary overlay data for the map preview card (Figma node 1:1091), shared by
+ * the Sensors screen and the Settings "Location & Coverage" section. The two
+ * screens render the *same* linked map: identical location pill, range summary
+ * and reactive coverage [geofenceFraction]. The only difference is the Sensors
+ * screen's bottom-right settings shortcut, which Settings hides.
  *
  * @param locationLabel user-centred location pill (e.g. "Bandung, West Java, ID").
  * @param rangeKm covered radius in kilometres.
  * @param sensorCount number of sensors within range.
+ * @param geofenceFraction radius of the reactive coverage circle as a fraction
+ *   (0f..1f) of the card's minimum side, so the visualised radius scales with the
+ *   selected coverage.
  */
 @Immutable
 data class SensorMapOverview(
     val locationLabel: String,
     val rangeKm: Int,
-    val sensorCount: Int
+    val sensorCount: Int,
+    val geofenceFraction: Float = 0.9f
 ) {
     /** Pre-formatted "Range : {km} km, {n} sensors" summary badge text. */
     val summaryLabel: String
         get() = "Range : $rangeKm km, $sensorCount sensors"
 }
+
 
 /**
  * Immutable UI state for the Sensors screen (Figma node 1:1081). Hoisted into

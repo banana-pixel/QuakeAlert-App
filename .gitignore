@@ -1,18 +1,45 @@
-*.iml
-.gradle/
-/local.properties
-.idea/
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+# ==========================================================================
+# QuakeAlert monorepo .gitignore
+# Komponen tinggal di subfolder: android/, server/, firmware/, contracts/, deploy/
+# ==========================================================================
+
+# --- OS / editor ---
 .DS_Store
-/build
-build/
-/app/build/
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+*.iml
+.idea/
+.vscode/
+
+# --- Secrets / env (JANGAN commit) ---
+.env
+*.env
+!*.env.example
+android/local.properties
+firmware/src/secrets.h
+
+# --- Android (Gradle) ---
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/captures/
+android/.externalNativeBuild/
+android/.cxx/
+android/local.properties
+android/**/google-services.json
+
+# --- Firmware (PlatformIO) ---
+firmware/.pio/
+firmware/.vscode/
+
+# --- Server (Go) ---
+server/bin/
+server/quakealert
+server/.gocache/
+server/.gomodcache/
+*.test
+*.out
+
+
+# --- Deploy / data volumes lokal ---
+deploy/**/data/
+server/pgdata/

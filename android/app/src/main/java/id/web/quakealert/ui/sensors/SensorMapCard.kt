@@ -44,15 +44,17 @@ import id.web.quakealert.ui.theme.TextPrimary
 
 /**
  * Map preview card shared by the Sensors screen (Figma node 1:1091) and the
- * Settings "Location & Coverage" section (Figma node 1:858). A placeholder map
- * surface hosts overlays:
+ * Settings "Location & Coverage" section (Figma node 1:858). Both screens render
+ * the *same* linked map, so overlays are driven from the shared [overview]:
  *  - a top-left location pill ([MapLocationPillFill] + pin glyph),
  *  - a bottom-left "Range : ... , N sensors" summary badge,
- *  - an optional bottom-right circular settings shortcut (Sensors only).
+ *  - a reactive coverage geofence circle whose radius scales with
+ *    [SensorMapOverview.geofenceFraction] (0f..1f of the card's minimum side),
+ *  - an optional bottom-right circular settings shortcut.
  *
- * When [geofenceFraction] is non-null a reactive coverage circle is drawn behind
- * the overlays, its radius scaling with the value (0f..1f of the card's minimum
- * side) so the Settings Coverage control visibly grows/shrinks the geofence. The
+ * The only difference between the two screens is the settings shortcut: the
+ * Sensors screen passes [onSettingsShortcut] to reveal it, while Settings leaves
+ * it null (there is no settings button on the Settings map). The geofence radius
  * change is animated for a smooth transition between coverage steps.
  *
  * The real map SDK is deferred; the grey [MapPlaceholder] surface stands in for
@@ -60,18 +62,16 @@ import id.web.quakealert.ui.theme.TextPrimary
  *
  * @param onSettingsShortcut when non-null renders the bottom-right settings
  *   shortcut (Sensors screen). Settings passes null to hide it.
- * @param geofenceFraction when non-null draws the reactive coverage circle.
  */
 @Composable
 fun SensorMapCard(
     overview: SensorMapOverview,
     modifier: Modifier = Modifier,
-    onSettingsShortcut: (() -> Unit)? = null,
-    geofenceFraction: Float? = null
+    onSettingsShortcut: (() -> Unit)? = null
 ) {
     val cardShape = remember { RoundedCornerShape(Dimens.RadiusCard) }
     val animatedFraction by animateFloatAsState(
-        targetValue = geofenceFraction ?: 0f,
+        targetValue = overview.geofenceFraction,
         animationSpec = tween(durationMillis = 300),
         label = "GeofenceFraction"
     )
@@ -85,27 +85,26 @@ fun SensorMapCard(
             .border(Dimens.BorderThin, CardBorder, cardShape)
             .padding(Dimens.MapCardPadding)
     ) {
-        // Reactive geofence coverage circle (Settings only).
-        if (geofenceFraction != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .drawBehind {
-                        val radius = (minOf(size.width, size.height) / 2f) * animatedFraction
-                        val center = androidx.compose.ui.geometry.Offset(
-                            x = size.width / 2f,
-                            y = size.height / 2f
-                        )
-                        drawCircle(color = GeofenceFill, radius = radius, center = center)
-                        drawCircle(
-                            color = GeofenceStroke,
-                            radius = radius,
-                            center = center,
-                            style = Stroke(width = 2.dp.toPx())
-                        )
-                    }
-            )
-        }
+        // Reactive geofence coverage circle (shared by Sensors + Settings).
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawBehind {
+                    val radius = (minOf(size.width, size.height) / 2f) * animatedFraction
+                    val center = androidx.compose.ui.geometry.Offset(
+                        x = size.width / 2f,
+                        y = size.height / 2f
+                    )
+                    drawCircle(color = GeofenceFill, radius = radius, center = center)
+                    drawCircle(
+                        color = GeofenceStroke,
+                        radius = radius,
+                        center = center,
+                        style = Stroke(width = 2.dp.toPx())
+                    )
+                }
+        )
+
 
         // Top-left: user location pill.
         LocationPill(
