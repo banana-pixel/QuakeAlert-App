@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quakealert.id/contracts/fcm/alert_payload.json",
+  "title": "FcmEmergencyAlert",
+  "description": "Kontrak FCM HTTP v1 (Admin SDK) untuk peringatan gempa. WAJIB data-only message (bukan 'notification') agar EmergencyMessagingService selalu dipanggil meski app di background/killed. Semua nilai 'data' bertipe string (batasan FCM). android.priority=HIGH agar tidak tertunda Doze. Satuan: pga_gal=gal, timestamp=ms epoch UTC (string).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["message"],
+  "properties": {
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data", "android"],
+      "properties": {
+        "topic": {
+          "type": "string",
+          "description": "Geo-topic tujuan; salah satu dari topic/token/condition harus ada.",
+          "examples": ["geo_alert_all"]
+        },
+        "token": {
+          "type": "string",
+          "description": "Registration token perangkat tunggal (alternatif topic)."
+        },
+        "condition": {
+          "type": "string",
+          "description": "Kondisi kombinasi topic (alternatif topic/token)."
+        },
+        "data": {
+          "type": "object",
+          "description": "Data-only payload. SEMUA field bertipe string.",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "event_id",
+            "mmi",
+            "intensity_label",
+            "pga_gal",
+            "centroid_lat",
+            "centroid_lon",
+            "location_name",
+            "timestamp"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["EARTHQUAKE_ALERT", "EARTHQUAKE_ADVISORY", "EVENT_RESOLVED"],
+              "description": "Jenis event. ADVISORY = 1-2 node (banner kuning), ALERT = >=3 node CONFIRMED, EVENT_RESOLVED = all-clear."
+            },
+            "event_id": {
+              "type": "string",
+              "format": "uuid",
+              "examples": ["8f804561-1558-45ad-8982-1ab9193be589"]
+            },
+            "mmi": {
+              "type": "string",
+              "description": "Skala MMI romawi.",
+              "examples": ["IV"]
+            },
+            "intensity_label": {
+              "type": "string",
+              "examples": ["moderate", "strong", "light"]
+            },
+            "pga_gal": {
+              "type": "string",
+              "description": "PGA dalam gal (cm/s^2) sebagai string.",
+              "pattern": "^[0-9]+(\\.[0-9]+)?$",
+              "examples": ["413.13"]
+            },
+            "centroid_lat": {
+              "type": "string",
+              "description": "Latitude estimated_centroid (BUKAN episenter presisi).",
+              "examples": ["-6.9175"]
+            },
+            "centroid_lon": {
+              "type": "string",
+              "examples": ["107.6191"]
+            },
+            "location_name": {
+              "type": "string",
+              "examples": ["Bandung, West Java, ID"]
+            },
+            "timestamp": {
+              "type": "string",
+              "description": "ms epoch UTC sebagai string.",
+              "pattern": "^[0-9]{13}$",
+              "examples": ["1723891234120"]
+            }
+          }
+        },
+        "android": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["priority"],
+          "properties": {
+            "priority": {
+              "type": "string",
+              "enum": ["HIGH", "NORMAL"],
+              "description": "WAJIB HIGH untuk life-safety agar bypass Doze."
+            }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "message": {
+        "topic": "geo_alert_all",
+        "data": {
+          "type": "EARTHQUAKE_ALERT",
+          "event_id": "8f804561-1558-45ad-8982-1ab9193be589",
+          "mmi": "IV",
+          "intensity_label": "moderate",
+          "pga_gal": "413.13",
+          "centroid_lat": "-6.9175",
+          "centroid_lon": "107.6191",
+          "location_name": "Bandung, West Java, ID",
+          "timestamp": "1723891234120"
+        },
+        "android": {
+          "priority": "HIGH"
+        }
+      }
+    }
+  ]
+}

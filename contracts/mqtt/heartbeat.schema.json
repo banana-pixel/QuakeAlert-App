@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quakealert.id/contracts/mqtt/heartbeat.schema.json",
+  "title": "SensorHeartbeat",
+  "description": "Payload periodik (interval 60s, QoS 1) yang dipublish ESP32 ke topic 'sensor/<station_id>/heartbeat'. Dipakai server untuk menandai node online, RSSI, dan uptime. Satuan kanonik: ts=ms epoch UTC, rssi=dBm, uptime_s=detik.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "rssi", "uptime_s", "ts"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Station ID unik, mis. 'NODE-163A149F'.",
+      "pattern": "^NODE-[0-9A-F]{8}$",
+      "minLength": 5,
+      "maxLength": 32
+    },
+    "rssi": {
+      "type": "integer",
+      "description": "Wi-Fi RSSI dalam dBm (negatif).",
+      "minimum": -120,
+      "maximum": 0
+    },
+    "uptime_s": {
+      "type": "integer",
+      "description": "Uptime perangkat sejak boot dalam detik.",
+      "minimum": 0
+    },
+    "ts": {
+      "type": "integer",
+      "description": "Timestamp heartbeat dalam milidetik epoch UTC (int64).",
+      "minimum": 1700000000000
+    }
+  },
+  "examples": [
+    {
+      "id": "NODE-163A149F",
+      "rssi": -61,
+      "uptime_s": 86400,
+      "ts": 1723891234000
+    }
+  ]
+}

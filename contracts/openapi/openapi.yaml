@@ -1,0 +1,245 @@
+openapi: 3.1.0
+info:
+  title: QuakeAlert REST API
+  version: 1.0.0
+  description: >
+    Kontrak REST resmi QuakeAlert (contract-first, ADR-0004). Base URL selalu HTTPS.
+    Satuan kanonik: PGA=gal (cm/s^2), timestamp=ms epoch UTC (int64), jarak=km, RSSI=dBm.
+    Semua endpoint kecuali provisioning bootstrap memerlukan Bearer JWT (anonymous).
+servers:
+  - url: https://api.quakealert.id
+    description: Produksi
+  - url: http://localhost:8080
+    description: Dev lokal (docker-compose)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: nodes
+    description: Provisioning & manajemen sensor node
+  - name: sensors
+    description: Status & peta sensor
+  - name: users
+    description: Profil pengguna anonim
+
+paths:
+  /api/v1/nodes/provision:
+    post:
+      tags: [nodes]
+      summary: Inisiasi sensor baru (provisioning)
+      description: >
+        Membuat station_id baru dan provisioning_secret (ditampilkan HANYA sekali).
+        Server menyimpan secret dalam bentuk terenkripsi AES-256-GCM (secret_key_enc + nonce).
+      operationId: provisionNode
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProvisionRequest'
+      responses:
+        '201':
+          description: Node berhasil dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvisionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/sensors:
+    get:
+      tags: [sensors]
+      summary: Daftar sensor + status (peta, RSSI, ping)
+      operationId: listSensors
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: range_km
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 500
+          description: Radius filter dari lokasi user (km).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SensorsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/users/pseudonym/reroll:
+    post:
+      tags: [users]
+      summary: Reroll pseudonym (rate-limited 1x/60s per user)
+      operationId: rerollPseudonym
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RerollResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          description: Terlalu sering; coba lagi nanti
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:
+      description: Request tidak valid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: JWT tidak ada / tidak valid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: INVALID_ARGUMENT
+        message:
+          type: string
+          example: latitude di luar rentang -90..90
+
+    ProvisionRequest:
+      type: object
+      additionalProperties: false
+      required: [sensor_model, location_name, latitude, longitude]
+      properties:
+        sensor_model:
+          type: string
+          example: MPU 6050
+        location_name:
+          type: string
+          maxLength: 150
+          example: Cimahi, West Java, ID
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          example: -6.8721
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          example: 107.5422
+
+    ProvisionResponse:
+      type: object
+      required: [station_id, provisioning_secret, mqtt_broker, mqtt_port, mqtt_tls]
+      properties:
+        station_id:
+          type: string
+          example: NODE-163A149F
+        provisioning_secret:
+          type: string
+          description: One-time secret; TIDAK pernah dikembalikan lagi.
+          example: sec_key_991823719283719
+        mqtt_broker:
+          type: string
+          example: broker.quakealert.id
+        mqtt_port:
+          type: integer
+          example: 8883
+        mqtt_tls:
+          type: boolean
+          example: true
+
+    SensorsResponse:
+      type: object
+      required: [range_km, active_sensors_count, stations]
+      properties:
+        range_km:
+          type: integer
+          example: 50
+        active_sensors_count:
+          type: integer
+          example: 2
+        stations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Station'
+
+    Station:
+      type: object
+      required: [station_id, sensor_model, location_name, latitude, longitude, status]
+      properties:
+        station_id:
+          type: string
+          example: NODE-163A149F
+        sensor_model:
+          type: string
+          example: MPU 6050
+        location_name:
+          type: string
+          example: Cimahi, West Java, ID
+        latitude:
+          type: number
+          format: double
+          example: -6.8721
+        longitude:
+          type: number
+          format: double
+          example: 107.5422
+        status:
+          type: string
+          enum: [Online, Offline]
+          example: Online
+        last_ping:
+          type: string
+          description: Human-readable relative time.
+          example: 33s ago
+        rssi_dbm:
+          type: integer
+          example: -61
+        latency_ms:
+          type: integer
+          example: 2
+
+    RerollResponse:
+      type: object
+      required: [pseudonym, updated_at]
+      properties:
+        pseudonym:
+          type: string
+          example: Quakezen-7B9A
+        updated_at:
+          type: string
+          format: date-time
+          example: 2026-08-17T18:30:00Z

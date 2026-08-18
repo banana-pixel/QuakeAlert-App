@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quakealert.id/contracts/mqtt/trigger.schema.json",
+  "title": "SensorTrigger",
+  "description": "Payload event-driven yang dipublish ESP32 ke topic 'sensor/<station_id>/trigger' (QoS 1) saat mendeteksi getaran melewati ambang. Satuan kanonik: PGA=gal (cm/s^2), ts=ms epoch UTC, dur_ms=milidetik. Signature=HMAC-SHA256 hex 64-char atas string kanonik 'node_id|pga|dur_ms|ts' (pga 4 desimal fixed).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["node_id", "pga", "dur_ms", "ts", "signature"],
+  "properties": {
+    "node_id": {
+      "type": "string",
+      "description": "Station ID unik, mis. 'NODE-163A149F'.",
+      "pattern": "^NODE-[0-9A-F]{8}$",
+      "minLength": 5,
+      "maxLength": 32
+    },
+    "pga": {
+      "type": "number",
+      "description": "Peak Ground Acceleration dalam gal (cm/s^2). Dikirim & ditandatangani dengan 4 desimal fixed-point.",
+      "minimum": 0,
+      "maximum": 2000,
+      "multipleOf": 0.0001
+    },
+    "dur_ms": {
+      "type": "integer",
+      "description": "Durasi getaran terdeteksi dalam milidetik.",
+      "minimum": 0,
+      "maximum": 60000
+    },
+    "ts": {
+      "type": "integer",
+      "description": "Timestamp deteksi dalam milidetik epoch UTC (int64). Server menolak jika menyimpang >30s dari waktu server atau <= last_seen_ts (anti-replay).",
+      "minimum": 1700000000000
+    },
+    "signature": {
+      "type": "string",
+      "description": "HMAC-SHA256 hex lowercase 64 karakter atas 'node_id|pga|dur_ms|ts'.",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "examples": [
+    {
+      "node_id": "NODE-163A149F",
+      "pga": 0.4215,
+      "dur_ms": 2800,
+      "ts": 1723891234120,
+      "signature": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    }
+  ]
+}
