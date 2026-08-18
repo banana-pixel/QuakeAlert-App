@@ -1,0 +1,97 @@
+// Package api mengimplementasikan REST API tier QuakeAlert (contract-first,
+// contracts/openapi/openapi.yaml). Router chi + auth JWT HS256 + handler.
+package api
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"strings"
+	"time"
+)
+
+// Klaim JWT anonymous minimal. sub = user_id (UUID), exp = expiry (detik epoch).
+type jwtClaims struct {
+	Sub string `json:"sub"`
+	Exp int64  `json:"exp"`
+	Iat int64  `json:"iat"`
+}
+
+type jwtHeader struct {
+	Alg string `json:"alg"`
+	Typ string `json:"typ"`
+}
+
+var (
+	errMalformedToken = errors.New("token JWT malformed")
+	errBadSignature   = errors.New("signature JWT tidak valid")
+	errWrongAlg       = errors.New("algoritma JWT bukan HS256")
+	errExpired        = errors.New("token JWT kedaluwarsa")
+	errEmptySubject   = errors.New("klaim sub kosong")
+)
+
+// verifyHS256 memvalidasi token JWT HS256 secara byte-safe (constant-time
+// signature compare) dan mengembalikan klaim bila valid. Hanya menerima
+// alg=HS256 untuk mencegah alg-confusion (mis. "none").
+func verifyHS256(token string, secret []byte, now time.Time) (*jwtClaims, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, errMalformedToken
+	}
+	headerJSON, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil, errMalformedToken
+	}
+	var h jwtHeader
+	if err := json.Unmarshal(headerJSON, &h); err != nil {
+		return nil, errMalformedToken
+	}
+	if h.Alg != "HS256" {
+		return nil, errWrongAlg
+	}
+
+	signingInput := parts[0] + "." + parts[1]
+	expectedSig := signHS256([]byte(signingInput), secret)
+	gotSig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return nil, errMalformedToken
+	}
+	if !hmac.Equal(expectedSig, gotSig) {
+		return nil, errBadSignature
+	}
+
+	claimsJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, errMalformedToken
+	}
+	var c jwtClaims
+	if err := json.Unmarshal(claimsJSON, &c); err != nil {
+		return nil, errMalformedToken
+	}
+	if c.Sub == "" {
+		return nil, errEmptySubject
+	}
+	if c.Exp != 0 && now.Unix() >= c.Exp {
+		return nil, errExpired
+	}
+	return &c, nil
+}
+
+func signHS256(signingInput, secret []byte) []byte {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(signingInput)
+	return mac.Sum(nil)
+}
+
+// mintHS256 membuat token JWT HS256 (dipakai di test & bootstrap dev).
+func mintHS256(claims jwtClaims, secret []byte) string {
+	header := jwtHeader{Alg: "HS256", Typ: "JWT"}
+	hb, _ := json.Marshal(header)
+	cb, _ := json.Marshal(claims)
+	h := base64.RawURLEncoding.EncodeToString(hb)
+	c := base64.RawURLEncoding.EncodeToString(cb)
+	sig := signHS256([]byte(h+"."+c), secret)
+	return h + "." + c + "." + base64.RawURLEncoding.EncodeToString(sig)
+}

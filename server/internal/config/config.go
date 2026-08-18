@@ -43,7 +43,20 @@ type Config struct {
 	// Bila keduanya kosong, delivery background dinonaktifkan (hanya WebSocket).
 	FCMProjectID       string
 	FCMCredentialsFile string
+
+	// REST API: secret JWT (HS256) untuk auth anonymous. Wajib di-set.
+	JWTSecret []byte
+
+	// Redis: dipakai rate-limiter reroll pseudonym (SET NX EX 60s).
+	RedisURL string
+
+	// MQTT public config yang dikembalikan saat provisioning node (bukan koneksi
+	// server → broker, melainkan yang dipakai firmware untuk konek).
+	MQTTPublicBroker string
+	MQTTPublicPort   int
+	MQTTPublicTLS    bool
 }
+
 
 
 // Load membaca & memvalidasi konfigurasi dari environment.
@@ -60,7 +73,13 @@ func Load() (*Config, error) {
 
 		FCMProjectID:       getEnv("FCM_PROJECT_ID", ""),
 		FCMCredentialsFile: getEnv("FCM_CREDENTIALS_FILE", ""),
+
+		RedisURL:         getEnv("REDIS_URL", "redis://localhost:6379/0"),
+		MQTTPublicBroker: getEnv("MQTT_PUBLIC_BROKER", "broker.quakealert.id"),
+		MQTTPublicPort:   getEnvInt("MQTT_PUBLIC_PORT", 8883),
+		MQTTPublicTLS:    getEnvBool("MQTT_PUBLIC_TLS", true),
 	}
+
 
 	if origins := os.Getenv("WS_ALLOWED_ORIGINS"); origins != "" {
 		for _, o := range strings.Split(origins, ",") {
@@ -82,12 +101,20 @@ func Load() (*Config, error) {
 	}
 	cfg.MasterKey = key
 
+	// JWT secret wajib untuk auth REST/WS (HS256). Minimal 32 byte agar aman.
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if len(jwtSecret) < 32 {
+		return nil, fmt.Errorf("JWT_SECRET wajib di-set (minimal 32 byte untuk HS256), dapat %d byte", len(jwtSecret))
+	}
+	cfg.JWTSecret = []byte(jwtSecret)
+
 	if cfg.IOTimeout > 2*time.Second {
 		return nil, fmt.Errorf("IO_TIMEOUT_MS harus <= 2000 (Aturan Server #3), dapat %s", cfg.IOTimeout)
 	}
 
 	return cfg, nil
 }
+
 
 func decodeKey(hexStr string) ([32]byte, error) {
 	var out [32]byte
@@ -119,3 +146,13 @@ func getEnvInt(key string, def int) int {
 	}
 	return def
 }
+
+func getEnvBool(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	return def
+}
+

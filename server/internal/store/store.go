@@ -167,3 +167,152 @@ func (s *Store) SaveEvent(ctx context.Context, e *EarthquakeEvent) (string, erro
 	return id, nil
 }
 
+// --- REST API repositories (Fase 4) ---
+
+// NewNode adalah data untuk membuat node baru saat provisioning. Secret HMAC
+// disimpan terenkripsi AES-256-GCM (secret_key_enc + nonce), BUKAN hash.
+type NewNode struct {
+	StationID    string
+	SensorModel  string
+	LocationName string
+	Lat          float64
+	Lon          float64
+	SecretEnc    []byte
+	SecretNonce  []byte
+}
+
+// CreateNode menyisipkan node baru. location dibangun via ST_MakePoint(lon, lat).
+func (s *Store) CreateNode(ctx context.Context, n *NewNode) error {
+	const q = `
+		INSERT INTO iot_nodes (
+			station_id, sensor_model, location_name, location,
+			secret_key_enc, secret_key_nonce
+		) VALUES (
+			$1, $2, $3,
+			ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography,
+			$6, $7
+		)`
+	_, err := s.pool.Exec(ctx, q,
+		n.StationID, n.SensorModel, n.LocationName,
+		n.Lon, n.Lat, n.SecretEnc, n.SecretNonce,
+	)
+	if err != nil {
+		return fmt.Errorf("insert iot_node: %w", err)
+	}
+	return nil
+}
+
+// SensorStatus merepresentasikan satu baris status sensor untuk endpoint /sensors.
+type SensorStatus struct {
+	StationID     string
+	SensorModel   string
+	LocationName  string
+	Lat           float64
+	Lon           float64
+	IsActive      bool
+	LastRSSI      int
+	LastLatencyMs int
+	// SecondsSincePing = detik sejak last_heartbeat; dipakai untuk status
+	// Online/Offline & label "Ns ago".
+	SecondsSincePing int64
+}
+
+// ListSensorsWithin mengembalikan sensor dalam radius rangeKm dari (lat, lon)
+// user memakai ST_DWithin pada GEOGRAPHY (satuan meter → rangeKm * 1000).
+// Diurutkan dari yang terdekat.
+func (s *Store) ListSensorsWithin(ctx context.Context, lat, lon float64, rangeKm int) ([]SensorStatus, error) {
+	const q = `
+		SELECT station_id, sensor_model, location_name,
+		       ST_Y(location::geometry) AS lat,
+		       ST_X(location::geometry) AS lon,
+		       is_active, last_rssi, last_latency_ms,
+		       EXTRACT(EPOCH FROM (NOW() - last_heartbeat))::bigint AS secs_since_ping
+		FROM iot_nodes
+		WHERE ST_DWithin(location, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography, $3)
+		ORDER BY location <-> ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography`
+	rows, err := s.pool.Query(ctx, q, lat, lon, float64(rangeKm)*1000.0)
+	if err != nil {
+		return nil, fmt.Errorf("query sensors: %w", err)
+	}
+	defer rows.Close()
+
+	var out []SensorStatus
+	for rows.Next() {
+		var s SensorStatus
+		if err := rows.Scan(
+			&s.StationID, &s.SensorModel, &s.LocationName,
+			&s.Lat, &s.Lon, &s.IsActive, &s.LastRSSI, &s.LastLatencyMs,
+			&s.SecondsSincePing,
+		); err != nil {
+			return nil, fmt.Errorf("scan sensor: %w", err)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sensors: %w", err)
+	}
+	return out, nil
+}
+
+// ErrUserNotFound dikembalikan bila user_id tidak ada di user_profiles.
+var ErrUserNotFound = errors.New("user tidak ditemukan")
+
+// UserLocation memuat lokasi terakhir user + radius coverage default.
+// HasLocation=false bila last_location NULL (user belum pernah kirim lokasi).
+type UserLocation struct {
+	UserID           string
+	Lat              float64
+	Lon              float64
+	HasLocation      bool
+	CoverageRadiusKm int
+}
+
+// GetUserLocation mengambil last_location + coverage_radius_km user.
+func (s *Store) GetUserLocation(ctx context.Context, userID string) (*UserLocation, error) {
+	const q = `
+		SELECT ST_Y(last_location::geometry) AS lat,
+		       ST_X(last_location::geometry) AS lon,
+		       last_location IS NOT NULL AS has_loc,
+		       coverage_radius_km
+		FROM user_profiles
+		WHERE user_id = $1`
+	var (
+		lat, lon    *float64
+		hasLoc      bool
+		coverageKm  int
+	)
+	err := s.pool.QueryRow(ctx, q, userID).Scan(&lat, &lon, &hasLoc, &coverageKm)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("scan user location: %w", err)
+	}
+	u := &UserLocation{UserID: userID, HasLocation: hasLoc, CoverageRadiusKm: coverageKm}
+	if hasLoc && lat != nil && lon != nil {
+		u.Lat, u.Lon = *lat, *lon
+	}
+	return u, nil
+}
+
+
+// UpdatePseudonym menyetel pseudonym baru untuk user dan mengembalikan waktu
+// last_active yang di-set NOW(). Mengembalikan ErrUserNotFound bila user absen.
+func (s *Store) UpdatePseudonym(ctx context.Context, userID, pseudonym string) (time.Time, error) {
+	const q = `
+		UPDATE user_profiles
+		SET pseudonym = $2, last_active = NOW()
+		WHERE user_id = $1
+		RETURNING last_active`
+	var updatedAt time.Time
+	err := s.pool.QueryRow(ctx, q, userID, pseudonym).Scan(&updatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, ErrUserNotFound
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("update pseudonym: %w", err)
+	}
+	return updatedAt, nil
+}
+
+

@@ -17,7 +17,7 @@ import (
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 
-
+	"github.com/banana-pixel/quakealert/server/internal/api"
 	"github.com/banana-pixel/quakealert/server/internal/config"
 	"github.com/banana-pixel/quakealert/server/internal/consensus"
 	"github.com/banana-pixel/quakealert/server/internal/crypto"
@@ -25,7 +25,6 @@ import (
 	"github.com/banana-pixel/quakealert/server/internal/ingest"
 	"github.com/banana-pixel/quakealert/server/internal/store"
 )
-
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -111,18 +110,41 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	// --- REST API tier: rate limiter (Redis bila tersedia, fallback memory) ---
+	var limiter api.RateLimiter
+	if cfg.RedisURL != "" {
+		rl, rerr := api.NewRedisRateLimiter(cfg.RedisURL)
+		if rerr != nil {
+			return rerr
+		}
+		if perr := rl.Ping(bootCtx); perr != nil {
+			log.Warn("Redis tidak tersedia — fallback rate limiter in-memory", "err", perr)
+			_ = rl.Close()
+			limiter = api.NewMemoryRateLimiter()
+		} else {
+			defer rl.Close()
+			limiter = rl
+			log.Info("rate limiter Redis aktif")
+		}
+	} else {
+		limiter = api.NewMemoryRateLimiter()
+	}
+
+	apiSrv := api.NewServer(st, cipher, limiter, api.MQTTPublic{
+		Broker: cfg.MQTTPublicBroker,
+		Port:   cfg.MQTTPublicPort,
+		TLS:    cfg.MQTTPublicTLS,
+	}, log)
+
 	// --- HTTP server (WebSocket WSS via reverse proxy TLS di produksi) ---
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", hub.ServeWS)
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
+	// Router chi memproteksi /api/v1/* dan /ws dengan Bearer JWT (HS256).
+	handlerHTTP := apiSrv.Router(cfg.JWTSecret, hub.ServeWS, log)
 	httpSrv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           mux,
+		Handler:           handlerHTTP,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+
 	go func() {
 		log.Info("http server listen", "addr", cfg.HTTPAddr)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -150,7 +172,6 @@ func run(log *slog.Logger) error {
 	log.Info("shutdown selesai")
 	return nil
 }
-
 
 // newMQTTClient membuat client MQTT. Untuk skema tls:///ssl:// mengaktifkan
 // TLS dengan verifikasi CA sistem (ADR-0003: TLS everywhere, plaintext dilarang
