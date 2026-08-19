@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,7 +65,7 @@ fun AlertBanner(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(Dimens.AlertBannerHeight)
+            .heightIn(min = Dimens.AlertBannerHeight)
             .clip(shape)
             .background(AlertBannerGradient, shape)
             .padding(Dimens.AlertBannerPadding),
@@ -80,7 +82,9 @@ fun AlertBanner(
                 fontFamily = NunitoFontFamily,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 20.sp,
-                lineHeight = 24.sp
+                lineHeight = 24.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(text = banner.intensityLabel, style = ChipLabel)
             Text(
@@ -92,6 +96,8 @@ fun AlertBanner(
                 text = banner.description,
                 style = CardSubtitle,
                 color = TextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 2.dp)
             )
 
