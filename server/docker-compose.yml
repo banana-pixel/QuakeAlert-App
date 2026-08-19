@@ -40,7 +40,8 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ../contracts/db/migrations:/contracts-migrations:ro
+      # :z untuk kompatibilitas SELinux (host Fedora/RHEL); tanpa efek di host lain.
+      - ../contracts/db/migrations:/contracts-migrations:ro,z
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U quakealert -d quakealert"]
       interval: 10s
@@ -61,7 +62,7 @@ services:
     environment:
       DB_URL: *migrate_dsn
     volumes:
-      - ../contracts/db/migrations:/migrations:ro
+      - ../contracts/db/migrations:/migrations:ro,z
     command:
       - "-path=/migrations"
       - "-database"
@@ -98,7 +99,7 @@ services:
       - "1883:1883"   # DEV plaintext only — DILARANG di produksi (pakai 8883/TLS)
       - "9001:9001"   # WebSocket (opsional, dev)
     volumes:
-      - ../deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ../deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro,z
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
     healthcheck:
