@@ -33,11 +33,6 @@ class SettingsViewModel : ViewModel() {
         // Intentionally empty until a real location sync source is wired in.
     }
 
-    /** Toggles the "Keep Alerting" switch (Alert & Notification section). */
-    fun onKeepAlertingToggled(enabled: Boolean) {
-        _uiState.update { it.copy(keepAlerting = enabled) }
-    }
-
     /** Placeholder hook for the "Test Alert Sound" action card. */
     fun onTestAlertSound() {
         // Intentionally empty until a real alert-sound source is wired in.

@@ -14,10 +14,8 @@ import id.web.quakealert.R
 /**
  * Small helper that owns the "test alert" notification channel and fires a
  * local notification so the user can confirm alerts reach them during
- * onboarding (Figma node 1:426).
- *
- * @param keepAlerting when true the notification is made ongoing/insistent so
- *        it keeps ringing until dismissed, mirroring the "Keep Alerting" toggle.
+ * onboarding (Figma node 1:426). The test is a plain auto-cancelling alert;
+ * real emergency alerts decide their own ongoing/insistent behaviour.
  */
 object TestAlertNotifier {
 
@@ -47,7 +45,7 @@ object TestAlertNotifier {
      * POST_NOTIFICATIONS permission has not been granted (API 33+), letting the
      * caller prompt the user instead of silently failing.
      */
-    fun showTestAlert(context: Context, keepAlerting: Boolean): Boolean {
+    fun showTestAlert(context: Context): Boolean {
         ensureChannel(context)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -62,18 +60,10 @@ object TestAlertNotifier {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_alert_test)
             .setContentTitle("QuakeAlert Test")
-            .setContentText(
-                if (keepAlerting) {
-                    "This is a test alert. It will keep alerting until dismissed."
-                } else {
-                    "This is a test alert. The notification service is working!"
-                }
-            )
+            .setContentText("This is a test alert. The notification service is working!")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setAutoCancel(!keepAlerting)
-            .setOngoing(keepAlerting)
-            .apply { if (keepAlerting) setDefaults(NotificationCompat.DEFAULT_ALL) }
+            .setAutoCancel(true)
             .build()
 
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)

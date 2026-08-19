@@ -165,13 +165,12 @@ object Dimens {
 
 
     // Setting row card (EL-002b7d17). Standardized container so every card
-    // (Coverage, Sync, Auto Sync, Test Sound, Keep Alerting, Light Mode,
-    // Language) shares identical chrome: 16dp radius, 16h/14v inner padding,
-    // 1dp white-10% stroke.
+    // (Coverage, Sync, Auto Sync, Test Sound, Light Mode, Language) shares
+    // identical chrome: 16dp radius, 16h/14v inner padding, 1dp white-10% stroke.
     val SettingCardRadius = 16.dp
     /**
      * Fixed card height so every setting row (Coverage, Sync, Auto Sync, Test
-     * Sound, Keep Alerting, Light Mode, Language) is byte-identical regardless of
+     * Sound, Light Mode, Language) is byte-identical regardless of
      * its trailing control. Derived from the Figma card (node 1:868): 10dp top +
      * 36dp title line-height + 10dp bottom = 56dp.
      */

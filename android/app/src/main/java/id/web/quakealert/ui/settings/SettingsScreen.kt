@@ -69,7 +69,6 @@ fun SettingsRoute(
         onCoverageSelected = viewModel::onCoverageSelected,
         onAutoSyncToggled = viewModel::onAutoSyncToggled,
         onSyncLocationNow = viewModel::onSyncLocationNow,
-        onKeepAlertingToggled = viewModel::onKeepAlertingToggled,
         onTestAlertSound = viewModel::onTestAlertSound,
         onLightModeToggled = viewModel::onLightModeToggled,
         onLanguageSelected = viewModel::onLanguageSelected,
@@ -89,7 +88,7 @@ fun SettingsRoute(
  *  2. "Location & Coverage": reactive [SensorMapCard] whose coverage geofence
  *     circle scales with the selected [CoverageRange], the Coverage segmented
  *     control, "Sync Location Now" action, and the "Auto Sync Location" switch.
- *  3. "Alert & Notification": "Keep Alerting" switch + "Test Alert Sound" action.
+ *  3. "Alert & Notification": "Test Alert Sound" action.
  *  4. "Appearance & Look": "Light Mode (Beta)" switch + "Language" segmented
  *     control.
  *  5. "About": "More About Us" action card, which raises the [AboutModalDialog]
@@ -105,7 +104,6 @@ fun SettingsScreen(
     onCoverageSelected: (CoverageRange) -> Unit,
     onAutoSyncToggled: (Boolean) -> Unit,
     onSyncLocationNow: () -> Unit,
-    onKeepAlertingToggled: (Boolean) -> Unit,
     onTestAlertSound: () -> Unit,
     onLightModeToggled: (Boolean) -> Unit,
     onLanguageSelected: (AppLanguage) -> Unit,
@@ -189,15 +187,6 @@ fun SettingsScreen(
             // --- Alert & Notification -------------------------------------
             item(key = "header_alert") {
                 CenteredSectionBadge(title = "Alert & Notification")
-            }
-
-            item(key = "card_keep_alerting") {
-                QuakeCard(title = "Keep Alerting") {
-                    QuakeSwitch(
-                        checked = uiState.keepAlerting,
-                        onCheckedChange = onKeepAlertingToggled
-                    )
-                }
             }
 
             item(key = "card_test_alert") {
@@ -301,7 +290,6 @@ private fun SettingsScreenPreview() {
             onCoverageSelected = {},
             onAutoSyncToggled = {},
             onSyncLocationNow = {},
-            onKeepAlertingToggled = {},
             onTestAlertSound = {},
             onLightModeToggled = {},
             onLanguageSelected = {},

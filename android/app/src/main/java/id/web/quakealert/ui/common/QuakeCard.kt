@@ -31,7 +31,7 @@ import id.web.quakealert.ui.theme.Dimens
  * padding, border, radius and minimum height byte-identical everywhere instead
  * of each screen re-declaring its own card chrome.
  *
- * @param title primary card label (e.g. "Keep Alerting").
+ * @param title primary card label (e.g. "Auto Sync Location").
  * @param onClick optional whole-card click (used by action / permission rows);
  *   null = inert.
  * @param detail optional content laid out beneath the title in the same column

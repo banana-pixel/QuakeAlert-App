@@ -38,7 +38,6 @@ enum class AppLanguage(val label: String) {
  * @param sensorCount number of sensors within the selected range (map summary).
  * @param lastSyncLabel human-readable last-sync time (e.g. "2 min. ago").
  * @param autoSyncLocation "Auto Sync Location / Intelligent Location Sync" toggle.
- * @param keepAlerting "Keep Alerting" toggle (Alert & Notification section).
  * @param lightMode "Light Mode (Beta)" toggle (Appearance & Look section).
  * @param language selected app language (Language segmented control).
  * @param appCredit primary credit line shown on the About card
@@ -57,7 +56,6 @@ data class SettingsUiState(
     val sensorCount: Int = 2,
     val lastSyncLabel: String = "2 min. ago",
     val autoSyncLocation: Boolean = true,
-    val keepAlerting: Boolean = true,
     val lightMode: Boolean = false,
     val language: AppLanguage = AppLanguage.EN,
     val appCredit: String = "QuakeAlert App by @banana-pixel",

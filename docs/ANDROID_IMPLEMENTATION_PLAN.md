@@ -20,7 +20,7 @@ Dokumen perencanaan implementasi Android client (`android/`) terhadap backend Qu
 
 | Layar | File | Status UI | Status Data | Hook no-op / masalah |
 |---|---|---|---|---|
-| **Onboarding** | `OnboardingScreen.kt`, `OnboardingPage.kt`, `PermissionCard.kt`, `TestAlertControls.kt`, `TestAlertNotifier.kt`, `ReadyText.kt` | ✅ Lengkap (7 halaman pager) | 🟡 Sebagian nyata | Permission (NOTIF/BATTERY/LOCATION) & test alert **nyata**; state `remember` lokal (hilang saat config change); `keepAlerting` tidak disinkron ke Settings; **belum ada registrasi anonymous REST** (Fase 1) |
+| **Onboarding** | `OnboardingScreen.kt`, `OnboardingPage.kt`, `PermissionCard.kt`, `TestAlertControls.kt`, `TestAlertNotifier.kt`, `ReadyText.kt` | ✅ Lengkap (7 halaman pager) | 🟡 Sebagian nyata | Permission (NOTIF/BATTERY/LOCATION) & test alert **nyata**; state `remember` lokal (hilang saat config change); **belum ada registrasi anonymous REST** (Fase 1) |
 | **Warning** | `WarningScreen.kt`, `WarningComponents.kt`, `WarningUiState.kt`, `WarningViewModel.kt` | ✅ Lengkap (banner + tips + CTA) | 🔴 **Mock penuh** | Banner hardcoded `"Earthquake Detected / MMI VII"`; `onSeeDetails` & `onEmergency` **no-op**; **TIDAK ada audio, vibrasi, full-screen, notifikasi produksi** (grep audio/vibrate = 0) |
 | **Sensors** | `SensorsScreen.kt`, `SensorItemCard.kt`, `SensorMapCard.kt`, `SensorsUiState.kt`, `SensorsViewModel.kt` | ✅ Lengkap | 🔴 **Mock** (7 stasiun hardcoded) | Filter NEAR tidak menyaring; `onCalendar`/`onSensorClicked` no-op; peta = placeholder `drawBehind` |
 | **History** | `HistoryScreen.kt`, `QuakeHistoryCard.kt`, `HistoryUiState.kt`, `HistoryViewModel.kt` | ✅ Lengkap | 🔴 **Mock** (7 gempa hardcoded) | `onSeeMore` (detail) & `onShare` no-op; tanggal string pre-formatted (`"20 Jun 2026"`, `"07:19:18 WIB"`) |
@@ -80,7 +80,6 @@ Struktur: `LazyColumn` dipertahankan; section **"Appearance & Look" dipertahanka
 | Opsi | Perilaku |
 |---|---|
 | **Test Sirene** | Mainkan siren 2–3 detik via `MediaPlayer` `USAGE_ALARM`/`STREAM_ALARM` (bukan sekadar notifikasi) |
-| **Keep Alerting** | Ada; persist di DataStore + diteruskan ke notifikasi FCM/emergency (insistent/ongoing) |
 | **Bypass Doze / Battery Optimization** | Status + tombol → `Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (sinkronkan state onboarding ke sini + persist) |
 | **Toggle Notifikasi** | Hidup/mati alert FCM + notifikasi lokal; validasi status `POST_NOTIFICATIONS` |
 

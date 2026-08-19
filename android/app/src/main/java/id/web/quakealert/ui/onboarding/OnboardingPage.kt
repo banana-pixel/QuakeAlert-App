@@ -20,7 +20,7 @@ enum class OnboardingPageKind {
     /** Precise-location runtime permission card. */
     LOCATION_PERMISSION,
 
-    /** "Test Alert" action + "Keep Alerting" switch. */
+    /** "Test Alert" action card. */
     TEST_ALERT,
 
     /** Closing page with clickable GitHub/credit links. */

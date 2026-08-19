@@ -27,8 +27,8 @@ import id.web.quakealert.ui.theme.SwitchTrackActive
 import id.web.quakealert.ui.theme.SwitchTrackInactive
 
 /**
- * Custom flat, dark toggle switch (Figma node 1:857) shared across features
- * (Settings setting rows, Onboarding "Keep Alerting"). Unlike the default
+ * Custom flat, dark toggle switch (Figma node 1:857) used by the Settings
+ * setting rows. Unlike the default
  * Material 3 [androidx.compose.material3.Switch], this renders a subtle dark
  * track with a white thumb that grows and carries a small check glyph when
  * enabled (and a small cross when off), matching the QuakeAlert dark tokens.

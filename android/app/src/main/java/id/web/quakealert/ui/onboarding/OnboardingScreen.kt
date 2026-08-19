@@ -124,7 +124,6 @@ fun OnboardingScreen(
     var batteryUnrestricted by remember {
         mutableStateOf(isIgnoringBatteryOptimizations(context))
     }
-    var keepAlerting by remember { mutableStateOf(false) }
 
     val notificationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -165,7 +164,7 @@ fun OnboardingScreen(
     }
 
     val fireTestAlert: () -> Unit = {
-        val shown = TestAlertNotifier.showTestAlert(context, keepAlerting)
+        val shown = TestAlertNotifier.showTestAlert(context)
         if (!shown) {
             Toast.makeText(
                 context,
@@ -206,11 +205,9 @@ fun OnboardingScreen(
                     notificationGranted = notificationGranted,
                     locationGranted = locationGranted,
                     batteryUnrestricted = batteryUnrestricted,
-                    keepAlerting = keepAlerting,
                     onRequestNotification = requestNotification,
                     onRequestLocation = requestLocation,
                     onRequestBattery = requestBattery,
-                    onKeepAlertingChange = { keepAlerting = it },
                     onTestAlert = fireTestAlert,
                     modifier = pageContentModifier
                 )
@@ -292,11 +289,9 @@ fun OnboardingPageItem(
     notificationGranted: Boolean,
     locationGranted: Boolean,
     batteryUnrestricted: Boolean,
-    keepAlerting: Boolean,
     onRequestNotification: () -> Unit,
     onRequestLocation: () -> Unit,
     onRequestBattery: () -> Unit,
-    onKeepAlertingChange: (Boolean) -> Unit,
     onTestAlert: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -373,8 +368,6 @@ fun OnboardingPageItem(
                 )
 
                 OnboardingPageKind.TEST_ALERT -> TestAlertControls(
-                    keepAlerting = keepAlerting,
-                    onKeepAlertingChange = onKeepAlertingChange,
                     onTestAlert = onTestAlert
                 )
 
@@ -540,9 +533,7 @@ private fun rememberOnboardingPages(): List<OnboardingPage> = listOf(
     OnboardingPage(
         iconRes = R.drawable.ic_alert_test,
         title = "Test alert.",
-        description = "Send a test notification to make sure the notification " +
-            "service is working. You can make it just ring once, or make it keep " +
-            "alerting until you make it stop.",
+        description = "Send a test notification to make sure the notification service is working.",
         kind = OnboardingPageKind.TEST_ALERT
     ),
     OnboardingPage(
