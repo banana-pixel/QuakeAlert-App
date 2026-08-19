@@ -36,6 +36,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import id.web.quakealert.R
+import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.theme.BorderLight
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.ChipLabel
@@ -74,12 +75,14 @@ import id.web.quakealert.ui.theme.TextPrimary
  * [Dimens.ScreenHorizontalPadding] rather than Material's narrower dialog width.
  *
  * @param event the tapped history entry to describe.
+ * @param unitSystem drives the "Distance from you" row unit ("km" / "mi").
  * @param onDismiss invoked by the close button, a back press or an outside tap.
  * @param onShare invoked by the bottom "Share" action.
  */
 @Composable
 fun EventDetailModalDialog(
     event: QuakeHistoryItem,
+    unitSystem: UnitSystem,
     onDismiss: () -> Unit,
     onShare: () -> Unit
 ) {
@@ -89,6 +92,7 @@ fun EventDetailModalDialog(
     ) {
         EventDetailModal(
             event = event,
+            unitSystem = unitSystem,
             onDismiss = onDismiss,
             onShare = onShare,
             modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)
@@ -115,6 +119,7 @@ fun EventDetailModalDialog(
 @Composable
 fun EventDetailModal(
     event: QuakeHistoryItem,
+    unitSystem: UnitSystem,
     onDismiss: () -> Unit,
     onShare: () -> Unit,
     modifier: Modifier = Modifier
@@ -148,7 +153,7 @@ fun EventDetailModal(
 
         SeismicMetricsRow(event = event)
 
-        SpatialInfoCard(event = event)
+        SpatialInfoCard(event = event, unitSystem = unitSystem)
 
         ShareAction(onClick = onShare)
     }
@@ -434,6 +439,7 @@ private fun MetricCell(
 @Composable
 private fun SpatialInfoCard(
     event: QuakeHistoryItem,
+    unitSystem: UnitSystem,
     modifier: Modifier = Modifier
 ) {
     val shape = remember { RoundedCornerShape(Dimens.RadiusSmall) }
@@ -447,7 +453,10 @@ private fun SpatialInfoCard(
             .padding(Dimens.EventDetailInfoPadding),
         verticalArrangement = Arrangement.spacedBy(Dimens.EventDetailInfoGap)
     ) {
-        SpatialInfoRow(label = "Distance from you", value = event.distanceLabel)
+        SpatialInfoRow(
+            label = "Distance from you",
+            value = "${unitSystem.formatDistance(event.distanceKm)} Away"
+        )
 
         Box(
             modifier = Modifier
@@ -519,7 +528,7 @@ private val PreviewEvent = QuakeHistoryItem(
     location = "Lembang, West Java, ID",
     date = "20 Jun 2026",
     time = "07:19:18 WIB",
-    distanceLabel = "60 km Away",
+    distanceKm = 60,
     relativeTime = "2 months ago",
     pgaLabel = "61.5 gal",
     durationLabel = "7 sec",
@@ -532,6 +541,7 @@ private fun EventDetailModalPreview() {
     QuakeAlertTheme {
         EventDetailModal(
             event = PreviewEvent,
+            unitSystem = UnitSystem.METRIC,
             onDismiss = {},
             onShare = {},
             modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)
@@ -550,6 +560,7 @@ private fun EventDetailModalSeverePreview() {
                 pgaLabel = "142.0 gal",
                 durationLabel = "23 sec"
             ),
+            unitSystem = UnitSystem.METRIC,
             onDismiss = {},
             onShare = {},
             modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)

@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeCard
 import id.web.quakealert.ui.common.QuakePill
@@ -72,6 +73,7 @@ fun SettingsRoute(
         onTestAlertSound = viewModel::onTestAlertSound,
         onLightModeToggled = viewModel::onLightModeToggled,
         onLanguageSelected = viewModel::onLanguageSelected,
+        onUnitSelected = viewModel::onUnitSelected,
         onMoreAboutUs = viewModel::onMoreAboutUs,
         onAboutDismissed = viewModel::onAboutDismissed,
         onGithubClick = { openLink(AboutLinks.GITHUB_PAGES) },
@@ -89,8 +91,8 @@ fun SettingsRoute(
  *     circle scales with the selected [CoverageRange], the Coverage segmented
  *     control, "Sync Location Now" action, and the "Auto Sync Location" switch.
  *  3. "Alert & Notification": "Test Alert Sound" action.
- *  4. "Appearance & Look": "Light Mode (Beta)" switch + "Language" segmented
- *     control.
+ *  4. "Appearance & Look": "Light Mode (Beta)" switch, "Units" segmented
+ *     control and "Language" segmented control.
  *  5. "About": "More About Us" action card, which raises the [AboutModalDialog]
  *     overlay (Figma node 4:654) via `uiState.showAboutModal`.
  *
@@ -107,6 +109,7 @@ fun SettingsScreen(
     onTestAlertSound: () -> Unit,
     onLightModeToggled: (Boolean) -> Unit,
     onLanguageSelected: (AppLanguage) -> Unit,
+    onUnitSelected: (UnitSystem) -> Unit,
     onMoreAboutUs: () -> Unit,
     onAboutDismissed: () -> Unit,
     onGithubClick: () -> Unit,
@@ -147,7 +150,8 @@ fun SettingsScreen(
                         rangeKm = uiState.coverageRange.km,
                         sensorCount = uiState.sensorCount,
                         geofenceFraction = uiState.coverageRange.geofenceFraction
-                    )
+                    ),
+                    unitSystem = uiState.unitSystem
                 )
             }
 
@@ -156,7 +160,7 @@ fun SettingsScreen(
                     QuakeSegmentedControl(
                         options = CoverageRange.entries,
                         selected = uiState.coverageRange,
-                        labelOf = { it.label },
+                        labelOf = { it.label(uiState.unitSystem) },
                         onSelect = onCoverageSelected
                     )
                 }
@@ -207,6 +211,17 @@ fun SettingsScreen(
                     QuakeSwitch(
                         checked = uiState.lightMode,
                         onCheckedChange = onLightModeToggled
+                    )
+                }
+            }
+
+            item(key = "card_units") {
+                QuakeCard(title = "Units") {
+                    QuakeSegmentedControl(
+                        options = UnitSystem.entries,
+                        selected = uiState.unitSystem,
+                        labelOf = { it.label },
+                        onSelect = onUnitSelected
                     )
                 }
             }
@@ -293,6 +308,7 @@ private fun SettingsScreenPreview() {
             onTestAlertSound = {},
             onLightModeToggled = {},
             onLanguageSelected = {},
+            onUnitSelected = {},
             onMoreAboutUs = {},
             onAboutDismissed = {},
             onGithubClick = {},

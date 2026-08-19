@@ -1,9 +1,15 @@
 package id.web.quakealert.ui.settings
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import id.web.quakealert.data.AppSettingsRepository
+import id.web.quakealert.data.UnitSystem
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 
 /**
@@ -12,11 +18,25 @@ import kotlinx.coroutines.flow.update
  * mirroring the Figma design ("Settings Page (Fix)", node 1:845) so the
  * "Location & Coverage" section can be verified visually before real
  * preferences persistence is wired in.
+ *
+ * The persisted [UnitSystem] from [AppSettingsRepository] is folded into every
+ * emission, so the Coverage labels, range summaries and the Units control all
+ * render the choice saved across restarts.
  */
-class SettingsViewModel : ViewModel() {
+class SettingsViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val repository = AppSettingsRepository(application)
 
     private val _uiState = MutableStateFlow(SettingsUiState())
-    val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    val uiState: StateFlow<SettingsUiState> = combine(
+        repository.unitSystem,
+        _uiState
+    ) { unit, state -> state.copy(unitSystem = unit) }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = SettingsUiState()
+    )
 
     /** Selects a coverage radius from the Coverage segmented control. */
     fun onCoverageSelected(range: CoverageRange) {
@@ -46,6 +66,16 @@ class SettingsViewModel : ViewModel() {
     /** Selects the app language from the Language segmented control. */
     fun onLanguageSelected(language: AppLanguage) {
         _uiState.update { it.copy(language = language) }
+    }
+
+    /**
+     * Selects the distance unit system (Metric / Imperial). Persisted via
+     * [AppSettingsRepository] so History and Sensors render the same choice, and
+     * mirrored into state so the control updates immediately.
+     */
+    fun onUnitSelected(unit: UnitSystem) {
+        repository.setUnitSystem(unit)
+        _uiState.update { it.copy(unitSystem = unit) }
     }
 
     /** Opens the About overlay from the "More About Us" call-to-action. */

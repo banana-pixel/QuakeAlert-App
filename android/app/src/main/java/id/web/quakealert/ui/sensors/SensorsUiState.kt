@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.sensors
 
 import androidx.compose.runtime.Immutable
+import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.QuakeFilter
 
 /**
@@ -66,9 +67,12 @@ data class SensorMapOverview(
     val sensorCount: Int,
     val geofenceFraction: Float = 0.9f
 ) {
-    /** Pre-formatted "Range : {km} km, {n} sensors" summary badge text. */
-    val summaryLabel: String
-        get() = "Range : $rangeKm km, $sensorCount sensors"
+    /**
+     * Pre-formatted "Range : {km} km, {n} sensors" summary badge text in the
+     * given unit system ("Range : 500 km, 2 sensors" / "Range : 311 mi, 2 sensors").
+     */
+    fun summaryLabel(unitSystem: UnitSystem): String =
+        "Range : ${unitSystem.formatDistance(rangeKm)}, $sensorCount sensors"
 }
 
 
@@ -87,5 +91,6 @@ data class SensorsUiState(
     ),
     val selectedFilter: QuakeFilter = QuakeFilter.ALL,
     val nearRadiusKm: Int = 39,
+    val unitSystem: UnitSystem = UnitSystem.METRIC,
     val sensors: List<SensorStationItem> = emptyList()
 )

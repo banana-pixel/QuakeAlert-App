@@ -79,6 +79,7 @@ fun SensorsScreen(
 
         SensorMapCard(
             overview = uiState.overview,
+            unitSystem = uiState.unitSystem,
             onSettingsShortcut = onOpenSettings,
             modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
         )
@@ -86,6 +87,7 @@ fun SensorsScreen(
         QuakeFilterRow(
             selectedFilter = uiState.selectedFilter,
             nearRadiusKm = uiState.nearRadiusKm,
+            unitSystem = uiState.unitSystem,
             onFilterSelected = onFilterSelected,
             onCalendarClicked = onCalendarClicked,
             modifier = Modifier.padding(top = Dimens.SensorsHeaderBlockGap)

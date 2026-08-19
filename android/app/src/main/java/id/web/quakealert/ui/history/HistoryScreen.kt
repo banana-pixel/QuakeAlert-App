@@ -50,7 +50,7 @@ fun HistoryRoute(
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_SUBJECT, "QuakeAlert — ${item.location}")
-                    putExtra(Intent.EXTRA_TEXT, item.toShareText())
+                    putExtra(Intent.EXTRA_TEXT, item.toShareText(uiState.unitSystem))
                 }
                 context.startActivity(Intent.createChooser(send, "Share earthquake details"))
             }
@@ -105,6 +105,7 @@ fun HistoryScreen(
         QuakeFilterRow(
             selectedFilter = uiState.selectedFilter,
             nearRadiusKm = uiState.nearRadiusKm,
+            unitSystem = uiState.unitSystem,
             onFilterSelected = onFilterSelected,
             onCalendarClicked = onCalendarClicked,
             modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
@@ -129,6 +130,7 @@ fun HistoryScreen(
             ) { item ->
                 QuakeHistoryCard(
                     item = item,
+                    unitSystem = uiState.unitSystem,
                     onShareClicked = { onShareClicked(item) },
                     onSeeMoreClicked = { onSeeMoreClicked(item) }
                 )
@@ -140,6 +142,7 @@ fun HistoryScreen(
     uiState.selectedEvent?.let { event ->
         EventDetailModalDialog(
             event = event,
+            unitSystem = uiState.unitSystem,
             onDismiss = onDetailDismissed,
             onShare = { onShareClicked(event) }
         )
@@ -188,7 +191,7 @@ private val previewItems = listOf(
         location = "Bandung, West Java, ID",
         date = "20 Jun 2026",
         time = "07:19:18 WIB",
-        distanceLabel = "20 km Away",
+        distanceKm = 20,
         relativeTime = "2 months ago",
         pgaLabel = "61.5 gal",
         durationLabel = "7 sec",
@@ -201,7 +204,7 @@ private val previewItems = listOf(
         location = "Lembang, West Java, ID",
         date = "16 Jun 2026",
         time = "04:43:19 WIB",
-        distanceLabel = "60 km Away",
+        distanceKm = 60,
         relativeTime = "2 months ago",
         pgaLabel = "142.0 gal",
         durationLabel = "23 sec",

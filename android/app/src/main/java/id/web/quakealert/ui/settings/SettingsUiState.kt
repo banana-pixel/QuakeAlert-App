@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.settings
 
 import androidx.compose.runtime.Immutable
+import id.web.quakealert.data.UnitSystem
 
 /**
  * Selectable coverage radius options shown in the Coverage segmented control
@@ -10,10 +11,13 @@ import androidx.compose.runtime.Immutable
  * (0f..1f of the card's minimum dimension) so the visualised radius grows with
  * the selected coverage.
  */
-enum class CoverageRange(val km: Int, val label: String, val geofenceFraction: Float) {
-    KM_125(125, "125 km", 0.35f),
-    KM_250(250, "250 km", 0.6f),
-    KM_500(500, "500 km", 0.9f)
+enum class CoverageRange(val km: Int, val geofenceFraction: Float) {
+    KM_125(125, 0.35f),
+    KM_250(250, 0.6f),
+    KM_500(500, 0.9f);
+
+    /** Segmented-control label in the selected system, e.g. "125 km" / "78 mi". */
+    fun label(unitSystem: UnitSystem): String = unitSystem.formatDistance(km)
 }
 
 /**
@@ -40,6 +44,9 @@ enum class AppLanguage(val label: String) {
  * @param autoSyncLocation "Auto Sync Location / Intelligent Location Sync" toggle.
  * @param lightMode "Light Mode (Beta)" toggle (Appearance & Look section).
  * @param language selected app language (Language segmented control).
+ * @param unitSystem distance unit system (Metric / Imperial), persisted via
+ *   [id.web.quakealert.data.AppSettingsRepository] and shared with the History
+ *   and Sensors screens.
  * @param appCredit primary credit line shown on the About card
  *   ("QuakeAlert App by @banana-pixel").
  * @param appVersion secondary version line shown on the About card
@@ -58,6 +65,7 @@ data class SettingsUiState(
     val autoSyncLocation: Boolean = true,
     val lightMode: Boolean = false,
     val language: AppLanguage = AppLanguage.EN,
+    val unitSystem: UnitSystem = UnitSystem.METRIC,
     val appCredit: String = "QuakeAlert App by @banana-pixel",
     val appVersion: String = "v 1.0.1 (Beta)",
     val showAboutModal: Boolean = false
@@ -67,7 +75,7 @@ data class SettingsUiState(
 
     /** Pre-formatted "Range : {km} km, {n} sensors" summary badge text. */
     val rangeSummaryLabel: String
-        get() = "Range : ${coverageRange.km} km, $sensorCount sensors"
+        get() = "Range : ${unitSystem.formatDistance(coverageRange.km)}, $sensorCount sensors"
 
     /** Pre-formatted "Last Sync : {time}" info-pill text. */
     val lastSyncPillLabel: String

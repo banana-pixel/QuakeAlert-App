@@ -1,10 +1,16 @@
 package id.web.quakealert.ui.history
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import id.web.quakealert.data.AppSettingsRepository
+import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.QuakeFilter
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 
 /**
@@ -13,15 +19,29 @@ import kotlinx.coroutines.flow.update
  * mock data mirroring the Figma design (node 1:701) so the UI can be verified
  * visually before a real data source is wired in.
  *
+ * The persisted [UnitSystem] from [AppSettingsRepository] is folded into every
+ * emission so the distance pills, the "Near" filter pill and the share text all
+ * render the same unit the user picked in Settings.
+ *
  * Sharing is deliberately absent here: firing `Intent.ACTION_SEND` needs a
  * `Context`, not app state, so it lives in [HistoryRoute] alongside the other
  * composition-local work — the same split [id.web.quakealert.ui.settings.SettingsRoute]
  * uses for opening external links.
  */
-class HistoryViewModel : ViewModel() {
+class HistoryViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val repository = AppSettingsRepository(application)
 
     private val _uiState = MutableStateFlow(HistoryUiState(items = mockHistoryItems()))
-    val uiState: StateFlow<HistoryUiState> = _uiState.asStateFlow()
+
+    val uiState: StateFlow<HistoryUiState> = combine(
+        repository.unitSystem,
+        _uiState
+    ) { unit, state -> state.copy(unitSystem = unit) }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = HistoryUiState(items = mockHistoryItems())
+    )
 
     /** Switches between the "All" and "Near" filter pills. */
     fun onFilterSelected(filter: QuakeFilter) {
@@ -58,7 +78,7 @@ class HistoryViewModel : ViewModel() {
                 location = "Bandung, West Java, ID",
                 date = "20 Jun 2026",
                 time = "07:19:18 WIB",
-                distanceLabel = "20 km Away",
+                distanceKm = 20,
                 relativeTime = "2 months ago",
                 pgaLabel = "61.5 gal",
                 durationLabel = "7 sec",
@@ -71,7 +91,7 @@ class HistoryViewModel : ViewModel() {
                 location = "Lembang, West Java, ID",
                 date = "16 Jun 2026",
                 time = "04:43:19 WIB",
-                distanceLabel = "60 km Away",
+                distanceKm = 60,
                 relativeTime = "2 months ago",
                 pgaLabel = "142.0 gal",
                 durationLabel = "23 sec",
@@ -84,7 +104,7 @@ class HistoryViewModel : ViewModel() {
                 location = "Jakarta, Indonesia",
                 date = "18 Jun 2026",
                 time = "12:05:45 WIB",
-                distanceLabel = "130 km Away",
+                distanceKm = 130,
                 relativeTime = "2 months ago",
                 pgaLabel = "88.2 gal",
                 durationLabel = "12 sec",
@@ -97,7 +117,7 @@ class HistoryViewModel : ViewModel() {
                 location = "Surabaya, East Java, ID",
                 date = "21 Jun 2026",
                 time = "09:27:33 WIB",
-                distanceLabel = "350 km Away",
+                distanceKm = 350,
                 relativeTime = "2 months ago",
                 pgaLabel = "204.7 gal",
                 durationLabel = "31 sec",
@@ -110,7 +130,7 @@ class HistoryViewModel : ViewModel() {
                 location = "Yogyakarta, Central Java, ID",
                 date = "22 Jun 2026",
                 time = "14:15:09 WIB",
-                distanceLabel = "290 km Away",
+                distanceKm = 290,
                 relativeTime = "2 months ago",
                 pgaLabel = "73.4 gal",
                 durationLabel = "9 sec",
@@ -123,7 +143,7 @@ class HistoryViewModel : ViewModel() {
                 location = "Malang, East Java, ID",
                 date = "23 Jun 2026",
                 time = "06:48:52 WIB",
-                distanceLabel = "400 km Away",
+                distanceKm = 400,
                 relativeTime = "2 months ago",
                 pgaLabel = "318.9 gal",
                 durationLabel = "44 sec",
@@ -136,7 +156,7 @@ class HistoryViewModel : ViewModel() {
                 location = "Bali, Indonesia",
                 date = "24 Jun 2026",
                 time = "11:32:04 WITA",
-                distanceLabel = "900 km Away",
+                distanceKm = 900,
                 relativeTime = "2 months ago",
                 pgaLabel = "45.1 gal",
                 durationLabel = "6 sec",

@@ -44,8 +44,36 @@ class AppSettingsRepository(context: Context) {
         prefs.edit().putBoolean(KEY_ONBOARDING_COMPLETED, true).apply()
     }
 
+    /**
+     * Emits the selected distance unit system. Defaults to [UnitSystem.METRIC]
+     * for a fresh install. Emits the current value up front and re-emits
+     * whenever the preference changes, mirroring [isOnboardingCompleted].
+     */
+    val unitSystem: Flow<UnitSystem> = callbackFlow {
+        trySend(readUnitSystem(prefs))
+
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
+            if (key == KEY_UNIT_SYSTEM) {
+                trySend(readUnitSystem(p))
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }.distinctUntilChanged()
+
+    /** Persists the distance unit system for the History / Sensors / Settings screens. */
+    fun setUnitSystem(unit: UnitSystem) {
+        prefs.edit().putString(KEY_UNIT_SYSTEM, unit.name).apply()
+    }
+
+    private fun readUnitSystem(prefs: SharedPreferences): UnitSystem =
+        prefs.getString(KEY_UNIT_SYSTEM, null)
+            ?.let { stored -> runCatching { UnitSystem.valueOf(stored) }.getOrNull() }
+            ?: UnitSystem.METRIC
+
     private companion object {
         const val PREFS_NAME = "quakealert_app_settings"
         const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
+        const val KEY_UNIT_SYSTEM = "unit_system"
     }
 }

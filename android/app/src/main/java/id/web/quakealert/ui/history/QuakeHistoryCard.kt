@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.web.quakealert.R
+import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.QuakePill
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.CardSubtitle
@@ -57,6 +58,7 @@ import id.web.quakealert.ui.theme.TextPrimary
 @Composable
 fun QuakeHistoryCard(
     item: QuakeHistoryItem,
+    unitSystem: UnitSystem,
     onShareClicked: () -> Unit,
     onSeeMoreClicked: () -> Unit,
     modifier: Modifier = Modifier
@@ -90,6 +92,7 @@ fun QuakeHistoryCard(
 
         DetailsColumn(
             item = item,
+            unitSystem = unitSystem,
             onShareClicked = onShareClicked,
             modifier = Modifier.weight(1f)
         )
@@ -150,6 +153,7 @@ private fun LeadingColumn(
 @Composable
 private fun DetailsColumn(
     item: QuakeHistoryItem,
+    unitSystem: UnitSystem,
     onShareClicked: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -179,7 +183,7 @@ private fun DetailsColumn(
             // Shared QuakePill capsule — same fill/stroke/shape as the Sensor
             // telemetry pills.
             QuakePill(
-                text = item.distanceLabel,
+                text = "${unitSystem.formatDistance(item.distanceKm)} Away",
                 modifier = Modifier.weight(1f)
             )
             ShareButton(onClick = onShareClicked)

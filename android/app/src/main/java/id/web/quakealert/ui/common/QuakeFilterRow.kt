@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import id.web.quakealert.R
+import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
@@ -33,7 +34,7 @@ import id.web.quakealert.ui.theme.TextPrimary
  * Shared row of filter controls beneath a screen header, used identically by
  * History (Figma node 1:711) and Sensors (Figma node 1:1105):
  *  - "All" pill
- *  - "Near - {radius}km" pill
+ *  - "Near - {radius}{unit}" pill (km or mi, driven by [UnitSystem])
  *  - a trailing calendar icon button
  *
  * The row is stateless and generic over the shared [QuakeFilter] enum so both
@@ -44,6 +45,7 @@ import id.web.quakealert.ui.theme.TextPrimary
 fun QuakeFilterRow(
     selectedFilter: QuakeFilter,
     nearRadiusKm: Int,
+    unitSystem: UnitSystem,
     onFilterSelected: (QuakeFilter) -> Unit,
     onCalendarClicked: () -> Unit,
     modifier: Modifier = Modifier
@@ -59,7 +61,7 @@ fun QuakeFilterRow(
             onClick = { onFilterSelected(QuakeFilter.ALL) }
         )
         FilterPill(
-            label = "Near - ${nearRadiusKm}km",
+            label = "Near - ${unitSystem.convertFromKm(nearRadiusKm)}${unitSystem.distanceUnit}",
             selected = selectedFilter == QuakeFilter.NEAR,
             onClick = { onFilterSelected(QuakeFilter.NEAR) }
         )

@@ -1,10 +1,16 @@
 package id.web.quakealert.ui.sensors
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import id.web.quakealert.data.AppSettingsRepository
+import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.QuakeFilter
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 
 /**
@@ -12,11 +18,25 @@ import kotlinx.coroutines.flow.update
  * [StateFlow] following unidirectional data flow. Seeded with mock data
  * mirroring the Figma design (node 1:1081) so the UI can be verified visually
  * before a real sensor-network data source is wired in.
+ *
+ * The persisted [UnitSystem] from [AppSettingsRepository] is folded into every
+ * emission so the map's range badge and the "Near" filter pill render the same
+ * unit the user picked in Settings.
  */
-class SensorsViewModel : ViewModel() {
+class SensorsViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val repository = AppSettingsRepository(application)
 
     private val _uiState = MutableStateFlow(SensorsUiState(sensors = mockSensors()))
-    val uiState: StateFlow<SensorsUiState> = _uiState.asStateFlow()
+
+    val uiState: StateFlow<SensorsUiState> = combine(
+        repository.unitSystem,
+        _uiState
+    ) { unit, state -> state.copy(unitSystem = unit) }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = SensorsUiState(sensors = mockSensors())
+    )
 
     /** Switches between the "All" and "Near" filter pills. */
     fun onFilterSelected(filter: QuakeFilter) {

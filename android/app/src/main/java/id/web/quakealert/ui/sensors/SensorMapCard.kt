@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import id.web.quakealert.R
+import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
@@ -62,11 +63,13 @@ import id.web.quakealert.ui.theme.TextPrimary
  *
  * @param onSettingsShortcut when non-null renders the bottom-right settings
  *   shortcut (Sensors screen). Settings passes null to hide it.
+ * @param unitSystem drives the "Range : ..." summary badge unit ("km" / "mi").
  */
 @Composable
 fun SensorMapCard(
     overview: SensorMapOverview,
     modifier: Modifier = Modifier,
+    unitSystem: UnitSystem = UnitSystem.METRIC,
     onSettingsShortcut: (() -> Unit)? = null
 ) {
     val cardShape = remember { RoundedCornerShape(Dimens.RadiusCard) }
@@ -114,7 +117,7 @@ fun SensorMapCard(
 
         // Bottom-left: range/sensor-count summary badge.
         RangeBadge(
-            label = overview.summaryLabel,
+            label = overview.summaryLabel(unitSystem),
             modifier = Modifier.align(Alignment.BottomStart)
         )
 

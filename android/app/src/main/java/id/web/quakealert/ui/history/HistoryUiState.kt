@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.history
 
 import androidx.compose.runtime.Immutable
+import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.QuakeFilter
 
 /**
@@ -39,7 +40,9 @@ val MmiSeverity.label: String
  * @param location human-readable epicentre (e.g. "Bandung, West Java, ID").
  * @param date formatted date (e.g. "20 Jun 2026").
  * @param time formatted time incl. zone (e.g. "07:19:18 WIB").
- * @param distanceLabel distance-from-user pill text (e.g. "20 km Away").
+ * @param distanceKm distance from the user in kilometres (canonical data; the
+ *   displayed "20 km Away" / "12 mi Away" pill is formatted per
+ *   [UnitSystem] at the display boundary).
  * @param relativeTime coarse age of the event (e.g. "2 months ago"), detail only.
  * @param pgaLabel peak ground acceleration incl. unit (e.g. "61.5 gal"), detail only.
  * @param durationLabel shaking duration incl. unit (e.g. "7 sec"), detail only.
@@ -55,7 +58,7 @@ data class QuakeHistoryItem(
     val location: String,
     val date: String,
     val time: String,
-    val distanceLabel: String,
+    val distanceKm: Int,
     val relativeTime: String,
     val pgaLabel: String,
     val durationLabel: String,
@@ -74,13 +77,13 @@ val QuakeHistoryItem.timestampLabel: String
  * share button and the detail overlay's "Share" action. Lives beside the model so
  * both entry points emit byte-identical text.
  */
-fun QuakeHistoryItem.toShareText(): String = buildString {
+fun QuakeHistoryItem.toShareText(unitSystem: UnitSystem): String = buildString {
     appendLine("Earthquake — $location")
     appendLine("MMI $intensity (${severity.label})")
     appendLine(timestampLabel)
     appendLine("PGA (Max): $pgaLabel")
     appendLine("Duration: $durationLabel")
-    appendLine("Distance from me: $distanceLabel")
+    appendLine("Distance from me: ${unitSystem.formatDistance(distanceKm)} Away")
     append("Centroid: $coordinates")
 }
 
@@ -89,6 +92,9 @@ fun QuakeHistoryItem.toShareText(): String = buildString {
  * consumed by the stateless [HistoryScreen]. The filter uses the shared
  * [QuakeFilter] enum common to History and Sensors.
  *
+ * @param unitSystem distance unit system (Metric / Imperial), persisted via
+ *   [id.web.quakealert.data.AppSettingsRepository] and shared with the Sensors
+ *   and Settings screens.
  * @param selectedEvent the event whose [EventDetailModalDialog] overlay is open,
  *   or null when no overlay is showing. Holding the item itself rather than an id
  *   keeps the overlay a pure function of the state it is handed.
@@ -99,6 +105,7 @@ data class HistoryUiState(
     val isHealthy: Boolean = true,
     val selectedFilter: QuakeFilter = QuakeFilter.ALL,
     val nearRadiusKm: Int = 39,
+    val unitSystem: UnitSystem = UnitSystem.METRIC,
     val items: List<QuakeHistoryItem> = emptyList(),
     val selectedEvent: QuakeHistoryItem? = null
 )
