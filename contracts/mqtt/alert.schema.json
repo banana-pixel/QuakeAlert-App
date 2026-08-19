@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quakealert.id/contracts/mqtt/alert.schema.json",
+  "title": "EarthquakeAlert",
+  "description": "Payload push server -> klien pada topic 'alerts/earthquake' (QoS 1). Memberitakan hasil konsensus: EARTHQUAKE_ALERT (>=3 node unik, CONFIRMED), EARTHQUAKE_ADVISORY (1-2 node, banner kuning tanpa persistensi), atau EVENT_RESOLVED (all-clear). CATATAN FORWARD-LOOKING: saat ini server mendistribusikan alert melalui WebSocket (foreground) dan FCM (background) — kanal MQTT ini disiapkan sebagai kontrak integrasi berikutnya dan BELUM dipublish oleh server. Bentuk payload disamakan dengan AlertMessage WS (server/internal/dispatch/ws.go) dan data kontrak FCM (contracts/fcm/alert_payload.json) agar klien memakai satu model parse untuk semua kanal. Satuan kanonik: pga_gal=gal (cm/s^2), timestamp=ms epoch UTC (int64), koordinat=WGS84 (centroid, BUKAN episenter).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "pga_gal", "centroid_lat", "centroid_lon", "location_name", "timestamp", "node_count"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["EARTHQUAKE_ALERT", "EARTHQUAKE_ADVISORY", "EVENT_RESOLVED"],
+      "description": "Jenis event. ALERT = >=3 node unik (life-safety, wajib tindakan), ADVISORY = 1-2 node (informasi, banner kuning), EVENT_RESOLVED = all-clear untuk event yang sebelumnya ALERT."
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID event dari earthquake_events (dipersistensikan). HANYA terisi untuk ALERT dan EVENT_RESOLVED; pada ADVISORY field ini kosong (\"\") karena event tidak dipersistensikan. Klien wajib toleran terhadap string kosong dan memakainya untuk deduplikasi (identitas unik per gempa).",
+      "examples": ["8f804561-1558-45ad-8982-1ab9193be589", ""]
+    },
+    "mmi": {
+      "type": "string",
+      "description": "Skala MMI (angka Romawi) dari PGA maksimum.",
+      "examples": ["V"]
+    },
+    "intensity_label": {
+      "type": "string",
+      "description": "Label intensitas deskriptif (mapped dari MMI).",
+      "examples": ["Strong"]
+    },
+    "pga_gal": {
+      "type": "number",
+      "minimum": 0,
+      "description": "PGA maksimum antar node pemicu dalam gal (cm/s^2) — satuan kanonik; konversi ke g hanya untuk tampilan (1 g = 980.665 gal).",
+      "examples": [413.13]
+    },
+    "centroid_lat": {
+      "type": "number",
+      "minimum": -90,
+      "maximum": 90,
+      "description": "Latitude weighted centroid stasiun pemicu (ST_Y(estimated_centroid)). BUKAN episenter seismologis — jangan ditampilkan sebagai lokasi episenter presisi.",
+      "examples": [-6.9175]
+    },
+    "centroid_lon": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180,
+      "description": "Longitude weighted centroid stasiun pemicu (ST_X(estimated_centroid)).",
+      "examples": [107.6191]
+    },
+    "location_name": {
+      "type": "string",
+      "description": "Label lokasi terdekat hasil reverse-geocode centroid (konteks pengguna, bukan akurasi ilmiah).",
+      "examples": ["Bandung, West Java, ID"]
+    },
+    "timestamp": {
+      "type": "integer",
+      "minimum": 1700000000000,
+      "description": "Waktu mulai event dalam milidetik epoch UTC (int64).",
+      "examples": [1723891234120]
+    },
+    "node_count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Jumlah node unik yang memicu konsensus. ALERT >= 3; ADVISORY 1-2.",
+      "examples": [4]
+    }
+  },
+  "examples": [
+    {
+      "type": "EARTHQUAKE_ALERT",
+      "event_id": "8f804561-1558-45ad-8982-1ab9193be589",
+      "mmi": "V",
+      "intensity_label": "Strong",
+      "pga_gal": 413.13,
+      "centroid_lat": -6.9175,
+      "centroid_lon": 107.6191,
+      "location_name": "Bandung, West Java, ID",
+      "timestamp": 1723891234120,
+      "node_count": 4
+    }
+  ]
+}

@@ -8,6 +8,12 @@ info:
     Semua endpoint memerlukan Bearer JWT (anonymous) KECUALI:
     `POST /api/v1/auth/anonymous` (publik — bootstrap identitas) dan
     `GET /api/v1/events` (auth opsional; bila token dikirim ia wajib valid).
+    Empat endpoint berikut adalah permukaan integrasi resmi klien Android
+    (alur first-launch → lokasi → push → riwayat); panduan integrasi ada di
+    docs/CLIENT_SPEC.md: `POST /api/v1/auth/anonymous`,
+    `PUT /api/v1/users/location`, `PUT /api/v1/users/fcm-token`,
+    `GET /api/v1/events`. Endpoint lainnya dipakai firmware (provisioning) dan
+    tooling web (sensors, reroll pseudonym).
 servers:
   - url: https://api.quakealert.id
     description: Produksi
@@ -40,6 +46,7 @@ paths:
         Endpoint ini SATU-SATUNYA yang tidak memerlukan Bearer token — klien
         memanggilnya sekali saat first launch lalu menyimpan token secara lokal.
       operationId: authAnonymous
+      x-client: true # dipakai klien Android saat first-launch (docs/CLIENT_SPEC.md)
       security: []
       responses:
         '201':
@@ -151,6 +158,7 @@ paths:
         penargetan alert. location_name adalah label hasil reverse-geocode di
         sisi klien dan bersifat opsional.
       operationId: updateUserLocation
+      x-client: true # dipakai klien Android (docs/CLIENT_SPEC.md)
       security:
         - bearerAuth: []
       requestBody:
@@ -179,6 +187,7 @@ paths:
         Menyimpan token Firebase Cloud Messaging perangkat agar alert
         life-safety tetap sampai saat aplikasi berada di background.
       operationId: updateUserFCMToken
+      x-client: true # dipakai klien Android (docs/CLIENT_SPEC.md)
       security:
         - bearerAuth: []
       requestBody:
@@ -212,6 +221,7 @@ paths:
         Filter spasial aktif hanya bila `latitude`, `longitude`, dan `range_km`
         dikirim bersamaan (ST_DWithin pada estimated_centroid).
       operationId: listEvents
+      x-client: true # dipakai klien Android (docs/CLIENT_SPEC.md)
       security:
         - bearerAuth: []
         - {}
