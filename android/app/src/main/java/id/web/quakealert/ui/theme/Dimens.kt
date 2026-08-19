@@ -227,6 +227,40 @@ object Dimens {
     val AboutButtonPaddingVertical = 8.dp
     val AboutButtonRadius = 12.dp
 
+    // --- About modal / overlay (Figma node 4:654; card node 4:668) -----------
+    // The card itself reuses RadiusCard (14dp) + BorderThin/CardBorder chrome.
+    /** Card inner padding (Figma 18). */
+    val AboutModalPadding = 18.dp
+    /** Vertical gap between the modal's stacked sections (Figma gap 26). */
+    val AboutModalSectionGap = 26.dp
+
+    // Circular close (X) button (Figma node 4:761): a 24dp glyph in a 10dp-padded
+    // container → 44dp footprint, 20dp radius.
+    val AboutModalCloseSize = 44.dp
+    val AboutModalCloseRadius = 20.dp
+    val AboutModalCloseIconSize = 24.dp
+
+    // Concentric logo badge (Figma node 4:670: fixed 139-tall block). The outer
+    // halo fills the block height exactly; the ring and core step down in even
+    // ~14dp increments.
+    val AboutModalLogoSize = 139.dp
+    val AboutModalLogoRingSize = 112.dp
+    val AboutModalLogoCoreSize = 84.dp
+    /**
+     * Render box for the seismograph glyph. `ic_recording_wave` draws its
+     * waveform inside only the middle ~34% of its 165-unit canvas, so the painter
+     * is laid out larger than the core disc to bring the *visible* waveform up to
+     * ~40dp; the surrounding empty margin is clipped away by the disc.
+     */
+    val AboutModalLogoGlyphSize = 120.dp
+
+    // Action buttons (Figma nodes 4:677 / 4:681 / 4:686). Radius reuses
+    // RadiusSmall (10dp) and the stroke reuses BorderMedium (2dp) + BorderLight.
+    /** Gap between the two action rows and between the buttons on a row (Figma 20). */
+    val AboutModalActionGap = 20.dp
+    val AboutModalActionHeight = 34.dp
+    val AboutModalActionPaddingHorizontal = 6.dp
+
     // --- Chat screen --------------------------------------------------------
     /** Gap between the header block (title + channel card) and the message list (Figma 16). */
     val ChatHeaderGap = 16.dp

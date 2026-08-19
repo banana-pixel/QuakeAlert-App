@@ -18,9 +18,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.ui.common.QuakeAppBar
@@ -41,6 +43,9 @@ import id.web.quakealert.ui.theme.SectionHeaderPillFill
 /**
  * Stateful entry point wiring [SettingsViewModel] to the stateless
  * [SettingsScreen]. Kept thin so the presentation layer stays testable.
+ *
+ * External-link navigation lives here rather than in the ViewModel: opening a URI
+ * needs the composition-local [LocalUriHandler], not app state.
  */
 @Composable
 fun SettingsRoute(
@@ -48,6 +53,16 @@ fun SettingsRoute(
     viewModel: SettingsViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    val uriHandler = LocalUriHandler.current
+    val openLink: (String) -> Unit = remember(uriHandler) {
+        { url ->
+            // AndroidUriHandler throws when nothing on the device can handle the
+            // URI (no browser, no mail client). Swallow it so a missing handler
+            // leaves the overlay open instead of crashing the app.
+            runCatching { uriHandler.openUri(url) }
+        }
+    }
 
     SettingsScreen(
         uiState = uiState,
@@ -59,6 +74,10 @@ fun SettingsRoute(
         onLightModeToggled = viewModel::onLightModeToggled,
         onLanguageSelected = viewModel::onLanguageSelected,
         onMoreAboutUs = viewModel::onMoreAboutUs,
+        onAboutDismissed = viewModel::onAboutDismissed,
+        onGithubClick = { openLink(AboutLinks.GITHUB_PAGES) },
+        onEmailClick = { openLink(AboutLinks.EMAIL) },
+        onDonateClick = { openLink(AboutLinks.DONATE) },
         modifier = modifier
     )
 }
@@ -73,7 +92,8 @@ fun SettingsRoute(
  *  3. "Alert & Notification": "Keep Alerting" switch + "Test Alert Sound" action.
  *  4. "Appearance & Look": "Light Mode (Beta)" switch + "Language" segmented
  *     control.
- *  5. "About": "More About Us" action card.
+ *  5. "About": "More About Us" action card, which raises the [AboutModalDialog]
+ *     overlay (Figma node 4:654) via `uiState.showAboutModal`.
  *
  * The scrolling body carries the shared soft [fadingEdges] so content dissolves
  * at the scroll bounds, matching the History / Sensors screens. All state and
@@ -90,6 +110,10 @@ fun SettingsScreen(
     onLightModeToggled: (Boolean) -> Unit,
     onLanguageSelected: (AppLanguage) -> Unit,
     onMoreAboutUs: () -> Unit,
+    onAboutDismissed: () -> Unit,
+    onGithubClick: () -> Unit,
+    onEmailClick: () -> Unit,
+    onDonateClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -226,6 +250,17 @@ fun SettingsScreen(
 
         }
     }
+
+    // Hosted in its own dialog window, so it overlays the whole Settings screen
+    // (nav bar included) without displacing any of the layout above.
+    if (uiState.showAboutModal) {
+        AboutModalDialog(
+            onDismiss = onAboutDismissed,
+            onGithubClick = onGithubClick,
+            onEmailClick = onEmailClick,
+            onDonateClick = onDonateClick
+        )
+    }
 }
 
 /**
@@ -270,7 +305,11 @@ private fun SettingsScreenPreview() {
             onTestAlertSound = {},
             onLightModeToggled = {},
             onLanguageSelected = {},
-            onMoreAboutUs = {}
+            onMoreAboutUs = {},
+            onAboutDismissed = {},
+            onGithubClick = {},
+            onEmailClick = {},
+            onDonateClick = {}
         )
     }
 }

@@ -141,6 +141,35 @@ val AboutCardGradient = Brush.horizontalGradient(
 /** Soft green stroke around the About card (Figma node 1:918). */
 val AboutCardBorder = Color(0x66087900)         // green 40% about-card stroke
 
+// ============================================================
+// About modal / overlay palette — QuakeAlert (Figma node 4:654)
+// ============================================================
+
+// Modal card fill (node 4:668):
+// linear-gradient(180deg, rgba(1,49,54,1) 0%, rgba(0,18,27,1) 100%)
+val AboutModalGradientTop = Color(0xFF013136)   // rgba(1,49,54,1)
+val AboutModalGradientBottom = Color(0xFF00121B) // rgba(0,18,27,1)
+val AboutModalGradient = Brush.verticalGradient(
+    colors = listOf(AboutModalGradientTop, AboutModalGradientBottom)
+)
+
+/** Circular close (X) button container (node 4:761) — rgba(217,217,217,0.35). */
+val AboutModalCloseFill = Color(0x59D9D9D9)
+
+// Action button fills (nodes 4:677 / 4:681 / 4:686). All three are the same
+// 31%-alpha wash over the modal gradient, differing only in hue.
+val AboutActionGithubFill = Color(0x4F00B9E3)   // rgba(0,185,227,0.31) teal/cyan
+val AboutActionEmailFill = Color(0x4FE3D400)    // rgba(227,212,0,0.31) olive/gold
+val AboutActionDonateFill = Color(0x4FAB3600)   // rgba(171,54,0,0.31) warm bronze
+
+// Concentric logo badge (node 4:670). Figma ships this as a raster logo fill; it
+// is rebuilt from Compose primitives as three concentric discs stepping up in
+// alpha from the shared #00B9E3 accent (same hue as the GitHub action) so the
+// badge reads as a soft glow around the seismograph glyph.
+val AboutLogoHaloFill = Color(0x1400B9E3)       // cyan 8% — outermost halo
+val AboutLogoRingFill = Color(0x2E00B9E3)       // cyan 18% — middle ring
+val AboutLogoCoreFill = Color(0x4F00B9E3)       // cyan 31% — core disc
+
 
 // Last-sync / info pill on setting cards
 val InfoPillFill = Color(0x78000000)            // rgba(0,0,0,0.47) info pill fill

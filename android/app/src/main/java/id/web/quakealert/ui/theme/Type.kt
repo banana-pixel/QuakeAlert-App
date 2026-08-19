@@ -8,6 +8,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.googlefonts.Font
 import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import id.web.quakealert.R
 
@@ -51,18 +52,21 @@ private val nunitoGoogleFont = GoogleFont("Nunito")
  *  - SemiBold (600)  : emphasis
  *  - Bold (700)      : card titles, button labels, secondary copy
  *  - ExtraBold (800) : headline / title
+ *  - Black (900)     : modal titles (About overlay, Figma node 4:669)
  *
  * Bold (700) must be registered explicitly: several composables (permission
  * cards, buttons, badges) request FontWeight.Bold, and without a matching font
  * the renderer synthesizes a faux-bold that looks heavier/inconsistent versus
- * the real Nunito Bold.
+ * the real Nunito Bold. The same reasoning applies to Black (900), requested by
+ * [ModalTitle].
  */
 val NunitoFontFamily = FontFamily(
     Font(googleFont = nunitoGoogleFont, fontProvider = provider, weight = FontWeight.Normal),
     Font(googleFont = nunitoGoogleFont, fontProvider = provider, weight = FontWeight.Medium),
     Font(googleFont = nunitoGoogleFont, fontProvider = provider, weight = FontWeight.SemiBold),
     Font(googleFont = nunitoGoogleFont, fontProvider = provider, weight = FontWeight.Bold),
-    Font(googleFont = nunitoGoogleFont, fontProvider = provider, weight = FontWeight.ExtraBold)
+    Font(googleFont = nunitoGoogleFont, fontProvider = provider, weight = FontWeight.ExtraBold),
+    Font(googleFont = nunitoGoogleFont, fontProvider = provider, weight = FontWeight.Black)
 )
 
 // Material typography wired to the Nunito family, with sizes reflecting
@@ -173,6 +177,42 @@ val ChipLabel = TextStyle(
     color = TextPrimary,
     platformStyle = CenteredPlatformStyle,
     lineHeightStyle = CenteredLineHeight
+)
+
+// ============================================================
+// Modal / overlay typography — About overlay (Figma node 4:654)
+// ============================================================
+
+/**
+ * Centered modal title ("About", Figma node 4:669): Nunito Black 16/22. Heavier
+ * than [CardTitle] so the overlay header outweighs the card titles behind it.
+ */
+val ModalTitle = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Black,
+    fontSize = 16.sp,
+    lineHeight = 22.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/**
+ * Centered multi-paragraph modal body copy (Figma node 4:672): Nunito Bold
+ * 16/22. Font padding is disabled so the 22sp line height lands on the Figma
+ * rhythm instead of being inflated by Nunito's asymmetric metrics, but the
+ * default [LineHeightStyle] is kept — per-line centering is only wanted inside
+ * fixed-height capsules, not in a wrapping paragraph.
+ */
+val ModalBodyText = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 16.sp,
+    lineHeight = 22.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle
 )
 
 

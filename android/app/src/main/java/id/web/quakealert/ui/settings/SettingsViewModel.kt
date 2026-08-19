@@ -53,9 +53,17 @@ class SettingsViewModel : ViewModel() {
         _uiState.update { it.copy(language = language) }
     }
 
-    /** Placeholder hook for the "More About Us" call-to-action. */
+    /** Opens the About overlay from the "More About Us" call-to-action. */
     fun onMoreAboutUs() {
-        // Intentionally empty until an about/destination target is wired in.
+        _uiState.update { it.copy(showAboutModal = true) }
+    }
+
+    /**
+     * Closes the About overlay. Called for every dismissal path — the close (X)
+     * button, a system back press and a tap outside the card.
+     */
+    fun onAboutDismissed() {
+        _uiState.update { it.copy(showAboutModal = false) }
     }
 }
 

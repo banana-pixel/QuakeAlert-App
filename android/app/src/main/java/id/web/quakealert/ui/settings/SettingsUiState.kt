@@ -45,6 +45,9 @@ enum class AppLanguage(val label: String) {
  *   ("QuakeAlert App by @banana-pixel").
  * @param appVersion secondary version line shown on the About card
  *   ("v 1.0.1 (Beta)").
+ * @param showAboutModal whether the About overlay ([AboutModalDialog]) is open.
+ *   Raised by "More About Us" and cleared by the overlay's close button, a back
+ *   press or an outside tap.
  */
 @Immutable
 data class SettingsUiState(
@@ -58,7 +61,8 @@ data class SettingsUiState(
     val lightMode: Boolean = false,
     val language: AppLanguage = AppLanguage.EN,
     val appCredit: String = "QuakeAlert App by @banana-pixel",
-    val appVersion: String = "v 1.0.1 (Beta)"
+    val appVersion: String = "v 1.0.1 (Beta)",
+    val showAboutModal: Boolean = false
 ) {
 
 
