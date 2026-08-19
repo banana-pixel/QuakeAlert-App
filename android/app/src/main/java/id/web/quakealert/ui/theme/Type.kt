@@ -4,6 +4,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.googlefonts.Font
 import androidx.compose.ui.text.googlefonts.GoogleFont
@@ -47,6 +48,7 @@ private val nunitoGoogleFont = GoogleFont("Nunito")
 /**
  * Nunito font family — the typeface used across the QuakeAlert
  * Onboarding design (Figma node 1:470). Weights map to the design:
+ *  - Light (300)     : event-detail metadata (Figma nodes 124:1133 / 124:1159)
  *  - Regular (400)   : body / description text
  *  - Medium (500)    : supporting labels
  *  - SemiBold (600)  : emphasis
@@ -58,9 +60,17 @@ private val nunitoGoogleFont = GoogleFont("Nunito")
  * cards, buttons, badges) request FontWeight.Bold, and without a matching font
  * the renderer synthesizes a faux-bold that looks heavier/inconsistent versus
  * the real Nunito Bold. The same reasoning applies to Black (900), requested by
- * [ModalTitle].
+ * [ModalTitle], and to Light (300) — including its italic — requested by
+ * [EventDetailMeta], where a synthesized oblique would shear the wrong weight.
  */
 val NunitoFontFamily = FontFamily(
+    Font(googleFont = nunitoGoogleFont, fontProvider = provider, weight = FontWeight.Light),
+    Font(
+        googleFont = nunitoGoogleFont,
+        fontProvider = provider,
+        weight = FontWeight.Light,
+        style = FontStyle.Italic
+    ),
     Font(googleFont = nunitoGoogleFont, fontProvider = provider, weight = FontWeight.Normal),
     Font(googleFont = nunitoGoogleFont, fontProvider = provider, weight = FontWeight.Medium),
     Font(googleFont = nunitoGoogleFont, fontProvider = provider, weight = FontWeight.SemiBold),
@@ -213,6 +223,107 @@ val ModalBodyText = TextStyle(
     color = TextPrimary,
     textAlign = TextAlign.Center,
     platformStyle = CenteredPlatformStyle
+)
+
+// ============================================================
+// Earthquake Details overlay typography (Figma node 123:1002)
+// ============================================================
+
+/**
+ * Caption above the MMI badge in the detail banner (Figma node 124:1169): Nunito
+ * Bold 12/16. One step below [ChipLabel] so it reads as a field label for the
+ * badge instead of competing with it.
+ */
+val MmiCaption = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 12.sp,
+    lineHeight = 16.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/**
+ * Roman-numeral MMI value inside the detail banner's badge (Figma node 123:1041):
+ * Nunito Bold 16. One step larger than the History list card's 15sp badge because
+ * the overlay's badge is the primary read of the event. Colour is supplied per
+ * severity by the call site, so it is deliberately left unset here.
+ */
+val MmiBadgeValue = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 16.sp,
+    lineHeight = 20.sp,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/**
+ * Epicentre headline in the detail banner (Figma node 123:1058): Nunito Bold
+ * 15/20. Deliberately not [CardTitle] (16sp) — the overlay pairs this line with
+ * two 12sp metadata lines inside a fixed-height block, and Figma tightens it to
+ * 15sp so that block does not crowd.
+ */
+val EventDetailLocation = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 15.sp,
+    lineHeight = 20.sp,
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/**
+ * Timestamp and relative-age metadata under the epicentre headline (Figma nodes
+ * 124:1133 / 124:1159): Nunito Light 12/16 in full white — unlike [CardSubtitle]
+ * the overlay does not dim these lines, it lightens their weight. The relative-age
+ * line reuses this style with `fontStyle = FontStyle.Italic` at the call site,
+ * which is why that italic is registered in [NunitoFontFamily].
+ */
+val EventDetailMeta = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Light,
+    fontSize = 12.sp,
+    lineHeight = 16.sp,
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/**
+ * Field label inside the overlay's seismic metric cells and spatial info rows
+ * (Figma styles `style_297198bb` / `style_51a47a12`): Nunito Regular 11/16.
+ * Alignment is left unset — the metric grid passes `TextAlign.Center` while the
+ * spatial rows keep the default start alignment, exactly as Figma has them.
+ */
+val MetricLabel = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Normal,
+    fontSize = 11.sp,
+    lineHeight = 16.sp,
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/**
+ * Value paired with [MetricLabel] (Figma styles `style_8aae760f` /
+ * `style_acdce2d9`): Nunito Black 12/16. Only one step up in size from its label,
+ * so the jump to Black — not the size — carries the emphasis. Alignment is left
+ * unset for the same reason as [MetricLabel].
+ */
+val MetricValue = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Black,
+    fontSize = 12.sp,
+    lineHeight = 16.sp,
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
 )
 
 

@@ -153,8 +153,13 @@ val AboutModalGradient = Brush.verticalGradient(
     colors = listOf(AboutModalGradientTop, AboutModalGradientBottom)
 )
 
-/** Circular close (X) button container (node 4:761) — rgba(217,217,217,0.35). */
-val AboutModalCloseFill = Color(0x59D9D9D9)
+/**
+ * Circular close (X) button container shared by every overlay header — the About
+ * modal (node 4:761) and the Earthquake Details modal (node 123:1006) both ship
+ * the identical rgba(217,217,217,0.35) disc, so it is named for the pattern
+ * rather than for either screen.
+ */
+val ModalCloseFill = Color(0x59D9D9D9)
 
 // Action button fills (nodes 4:677 / 4:681 / 4:686). All three are the same
 // 31%-alpha wash over the modal gradient, differing only in hue.
@@ -169,6 +174,49 @@ val AboutActionDonateFill = Color(0x4FAB3600)   // rgba(171,54,0,0.31) warm bron
 val AboutLogoHaloFill = Color(0x1400B9E3)       // cyan 8% — outermost halo
 val AboutLogoRingFill = Color(0x2E00B9E3)       // cyan 18% — middle ring
 val AboutLogoCoreFill = Color(0x4F00B9E3)       // cyan 31% — core disc
+
+// ============================================================
+// Earthquake Details overlay palette — QuakeAlert (node 123:1002)
+// ============================================================
+
+// Modal card fill (node 123:1002):
+// linear-gradient(180deg, rgba(70,44,8,1) 0%, rgba(34,34,34,1) 100%). The bronze
+// top stop is the same #462C08 the moderate MMI badge uses, and the bottom stop
+// lands exactly on CardSurface, so the overlay reads as a History card lifted
+// off the list and warmed at the top.
+val EventDetailGradientTop = Color(0xFF462C08)    // rgba(70,44,8,1) bronze
+val EventDetailGradientBottom = Color(0xFF222222) // rgba(34,34,34,1) — CardSurface
+val EventDetailModalGradient = Brush.verticalGradient(
+    colors = listOf(EventDetailGradientTop, EventDetailGradientBottom)
+)
+
+/**
+ * Inset panel fill shared by the three seismic metric cells (node 124:1115) and
+ * the spatial info card (node 124:1147) — rgba(0,0,0,0.31). A black wash rather
+ * than an opaque surface, so the card's gradient still shows through and the
+ * panels stay visually recessed at both ends of the gradient.
+ */
+val MetricPanelFill = Color(0x4F000000)
+
+/** Hairline rule between the two spatial info rows (node 124:1151) — #5D5D5D. */
+val EventDetailDividerColor = Color(0xFF5D5D5D)
+
+/**
+ * Bottom "Share" button fill (node 124:1085) — rgba(171,54,0,0.31). The same
+ * warm-bronze 31% wash the About overlay's Donate action carries; kept as its own
+ * token because the two buttons are unrelated actions that merely share a hue.
+ */
+val EventDetailShareFill = Color(0x4FAB3600)
+
+/**
+ * Pulse rings drawn over the detail map thumbnail. Figma ships a rendered map
+ * raster here (node 123:1028); pending the map SDK the epicentre is expressed as
+ * concentric rings over the shared [MapPlaceholder] surface, tinted by the event's
+ * MMI accent at these alphas so the focus reads without hiding the map beneath.
+ */
+val EventDetailPulseOuterAlpha = 0.12f
+val EventDetailPulseMidAlpha = 0.20f
+val EventDetailPulseInnerAlpha = 0.34f
 
 
 // Last-sync / info pill on setting cards

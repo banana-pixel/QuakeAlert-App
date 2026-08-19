@@ -40,13 +40,13 @@ import id.web.quakealert.ui.theme.AboutActionGithubFill
 import id.web.quakealert.ui.theme.AboutLogoCoreFill
 import id.web.quakealert.ui.theme.AboutLogoHaloFill
 import id.web.quakealert.ui.theme.AboutLogoRingFill
-import id.web.quakealert.ui.theme.AboutModalCloseFill
 import id.web.quakealert.ui.theme.AboutModalGradient
 import id.web.quakealert.ui.theme.BorderLight
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.ModalBodyText
+import id.web.quakealert.ui.theme.ModalCloseFill
 import id.web.quakealert.ui.theme.ModalTitle
 import id.web.quakealert.ui.theme.QuakeAlertTheme
 import id.web.quakealert.ui.theme.TextPrimary
@@ -147,7 +147,7 @@ fun AboutModal(
             .background(AboutModalGradient, shape)
             .border(Dimens.BorderThin, CardBorder, shape)
             .verticalScroll(rememberScrollState())
-            .padding(Dimens.AboutModalPadding),
+            .padding(Dimens.ModalPadding),
         verticalArrangement = Arrangement.spacedBy(Dimens.AboutModalSectionGap)
     ) {
         AboutModalHeader(onDismiss = onDismiss)
@@ -174,7 +174,7 @@ private fun AboutModalHeader(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val closeShape = RoundedCornerShape(Dimens.AboutModalCloseRadius)
+    val closeShape = RoundedCornerShape(Dimens.ModalCloseRadius)
 
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Text(text = "About", style = ModalTitle)
@@ -182,9 +182,9 @@ private fun AboutModalHeader(
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .size(Dimens.AboutModalCloseSize)
+                .size(Dimens.ModalCloseSize)
                 .clip(closeShape)
-                .background(AboutModalCloseFill, closeShape)
+                .background(ModalCloseFill, closeShape)
                 .clickable(onClick = onDismiss),
             contentAlignment = Alignment.Center
         ) {
@@ -192,7 +192,7 @@ private fun AboutModalHeader(
                 painter = painterResource(id = R.drawable.ic_close),
                 contentDescription = "Close",
                 tint = TextPrimary,
-                modifier = Modifier.size(Dimens.AboutModalCloseIconSize)
+                modifier = Modifier.size(Dimens.ModalCloseIconSize)
             )
         }
     }
@@ -352,12 +352,12 @@ private fun AboutActionButton(
 
     Box(
         modifier = modifier
-            .height(Dimens.AboutModalActionHeight)
+            .height(Dimens.ModalActionHeight)
             .clip(shape)
             .background(fill, shape)
             .border(Dimens.BorderMedium, BorderLight, shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = Dimens.AboutModalActionPaddingHorizontal),
+            .padding(horizontal = Dimens.ModalActionPaddingHorizontal),
         contentAlignment = Alignment.Center
     ) {
         Text(text = label, style = ChipLabel)

@@ -1,0 +1,558 @@
+package id.web.quakealert.ui.history
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import id.web.quakealert.R
+import id.web.quakealert.ui.theme.BorderLight
+import id.web.quakealert.ui.theme.CardBorder
+import id.web.quakealert.ui.theme.ChipLabel
+import id.web.quakealert.ui.theme.Dimens
+import id.web.quakealert.ui.theme.EventDetailDividerColor
+import id.web.quakealert.ui.theme.EventDetailLocation
+import id.web.quakealert.ui.theme.EventDetailMeta
+import id.web.quakealert.ui.theme.EventDetailModalGradient
+import id.web.quakealert.ui.theme.EventDetailPulseInnerAlpha
+import id.web.quakealert.ui.theme.EventDetailPulseMidAlpha
+import id.web.quakealert.ui.theme.EventDetailPulseOuterAlpha
+import id.web.quakealert.ui.theme.EventDetailShareFill
+import id.web.quakealert.ui.theme.MapPlaceholder
+import id.web.quakealert.ui.theme.MetricLabel
+import id.web.quakealert.ui.theme.MetricPanelFill
+import id.web.quakealert.ui.theme.MetricValue
+import id.web.quakealert.ui.theme.MmiBadgeValue
+import id.web.quakealert.ui.theme.MmiCaption
+import id.web.quakealert.ui.theme.MmiOrange
+import id.web.quakealert.ui.theme.MmiOrangeContainer
+import id.web.quakealert.ui.theme.MmiRed
+import id.web.quakealert.ui.theme.MmiRedContainer
+import id.web.quakealert.ui.theme.ModalCloseFill
+import id.web.quakealert.ui.theme.ModalTitle
+import id.web.quakealert.ui.theme.QuakeAlertTheme
+import id.web.quakealert.ui.theme.TextPrimary
+
+/**
+ * The Earthquake Details overlay hosted in its own [Dialog] window (Figma node
+ * 123:743). Sits on top of the History list with the platform scrim behind it;
+ * the close button, a back press and a tap outside the card all route to
+ * [onDismiss], so no dismissal path leaves the overlay stuck open.
+ *
+ * [DialogProperties.usePlatformDefaultWidth] is disabled so the card can span the
+ * same content width as the History cards beneath it, inset by the shared
+ * [Dimens.ScreenHorizontalPadding] rather than Material's narrower dialog width.
+ *
+ * @param event the tapped history entry to describe.
+ * @param onDismiss invoked by the close button, a back press or an outside tap.
+ * @param onShare invoked by the bottom "Share" action.
+ */
+@Composable
+fun EventDetailModalDialog(
+    event: QuakeHistoryItem,
+    onDismiss: () -> Unit,
+    onShare: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        EventDetailModal(
+            event = event,
+            onDismiss = onDismiss,
+            onShare = onShare,
+            modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)
+        )
+    }
+}
+
+/**
+ * Stateless Earthquake Details card (Figma node 123:1002): a dark rounded surface
+ * filled with the bronze → neutral vertical gradient and the shared white-10%
+ * stroke, stacking five sections [Dimens.EventDetailSectionGap] apart:
+ *  1. Header — centered "Earthquake Details" title with a circular close button.
+ *  2. Event banner — MMI badge beside the epicentre, timestamp and relative age.
+ *  3. Map thumbnail — the epicentre expressed as concentric pulse rings.
+ *  4. Seismic metrics — PGA, intensity and duration as three equal cells.
+ *  5. Spatial info + the full-width "Share" action.
+ *
+ * The card scrolls internally so every section stays reachable on short viewports
+ * (landscape, large font scales) instead of being clipped by the dialog window.
+ *
+ * Exposed separately from [EventDetailModalDialog] so it can be previewed and
+ * tested without a dialog window.
+ */
+@Composable
+fun EventDetailModal(
+    event: QuakeHistoryItem,
+    onDismiss: () -> Unit,
+    onShare: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = remember { RoundedCornerShape(Dimens.RadiusCard) }
+    // Same severity → accent mapping the History card uses, so the overlay opens
+    // in the colour of the row that raised it.
+    val accent = if (event.severity == MmiSeverity.SEVERE) MmiRed else MmiOrange
+    val badgeContainer =
+        if (event.severity == MmiSeverity.SEVERE) MmiRedContainer else MmiOrangeContainer
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(EventDetailModalGradient, shape)
+            .border(Dimens.BorderThin, CardBorder, shape)
+            .verticalScroll(rememberScrollState())
+            .padding(Dimens.ModalPadding),
+        verticalArrangement = Arrangement.spacedBy(Dimens.EventDetailSectionGap)
+    ) {
+        EventDetailHeader(onDismiss = onDismiss)
+
+        EventDetailBanner(
+            event = event,
+            accent = accent,
+            badgeContainer = badgeContainer
+        )
+
+        EventDetailMap(accent = accent)
+
+        SeismicMetricsRow(event = event)
+
+        SpatialInfoCard(event = event)
+
+        ShareAction(onClick = onShare)
+    }
+}
+
+/**
+ * Overlay header (Figma node 123:1003): the title optically centered across the
+ * full card width with the circular close button pinned to the trailing edge.
+ *
+ * Figma balances the title against an empty 20dp spacer on the leading side, which
+ * leaves it a few dp off-centre; centering against the container instead honours
+ * the design's intent and stays symmetric at every width. Same treatment as the
+ * About overlay's header, and both share the [Dimens.ModalCloseSize] chrome.
+ */
+@Composable
+private fun EventDetailHeader(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val closeShape = remember { RoundedCornerShape(Dimens.ModalCloseRadius) }
+
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Text(text = "Earthquake Details", style = ModalTitle)
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .size(Dimens.ModalCloseSize)
+                .clip(closeShape)
+                .background(ModalCloseFill, closeShape)
+                .clickable(onClick = onDismiss),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_close),
+                contentDescription = "Close",
+                tint = TextPrimary,
+                modifier = Modifier.size(Dimens.ModalCloseIconSize)
+            )
+        }
+    }
+}
+
+/**
+ * Primary event banner (Figma node 123:1069): the captioned MMI badge on the
+ * leading side, then a fixed-height block spreading the epicentre, the timestamp
+ * and the relative age evenly down its height.
+ *
+ * The badge column is pinned to [Dimens.CardLeadingColumnWidth] — the same 45dp
+ * the History card's badge occupies — so the overlay's text column starts on the
+ * same optical line as the card behind it.
+ */
+@Composable
+private fun EventDetailBanner(
+    event: QuakeHistoryItem,
+    accent: Color,
+    badgeContainer: Color,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.EventDetailSectionGap)
+    ) {
+        MmiBadgeColumn(
+            intensity = event.intensity,
+            accent = accent,
+            container = badgeContainer
+        )
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .height(Dimens.EventDetailBannerHeight),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = event.location,
+                style = EventDetailLocation,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(text = event.timestampLabel, style = EventDetailMeta)
+            Text(
+                text = event.relativeTime,
+                style = EventDetailMeta,
+                fontStyle = FontStyle.Italic
+            )
+        }
+    }
+}
+
+/**
+ * "MMI" caption above the circular intensity badge (Figma nodes 124:1169 /
+ * 123:1040). Reuses the History card's badge geometry — 45dp disc, 3dp accent ring
+ * — and only steps the numeral up to [MmiBadgeValue]'s 16sp, matching Figma.
+ */
+@Composable
+private fun MmiBadgeColumn(
+    intensity: String,
+    accent: Color,
+    container: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.width(Dimens.CardLeadingColumnWidth),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Dimens.EventDetailMmiColumnGap)
+    ) {
+        Text(text = "MMI", style = MmiCaption)
+
+        Box(
+            modifier = Modifier
+                .size(Dimens.MmiBadgeSize)
+                .clip(CircleShape)
+                .background(container, CircleShape)
+                .border(Dimens.MmiBadgeBorder, accent, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = intensity, style = MmiBadgeValue, color = accent)
+        }
+    }
+}
+
+/**
+ * Radius fraction → fill alpha for the map's epicentre pulse rings, outermost
+ * first. Hoisted out of the draw lambda so the table is allocated once instead of
+ * on every frame `drawBehind` runs.
+ */
+private val PulseRings = listOf(
+    1f to EventDetailPulseOuterAlpha,
+    0.66f to EventDetailPulseMidAlpha,
+    0.33f to EventDetailPulseInnerAlpha
+)
+
+/**
+ * Map thumbnail (Figma node 123:1028): a 120dp-tall rounded card carrying the
+ * shared white-10% stroke.
+ *
+ * Figma ships a rendered map raster here. Pending the map SDK — the same deferral
+ * [id.web.quakealert.ui.sensors.SensorMapCard] makes — the grey [MapPlaceholder]
+ * surface stands in at the exact geometry, and the epicentre is drawn over it as
+ * three concentric pulse rings in the event's own MMI accent plus a solid centroid
+ * dot. Drawn in a single `drawBehind` pass rather than as nested composables so
+ * the whole focus costs one draw node.
+ */
+@Composable
+private fun EventDetailMap(accent: Color, modifier: Modifier = Modifier) {
+    val shape = remember { RoundedCornerShape(Dimens.RadiusCard) }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(Dimens.EventDetailMapHeight)
+            .clip(shape)
+            .background(MapPlaceholder, shape)
+            .border(Dimens.BorderThin, CardBorder, shape)
+            .padding(Dimens.EventDetailMapPadding)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawBehind {
+                    val center = Offset(x = size.width / 2f, y = size.height / 2f)
+                    val maxRadius = minOf(size.width, size.height) / 2f
+                    val ringStroke = Stroke(width = Dimens.BorderThin.toPx())
+
+                    // Outermost → innermost, so each ring's wash layers over the
+                    // one before it and the focus reads as a gradient of alpha.
+                    PulseRings.forEach { (fraction, alpha) ->
+                        val radius = maxRadius * fraction
+                        drawCircle(
+                            color = accent.copy(alpha = alpha),
+                            radius = radius,
+                            center = center
+                        )
+                        drawCircle(
+                            color = accent,
+                            radius = radius,
+                            center = center,
+                            style = ringStroke
+                        )
+                    }
+
+                    drawCircle(
+                        color = accent,
+                        radius = Dimens.EventDetailMapCentroidSize.toPx() / 2f,
+                        center = center
+                    )
+                }
+        )
+    }
+}
+
+/**
+ * Seismic metrics grid (Figma node 124:1088): PGA, intensity and duration as three
+ * equal-weight cells on one row. The intensity cell reads from
+ * [MmiSeverity.label] rather than a stored string, so it cannot disagree with the
+ * badge colour above it.
+ */
+@Composable
+private fun SeismicMetricsRow(
+    event: QuakeHistoryItem,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.EventDetailSectionGap)
+    ) {
+        MetricCell(
+            label = "PGA (Max)",
+            value = event.pgaLabel,
+            modifier = Modifier.weight(1f)
+        )
+        MetricCell(
+            label = "Intensity",
+            value = event.severity.label,
+            modifier = Modifier.weight(1f)
+        )
+        MetricCell(
+            label = "Duration",
+            value = event.durationLabel,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+/**
+ * One metric cell (Figma node 124:1115): a 62dp-tall recessed panel with a 2dp
+ * white-30% stroke, centering a [MetricLabel] over its [MetricValue].
+ *
+ * Both lines are given `TextAlign.Center` here rather than baked into the styles,
+ * because the spatial info rows below reuse the very same two styles start-aligned.
+ */
+@Composable
+private fun MetricCell(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    val shape = remember { RoundedCornerShape(Dimens.RadiusSmall) }
+
+    Column(
+        modifier = modifier
+            .height(Dimens.EventDetailMetricCellHeight)
+            .clip(shape)
+            .background(MetricPanelFill, shape)
+            .border(Dimens.BorderMedium, BorderLight, shape)
+            .padding(horizontal = Dimens.EventDetailMetricCellPaddingHorizontal),
+        verticalArrangement = Arrangement.spacedBy(
+            space = Dimens.EventDetailMetricCellGap,
+            alignment = Alignment.CenterVertically
+        ),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = label,
+            style = MetricLabel,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = value,
+            style = MetricValue,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/**
+ * Spatial info card (Figma node 124:1147): the distance-from-user reading and the
+ * centroid coordinates as two start-aligned label/value rows, split by a #5D5D5D
+ * hairline.
+ *
+ * The rule is a 1dp filled [Box] rather than Material's `HorizontalDivider`,
+ * matching how [id.web.quakealert.ui.warning.WarningDivider] draws the app's other
+ * rules.
+ */
+@Composable
+private fun SpatialInfoCard(
+    event: QuakeHistoryItem,
+    modifier: Modifier = Modifier
+) {
+    val shape = remember { RoundedCornerShape(Dimens.RadiusSmall) }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(MetricPanelFill, shape)
+            .border(Dimens.BorderMedium, BorderLight, shape)
+            .padding(Dimens.EventDetailInfoPadding),
+        verticalArrangement = Arrangement.spacedBy(Dimens.EventDetailInfoGap)
+    ) {
+        SpatialInfoRow(label = "Distance from you", value = event.distanceLabel)
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(Dimens.BorderThin)
+                .background(EventDetailDividerColor)
+        )
+
+        SpatialInfoRow(label = "Coordinates (Centroid)", value = event.coordinates)
+    }
+}
+
+/**
+ * One row of [SpatialInfoCard] (Figma node 124:1153): a fixed 44dp block that
+ * Figma splits into two 22dp halves. [Arrangement.SpaceEvenly] reproduces that
+ * split from the two line boxes without hard-coding either half's height.
+ */
+@Composable
+private fun SpatialInfoRow(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(Dimens.EventDetailInfoRowHeight),
+        verticalArrangement = Arrangement.SpaceEvenly
+    ) {
+        Text(text = label, style = MetricLabel)
+        Text(
+            text = value,
+            style = MetricValue,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/**
+ * Full-width bronze "Share" action (Figma node 124:1085). Geometry, stroke and
+ * label come from the shared [Dimens.ModalActionHeight] overlay-action chrome the
+ * About modal's buttons also use; only the [EventDetailShareFill] wash is its own.
+ */
+@Composable
+private fun ShareAction(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val shape = remember { RoundedCornerShape(Dimens.RadiusSmall) }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(Dimens.ModalActionHeight)
+            .clip(shape)
+            .background(EventDetailShareFill, shape)
+            .border(Dimens.BorderMedium, BorderLight, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = Dimens.ModalActionPaddingHorizontal),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = "Share", style = ChipLabel)
+    }
+}
+
+/** Mock event mirroring the values Figma annotates on node 123:1002. */
+private val PreviewEvent = QuakeHistoryItem(
+    id = "preview",
+    intensity = "VII",
+    severity = MmiSeverity.MODERATE,
+    location = "Lembang, West Java, ID",
+    date = "20 Jun 2026",
+    time = "07:19:18 WIB",
+    distanceLabel = "60 km Away",
+    relativeTime = "2 months ago",
+    pgaLabel = "61.5 gal",
+    durationLabel = "7 sec",
+    coordinates = "41.40338, 2.17403"
+)
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun EventDetailModalPreview() {
+    QuakeAlertTheme {
+        EventDetailModal(
+            event = PreviewEvent,
+            onDismiss = {},
+            onShare = {},
+            modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun EventDetailModalSeverePreview() {
+    QuakeAlertTheme {
+        EventDetailModal(
+            event = PreviewEvent.copy(
+                intensity = "IX",
+                severity = MmiSeverity.SEVERE,
+                pgaLabel = "142.0 gal",
+                durationLabel = "23 sec"
+            ),
+            onDismiss = {},
+            onShare = {},
+            modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)
+        )
+    }
+}

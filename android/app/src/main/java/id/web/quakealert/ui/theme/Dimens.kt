@@ -227,18 +227,23 @@ object Dimens {
     val AboutButtonPaddingVertical = 8.dp
     val AboutButtonRadius = 12.dp
 
+    // --- Shared modal / overlay chrome --------------------------------------
+    // Every overlay card (About node 4:668, Earthquake Details node 123:1002)
+    // ships the same 18dp inner padding and the same circular close button, so
+    // that chrome is named for the pattern instead of for one screen. Card
+    // surfaces reuse RadiusCard (14dp) + BorderThin/CardBorder.
+    /** Overlay card inner padding (Figma 18). */
+    val ModalPadding = 18.dp
+
+    // Circular close (X) button (Figma nodes 4:761 / 123:1006): a 24dp glyph in a
+    // 10dp-padded container → 44dp footprint, 20dp radius.
+    val ModalCloseSize = 44.dp
+    val ModalCloseRadius = 20.dp
+    val ModalCloseIconSize = 24.dp
+
     // --- About modal / overlay (Figma node 4:654; card node 4:668) -----------
-    // The card itself reuses RadiusCard (14dp) + BorderThin/CardBorder chrome.
-    /** Card inner padding (Figma 18). */
-    val AboutModalPadding = 18.dp
     /** Vertical gap between the modal's stacked sections (Figma gap 26). */
     val AboutModalSectionGap = 26.dp
-
-    // Circular close (X) button (Figma node 4:761): a 24dp glyph in a 10dp-padded
-    // container → 44dp footprint, 20dp radius.
-    val AboutModalCloseSize = 44.dp
-    val AboutModalCloseRadius = 20.dp
-    val AboutModalCloseIconSize = 24.dp
 
     // Concentric logo badge (Figma node 4:670: fixed 139-tall block). The outer
     // halo fills the block height exactly; the ring and core step down in even
@@ -254,12 +259,57 @@ object Dimens {
      */
     val AboutModalLogoGlyphSize = 120.dp
 
-    // Action buttons (Figma nodes 4:677 / 4:681 / 4:686). Radius reuses
-    // RadiusSmall (10dp) and the stroke reuses BorderMedium (2dp) + BorderLight.
+    // Action buttons (Figma nodes 4:677 / 4:681 / 4:686). Geometry is the shared
+    // ModalAction* chrome below; only the gap between the two rows is About's own.
     /** Gap between the two action rows and between the buttons on a row (Figma 20). */
     val AboutModalActionGap = 20.dp
-    val AboutModalActionHeight = 34.dp
-    val AboutModalActionPaddingHorizontal = 6.dp
+
+    // --- Shared overlay action button ---------------------------------------
+    // The About overlay's three actions (nodes 4:677 / 4:681 / 4:686) and the
+    // Earthquake Details "Share" button (node 124:1085) are the same component:
+    // a 34dp-tall capsule with 6dp side padding, RadiusSmall (10dp) corners and a
+    // BorderMedium (2dp) BorderLight stroke, differing only in fill and label.
+    val ModalActionHeight = 34.dp
+    val ModalActionPaddingHorizontal = 6.dp
+
+    // --- Earthquake Details overlay (Figma node 123:743; card node 123:1002) --
+    // The card reuses ModalPadding (18dp) + RadiusCard (14dp) + BorderThin.
+    /**
+     * Single 18dp rhythm the overlay uses throughout: between the card's stacked
+     * sections, across the banner's badge → text split, and between the three
+     * metric cells. Figma specifies 18 for all three, so they share one token
+     * rather than three identical ones.
+     */
+    val EventDetailSectionGap = 18.dp
+
+    /** Fixed height of the banner's text block (Figma node 124:1135: 66). */
+    val EventDetailBannerHeight = 66.dp
+    /** Gap between the "MMI" caption and the badge below it (Figma node 124:1171: 10). */
+    val EventDetailMmiColumnGap = 10.dp
+
+    /** Map thumbnail card (Figma node 123:1028: fixed 120 tall, 12 padding). */
+    val EventDetailMapHeight = 120.dp
+    val EventDetailMapPadding = 12.dp
+    /** Solid epicentre dot at the centre of the map's pulse rings. */
+    val EventDetailMapCentroidSize = 8.dp
+
+    /**
+     * Seismic metric cell (Figma node 124:1115: fixed 62 tall, padding 0 6). The
+     * label/value pair is centred in the cell with this gap; Figma stacks two
+     * 22-tall rows whose 16px line boxes leave ~6dp of air between them.
+     */
+    val EventDetailMetricCellHeight = 62.dp
+    val EventDetailMetricCellPaddingHorizontal = 6.dp
+    val EventDetailMetricCellGap = 6.dp
+
+    /**
+     * Spatial info card (Figma node 124:1147: padding 15, gap 10). Each of its two
+     * rows occupies a fixed 44dp block (node 124:1153) that Figma splits into two
+     * 22dp halves for the label and value.
+     */
+    val EventDetailInfoPadding = 15.dp
+    val EventDetailInfoGap = 10.dp
+    val EventDetailInfoRowHeight = 44.dp
 
     // --- Chat screen --------------------------------------------------------
     /** Gap between the header block (title + channel card) and the message list (Figma 16). */
