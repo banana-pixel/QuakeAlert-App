@@ -54,7 +54,7 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Raises the [EventDetailModalDialog] overlay for the tapped card, from either
+     * Raises the [id.web.quakealert.ui.common.QuakeEventDetailModalDialog] overlay for the tapped card, from either
      * the card body or its trailing "see more" bar.
      */
     fun onSeeMoreClicked(item: QuakeHistoryItem) {

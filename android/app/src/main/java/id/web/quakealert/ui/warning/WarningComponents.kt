@@ -14,8 +14,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -27,17 +28,33 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import id.web.quakealert.R
+import id.web.quakealert.ui.common.QuakeModalHeader
 import id.web.quakealert.ui.theme.AlertActionBorder
 import id.web.quakealert.ui.theme.AlertBannerGradient
+import id.web.quakealert.ui.theme.BorderLight
+import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.CardSubtitle
 import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.EmergencyCtaBorder
 import id.web.quakealert.ui.theme.EmergencyCtaFill
+import id.web.quakealert.ui.theme.EventDetailDividerColor
+import id.web.quakealert.ui.theme.EventDetailLocation
+import id.web.quakealert.ui.theme.EventDetailMeta
+import id.web.quakealert.ui.theme.MapPlaceholder
+import id.web.quakealert.ui.theme.MetricLabel
+import id.web.quakealert.ui.theme.MetricPanelFill
+import id.web.quakealert.ui.theme.MetricValue
 import id.web.quakealert.ui.theme.NunitoFontFamily
+import id.web.quakealert.ui.theme.PossibilityBannerGradient
+import id.web.quakealert.ui.theme.PossibilityDisclaimer
+import id.web.quakealert.ui.theme.PossibilityModalGradient
 import id.web.quakealert.ui.theme.PrepIconBorder
 import id.web.quakealert.ui.theme.QuakeAlertTheme
 import id.web.quakealert.ui.theme.TextPrimary
@@ -45,29 +62,36 @@ import id.web.quakealert.ui.theme.TextSecondary
 import id.web.quakealert.ui.theme.WarningDividerColor
 
 /**
- * Active-alert banner (Figma node 1:1035): a fixed-height stadium card with a
- * deep crimson vertical gradient. Left column carries the alert title, relative
- * time and a short guidance line plus a "SEE DETAILS" capsule; the right side
- * shows a seismograph waveform glyph.
+ * Warning banner (Figma nodes 124:1297 / 124:1426): a fixed-height stadium card
+ * whose gradient, glyph and text block all follow the [WarningBanner] variant —
+ * an active alert is crimson with a waveform glyph and an intensity read, the
+ * resting state is amber with a globe glyph and a possibility read. The variant
+ * is identity; rendering is this component's job, mirroring how the event detail
+ * modal keys its gradient off severity.
  *
- * @param banner alert summary content.
+ * @param banner alert summary content for the current state.
  * @param onSeeDetails invoked when the "SEE DETAILS" capsule is tapped.
  */
 @Composable
 fun AlertBanner(
-    banner: AlertBannerInfo,
+    banner: WarningBanner,
     onSeeDetails: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(Dimens.AlertBannerRadius)
     val interactionSource = remember { MutableInteractionSource() }
+    val (gradient, glyph) = when (banner) {
+        is ActiveQuakeBanner -> AlertBannerGradient to R.drawable.ic_recording_wave
+        is PossibilityBanner -> PossibilityBannerGradient to R.drawable.ic_globe_04
+    }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = Dimens.AlertBannerHeight)
             .clip(shape)
-            .background(AlertBannerGradient, shape)
+            .background(gradient, shape)
+            .border(Dimens.BorderThin, CardBorder, shape)
             .padding(Dimens.AlertBannerPadding),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -80,26 +104,19 @@ fun AlertBanner(
                 text = banner.title,
                 color = TextPrimary,
                 fontFamily = NunitoFontFamily,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 20.sp,
-                lineHeight = 24.sp,
+                fontWeight = FontWeight.Black,
+                fontSize = 16.sp,
+                lineHeight = 36.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(text = banner.intensityLabel, style = ChipLabel)
-            Text(
-                text = banner.timeAgo,
-                style = CardSubtitle,
-                color = TextPrimary
-            )
-            Text(
-                text = banner.description,
-                style = CardSubtitle,
-                color = TextSecondary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp)
-            )
+            when (banner) {
+                is ActiveQuakeBanner -> {
+                    BannerLine(text = banner.timeAgo, fontSize = 14.sp)
+                    BannerLine(text = banner.intensityLabel, fontSize = 16.sp)
+                }
+                is PossibilityBanner -> BannerLine(text = banner.possibilityLabel, fontSize = 16.sp)
+            }
 
             // "SEE DETAILS" capsule (Figma fill_a7745cf9): translucent stroke only.
             Box(
@@ -107,7 +124,7 @@ fun AlertBanner(
                     .padding(top = 6.dp)
                     .clip(RoundedCornerShape(Dimens.AlertActionRadius))
                     .border(
-                        Dimens.BorderThin,
+                        Dimens.BorderMedium,
                         AlertActionBorder,
                         RoundedCornerShape(Dimens.AlertActionRadius)
                     )
@@ -126,12 +143,36 @@ fun AlertBanner(
         }
 
         Image(
-            painter = painterResource(id = R.drawable.ic_recording_wave),
+            painter = painterResource(id = glyph),
             contentDescription = null,
             colorFilter = ColorFilter.tint(TextPrimary),
             modifier = Modifier.size(Dimens.AlertWaveIconSize)
         )
     }
+}
+
+/**
+ * One banner metadata line (Figma 124:1297 / 124:1426): Nunito Bold with the
+ * banner's roomy 36sp line box, so every variant's text block keeps the same
+ * vertical rhythm regardless of how many lines it carries.
+ */
+@Composable
+private fun BannerLine(
+    text: String,
+    fontSize: TextUnit,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = text,
+        color = TextPrimary,
+        fontFamily = NunitoFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = fontSize,
+        lineHeight = 36.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+    )
 }
 
 /**
@@ -201,8 +242,10 @@ fun PrepTipRow(
 }
 
 /**
- * Bottom emergency call-to-action (Figma node 1:1039): a fixed-height stadium
- * button with a translucent wine fill and a white 30% stroke.
+ * Bottom emergency call-to-action (Figma nodes 124:1312 / 124:1441): a fixed-height
+ * stadium button with a translucent wine fill and a white 30% stroke. Label
+ * follows the current design's "SHELTER & EMERGENCY INFO"; the action is a stub
+ * until the emergency-resource flow is defined.
  */
 @Composable
 fun EmergencyCta(
@@ -218,7 +261,7 @@ fun EmergencyCta(
             .height(Dimens.EmergencyCtaHeight)
             .clip(shape)
             .background(EmergencyCtaFill, shape)
-            .border(Dimens.BorderThin, EmergencyCtaBorder, shape)
+            .border(Dimens.BorderMedium, EmergencyCtaBorder, shape)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -227,22 +270,191 @@ fun EmergencyCta(
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = "Call Emergency Services",
+            text = "SHELTER & EMERGENCY INFO",
             style = ChipLabel
+        )
+    }
+}
+
+/**
+ * The Earthquake Possibility overlay hosted in its own [Dialog] window (Figma
+ * node 124:1605), opened from the resting banner's "SEE DETAILS" action. Same
+ * chrome as [id.web.quakealert.ui.common.QuakeEventDetailModalDialog] — platform
+ * width disabled so the card spans the screens' content column, and every
+ * dismissal path (close button, back press, outside tap) routes to [onDismiss].
+ */
+@Composable
+fun EarthquakePossibilityModal(
+    possibility: EarthquakePossibility,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        EarthquakePossibilityCard(
+            possibility = possibility,
+            onDismiss = onDismiss,
+            modifier = modifier.padding(Dimens.ScreenHorizontalPadding)
+        )
+    }
+}
+
+/**
+ * Stateless Earthquake Possibility card (Figma node 124:1605): a near-flat dark
+ * surface (so the overlay reads as a lifted panel, not an alert) carrying five
+ * sections [Dimens.EventDetailSectionGap] apart:
+ *  1. Header — centered "Earthquake Possibility" with the shared circular close.
+ *  2. Location + possibility read.
+ *  3. Map placeholder — same deferral of the map SDK the other screens make.
+ *  4. Stats card — most recent quake and local count within the coverage radius.
+ *  5. Accuracy disclaimer in light italic.
+ *
+ * The card scrolls internally so every section stays reachable on short
+ * viewports. Exposed separately from [EarthquakePossibilityModal] so it can be
+ * previewed without a dialog window.
+ */
+@Composable
+fun EarthquakePossibilityCard(
+    possibility: EarthquakePossibility,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = remember { RoundedCornerShape(Dimens.RadiusCard) }
+    val statsShape = remember { RoundedCornerShape(Dimens.RadiusSmall) }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(PossibilityModalGradient, shape)
+            .border(Dimens.BorderThin, CardBorder, shape)
+            .verticalScroll(rememberScrollState())
+            .padding(Dimens.ModalPadding),
+        verticalArrangement = Arrangement.spacedBy(Dimens.EventDetailSectionGap)
+    ) {
+        QuakeModalHeader(onDismiss = onDismiss, title = "Earthquake Possibility")
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(Dimens.EventDetailMmiColumnGap)
+        ) {
+            Text(
+                text = possibility.location,
+                style = EventDetailLocation,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = possibility.possibilityLabel,
+                style = EventDetailMeta,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(Dimens.EventDetailMapHeight)
+                .clip(shape)
+                .background(MapPlaceholder, shape)
+                .border(Dimens.BorderThin, CardBorder, shape)
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(statsShape)
+                .background(MetricPanelFill, statsShape)
+                .border(Dimens.BorderMedium, BorderLight, statsShape)
+                .padding(Dimens.EventDetailInfoPadding),
+            verticalArrangement = Arrangement.spacedBy(Dimens.EventDetailInfoGap)
+        ) {
+            PossibilityStatRow(
+                label = possibility.recentEarthquakeLabel,
+                value = possibility.recentEarthquakeValue
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(Dimens.BorderThin)
+                    .background(EventDetailDividerColor)
+            )
+
+            PossibilityStatRow(
+                label = possibility.earthquakeCountLabel,
+                value = possibility.earthquakeCountValue
+            )
+        }
+
+        Text(
+            text = possibility.disclaimer,
+            style = PossibilityDisclaimer,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/**
+ * One stat row of the possibility card (Figma node 124:1652): a fixed 44dp block
+ * that Figma splits into two 22dp halves. [Arrangement.SpaceEvenly] reproduces
+ * that split from the two line boxes — the same treatment the Earthquake Details
+ * overlay's spatial rows use.
+ */
+@Composable
+private fun PossibilityStatRow(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(Dimens.EventDetailInfoRowHeight),
+        verticalArrangement = Arrangement.SpaceEvenly
+    ) {
+        Text(
+            text = label,
+            style = MetricLabel,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = value,
+            style = MetricValue,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
-private fun AlertBannerPreview() {
+private fun PossibilityBannerPreview() {
     QuakeAlertTheme {
         AlertBanner(
-            banner = AlertBannerInfo(
-                title = "Earthquake Detected",
-                intensityLabel = "MMI VII · Strong",
+            banner = PossibilityBanner(
+                title = "No Recent Earthquake",
+                possibilityLabel = "Possibility : High Risk"
+            ),
+            onSeeDetails = {},
+            modifier = Modifier.padding(16.dp)
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun ActiveQuakeBannerPreview() {
+    QuakeAlertTheme {
+        AlertBanner(
+            banner = ActiveQuakeBanner(
+                title = "Recent Earthquake Alert",
                 timeAgo = "20 minutes ago",
-                description = "Strong shaking expected. Stay calm and take cover."
+                intensityLabel = "Intensity : IV (moderate)"
             ),
             onSeeDetails = {},
             modifier = Modifier.padding(16.dp)
@@ -258,10 +470,22 @@ private fun PrepTipRowPreview() {
             tip = PreparednessTip(
                 id = "kit",
                 icon = R.drawable.ic_prep_kit,
-                title = "Prepare an Emergency Kit",
-                description = "Water, food, flashlight, and a first-aid kit for 3 days."
+                title = "Build a 72-Hour Kit",
+                description = "Pack water, non-perishable food, flashlights, extra batteries, and a first-aid kit in an easy-to-reach bag."
             ),
             modifier = Modifier.padding(16.dp)
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun EarthquakePossibilityCardPreview() {
+    QuakeAlertTheme {
+        EarthquakePossibilityCard(
+            possibility = EarthquakePossibility(),
+            onDismiss = {},
+            modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)
         )
     }
 }

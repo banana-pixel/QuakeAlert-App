@@ -326,5 +326,41 @@ val MetricValue = TextStyle(
     lineHeightStyle = CenteredLineHeight
 )
 
+// ============================================================
+// Warning screen typography (Figma nodes 124:1297 / 124:1426)
+// ============================================================
+
+/**
+ * Section title above the tip list ("Stay alert for aftershocks" / "Stay
+ * prepared for an earthquake", Figma 124:1311): Nunito Bold 20/22. Promoted from
+ * the old hardcoded 18sp inline style so every Warning state shares one token.
+ */
+val SectionTitle = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 20.sp,
+    lineHeight = 22.sp,
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/**
+ * Accuracy disclaimer at the foot of the Earthquake Possibility overlay (Figma
+ * 124:1708): Nunito Light Italic 11/16. Same weight/italic pairing as
+ * [EventDetailMeta]'s relative-age line, stepped down a size so the disclaimer
+ * recedes behind the data rows above it.
+ */
+val PossibilityDisclaimer = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Light,
+    fontSize = 11.sp,
+    lineHeight = 16.sp,
+    color = TextPrimary,
+    fontStyle = FontStyle.Italic,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
 
 

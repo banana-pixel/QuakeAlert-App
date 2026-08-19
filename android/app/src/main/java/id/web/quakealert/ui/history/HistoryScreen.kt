@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.ui.common.QuakeAppBar
+import id.web.quakealert.ui.common.QuakeEventDetailModalDialog
 import id.web.quakealert.ui.common.QuakeFilter
 import id.web.quakealert.ui.common.QuakeFilterRow
 import id.web.quakealert.ui.common.fadingEdges
@@ -75,7 +76,7 @@ fun HistoryRoute(
  *  2. A weighted [LazyColumn] filling the remaining space between the filter row
  *     and the bottom navigation bar. Its bounds carry a soft vertical fading
  *     edge (shared [fadingEdges]) so cards dissolve in/out at the scroll bounds.
- *  3. The [EventDetailModalDialog] overlay (Figma node 123:743), raised whenever
+ *  3. The [QuakeEventDetailModalDialog] overlay (Figma node 123:743), raised whenever
  *     [HistoryUiState.selectedEvent] is non-null. It is a sibling of the list
  *     rather than a child so the dialog window is never affected by the list's
  *     scroll state or fade.
@@ -140,7 +141,7 @@ fun HistoryScreen(
 
     // --- Earthquake Details overlay (Figma node 123:743) ---------------------
     uiState.selectedEvent?.let { event ->
-        EventDetailModalDialog(
+        QuakeEventDetailModalDialog(
             event = event,
             unitSystem = uiState.unitSystem,
             onDismiss = onDetailDismissed,

@@ -26,7 +26,7 @@ val MmiSeverity.label: String
 
 /**
  * A single earthquake history entry. Rendered compactly by [QuakeHistoryCard] in
- * the list and in full by [EventDetailModal] when the row is tapped, so it holds
+ * the list and in full by [id.web.quakealert.ui.common.QuakeEventDetailModal] when the row is tapped, so it holds
  * both the list-row fields and the detail-only ones.
  *
  * Every field is already display-formatted: this is a UI-state DTO, and keeping
@@ -95,7 +95,7 @@ fun QuakeHistoryItem.toShareText(unitSystem: UnitSystem): String = buildString {
  * @param unitSystem distance unit system (Metric / Imperial), persisted via
  *   [id.web.quakealert.data.AppSettingsRepository] and shared with the Sensors
  *   and Settings screens.
- * @param selectedEvent the event whose [EventDetailModalDialog] overlay is open,
+ * @param selectedEvent the event whose [id.web.quakealert.ui.common.QuakeEventDetailModalDialog] overlay is open,
  *   or null when no overlay is showing. Holding the item itself rather than an id
  *   keeps the overlay a pure function of the state it is handed.
  */

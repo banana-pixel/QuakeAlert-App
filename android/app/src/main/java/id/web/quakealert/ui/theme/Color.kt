@@ -191,6 +191,17 @@ val EventDetailModalGradient = Brush.verticalGradient(
 )
 
 /**
+ * Severe-variant top stop (node 124:1192): rgba(70,8,8,1) — the same #460808 the
+ * severe MMI badge container uses, so the alert detail card is "the severe badge
+ * warmed at the top" just as the moderate card is its bronze badge warmed at the
+ * top. Bottom stop stays on [EventDetailGradientBottom].
+ */
+val EventDetailGradientTopSevere = Color(0xFF460808) // rgba(70,8,8,1) dark red
+val EventDetailModalGradientSevere = Brush.verticalGradient(
+    colors = listOf(EventDetailGradientTopSevere, EventDetailGradientBottom)
+)
+
+/**
  * Inset panel fill shared by the three seismic metric cells (node 124:1115) and
  * the spatial info card (node 124:1147) — rgba(0,0,0,0.31). A black wash rather
  * than an opaque surface, so the card's gradient still shows through and the
@@ -269,6 +280,30 @@ val AlertBannerGradient = Brush.verticalGradient(
 
 /** "SEE DETAILS" capsule stroke — translucent white 30% (Figma fill_a7745cf9). */
 val AlertActionBorder = Color(0x4DFFFFFF)          // white 30%
+
+/**
+ * No-active-quake banner card — amber/orange vertical gradient (Figma 124:1426).
+ * The resting state's banner: warmer than the crimson alert gradient so the two
+ * states read at a glance, but still unmistakably a warning tone.
+ * linear-gradient(180deg, rgba(175,97,0,1) 0%, rgba(76,44,2,1) 100%)
+ */
+val PossibilityBannerGradientTop = Color(0xFFAF6100)   // rgba(175,97,0,1)
+val PossibilityBannerGradientBottom = Color(0xFF4C2C02) // rgba(76,44,2,1)
+val PossibilityBannerGradient = Brush.verticalGradient(
+    colors = listOf(PossibilityBannerGradientTop, PossibilityBannerGradientBottom)
+)
+
+/**
+ * Earthquake Possibility overlay card (Figma 124:1605) — a near-flat dark
+ * gradient so the card reads as a lifted surface rather than an alert: the top
+ * stop is the shared NavBarFill and the bottom stop lands exactly on CardSurface,
+ * so the card sits between the nav bar and the cards behind it on the value axis.
+ */
+val PossibilityModalGradientTop = Color(0xFF232323)    // rgba(35,35,35,1)
+val PossibilityModalGradientBottom = Color(0xFF222222) // rgba(34,34,34,1) — CardSurface
+val PossibilityModalGradient = Brush.verticalGradient(
+    colors = listOf(PossibilityModalGradientTop, PossibilityModalGradientBottom)
+)
 
 /** Short subtle drag-handle divider between the banner and the tips (Figma 1:1037). */
 val WarningDividerColor = Color(0x66FFFFFF)        // white 40%

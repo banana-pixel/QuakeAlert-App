@@ -1,4 +1,4 @@
-package id.web.quakealert.ui.history
+package id.web.quakealert.ui.common
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,7 +17,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -28,15 +27,17 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import id.web.quakealert.R
 import id.web.quakealert.data.UnitSystem
+import id.web.quakealert.ui.history.MmiSeverity
+import id.web.quakealert.ui.history.QuakeHistoryItem
+import id.web.quakealert.ui.history.label
+import id.web.quakealert.ui.history.timestampLabel
 import id.web.quakealert.ui.theme.BorderLight
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.ChipLabel
@@ -45,6 +46,7 @@ import id.web.quakealert.ui.theme.EventDetailDividerColor
 import id.web.quakealert.ui.theme.EventDetailLocation
 import id.web.quakealert.ui.theme.EventDetailMeta
 import id.web.quakealert.ui.theme.EventDetailModalGradient
+import id.web.quakealert.ui.theme.EventDetailModalGradientSevere
 import id.web.quakealert.ui.theme.EventDetailPulseInnerAlpha
 import id.web.quakealert.ui.theme.EventDetailPulseMidAlpha
 import id.web.quakealert.ui.theme.EventDetailPulseOuterAlpha
@@ -59,52 +61,58 @@ import id.web.quakealert.ui.theme.MmiOrange
 import id.web.quakealert.ui.theme.MmiOrangeContainer
 import id.web.quakealert.ui.theme.MmiRed
 import id.web.quakealert.ui.theme.MmiRedContainer
-import id.web.quakealert.ui.theme.ModalCloseFill
-import id.web.quakealert.ui.theme.ModalTitle
 import id.web.quakealert.ui.theme.QuakeAlertTheme
-import id.web.quakealert.ui.theme.TextPrimary
 
 /**
  * The Earthquake Details overlay hosted in its own [Dialog] window (Figma node
- * 123:743). Sits on top of the History list with the platform scrim behind it;
- * the close button, a back press and a tap outside the card all route to
- * [onDismiss], so no dismissal path leaves the overlay stuck open.
+ * 123:743 / 124:1192). Sits on top of the host screen with the platform scrim
+ * behind it; the close button, a back press and a tap outside the card all route
+ * to [onDismiss], so no dismissal path leaves the overlay stuck open.
+ *
+ * Shared by History (default [title] "Earthquake Details") and the Warning
+ * alert detail ([title] "Recent Earthquake", Figma node 124:1203).
  *
  * [DialogProperties.usePlatformDefaultWidth] is disabled so the card can span the
- * same content width as the History cards beneath it, inset by the shared
+ * same content width as the screens beneath it, inset by the shared
  * [Dimens.ScreenHorizontalPadding] rather than Material's narrower dialog width.
  *
  * @param event the tapped history entry to describe.
  * @param unitSystem drives the "Distance from you" row unit ("km" / "mi").
+ * @param title centered overlay header (Figma 123:1003 / 124:1203).
  * @param onDismiss invoked by the close button, a back press or an outside tap.
  * @param onShare invoked by the bottom "Share" action.
  */
 @Composable
-fun EventDetailModalDialog(
+fun QuakeEventDetailModalDialog(
     event: QuakeHistoryItem,
     unitSystem: UnitSystem,
     onDismiss: () -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    modifier: Modifier = Modifier,
+    title: String = "Earthquake Details"
 ) {
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        EventDetailModal(
+        QuakeEventDetailModal(
             event = event,
             unitSystem = unitSystem,
             onDismiss = onDismiss,
             onShare = onShare,
-            modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)
+            modifier = modifier.padding(Dimens.ScreenHorizontalPadding),
+            title = title
         )
     }
 }
 
 /**
- * Stateless Earthquake Details card (Figma node 123:1002): a dark rounded surface
- * filled with the bronze → neutral vertical gradient and the shared white-10%
- * stroke, stacking five sections [Dimens.EventDetailSectionGap] apart:
- *  1. Header — centered "Earthquake Details" title with a circular close button.
+ * Stateless Earthquake Details card (Figma nodes 123:1002 / 124:1192): a dark
+ * rounded surface filled with the severity-tinted vertical gradient (bronze for
+ * [MmiSeverity.MODERATE], dark red for [MmiSeverity.SEVERE] — both stop on
+ * [CardSurface]) and the shared white-10% stroke, stacking five sections
+ * [Dimens.EventDetailSectionGap] apart:
+ *  1. Header — centered [title] with a circular close button.
  *  2. Event banner — MMI badge beside the epicentre, timestamp and relative age.
  *  3. Map thumbnail — the epicentre expressed as concentric pulse rings.
  *  4. Seismic metrics — PGA, intensity and duration as three equal cells.
@@ -113,35 +121,40 @@ fun EventDetailModalDialog(
  * The card scrolls internally so every section stays reachable on short viewports
  * (landscape, large font scales) instead of being clipped by the dialog window.
  *
- * Exposed separately from [EventDetailModalDialog] so it can be previewed and
+ * Exposed separately from [QuakeEventDetailModalDialog] so it can be previewed and
  * tested without a dialog window.
  */
 @Composable
-fun EventDetailModal(
+fun QuakeEventDetailModal(
     event: QuakeHistoryItem,
     unitSystem: UnitSystem,
     onDismiss: () -> Unit,
     onShare: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    title: String = "Earthquake Details"
 ) {
     val shape = remember { RoundedCornerShape(Dimens.RadiusCard) }
     // Same severity → accent mapping the History card uses, so the overlay opens
-    // in the colour of the row that raised it.
+    // in the colour of the row that raised it. The gradient follows the same
+    // severity: bronze (123:1002) for moderate, dark red (124:1192) for severe.
     val accent = if (event.severity == MmiSeverity.SEVERE) MmiRed else MmiOrange
     val badgeContainer =
         if (event.severity == MmiSeverity.SEVERE) MmiRedContainer else MmiOrangeContainer
+    val gradient =
+        if (event.severity == MmiSeverity.SEVERE) EventDetailModalGradientSevere
+        else EventDetailModalGradient
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(EventDetailModalGradient, shape)
+            .background(gradient, shape)
             .border(Dimens.BorderThin, CardBorder, shape)
             .verticalScroll(rememberScrollState())
             .padding(Dimens.ModalPadding),
         verticalArrangement = Arrangement.spacedBy(Dimens.EventDetailSectionGap)
     ) {
-        EventDetailHeader(onDismiss = onDismiss)
+        QuakeModalHeader(onDismiss = onDismiss, title = title)
 
         EventDetailBanner(
             event = event,
@@ -156,44 +169,6 @@ fun EventDetailModal(
         SpatialInfoCard(event = event, unitSystem = unitSystem)
 
         ShareAction(onClick = onShare)
-    }
-}
-
-/**
- * Overlay header (Figma node 123:1003): the title optically centered across the
- * full card width with the circular close button pinned to the trailing edge.
- *
- * Figma balances the title against an empty 20dp spacer on the leading side, which
- * leaves it a few dp off-centre; centering against the container instead honours
- * the design's intent and stays symmetric at every width. Same treatment as the
- * About overlay's header, and both share the [Dimens.ModalCloseSize] chrome.
- */
-@Composable
-private fun EventDetailHeader(
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val closeShape = remember { RoundedCornerShape(Dimens.ModalCloseRadius) }
-
-    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Text(text = "Earthquake Details", style = ModalTitle)
-
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .size(Dimens.ModalCloseSize)
-                .clip(closeShape)
-                .background(ModalCloseFill, closeShape)
-                .clickable(onClick = onDismiss),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_close),
-                contentDescription = "Close",
-                tint = TextPrimary,
-                modifier = Modifier.size(Dimens.ModalCloseIconSize)
-            )
-        }
     }
 }
 
@@ -539,7 +514,7 @@ private val PreviewEvent = QuakeHistoryItem(
 @Composable
 private fun EventDetailModalPreview() {
     QuakeAlertTheme {
-        EventDetailModal(
+        QuakeEventDetailModal(
             event = PreviewEvent,
             unitSystem = UnitSystem.METRIC,
             onDismiss = {},
@@ -553,7 +528,7 @@ private fun EventDetailModalPreview() {
 @Composable
 private fun EventDetailModalSeverePreview() {
     QuakeAlertTheme {
-        EventDetailModal(
+        QuakeEventDetailModal(
             event = PreviewEvent.copy(
                 intensity = "IX",
                 severity = MmiSeverity.SEVERE,
@@ -563,6 +538,30 @@ private fun EventDetailModalSeverePreview() {
             unitSystem = UnitSystem.METRIC,
             onDismiss = {},
             onShare = {},
+            modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)
+        )
+    }
+}
+
+/**
+ * Warning-tab instance of the shared overlay (Figma node 124:1192): the severe
+ * (XI) event mirroring the design's annotation with the "Recent Earthquake"
+ * title and the dark-red alert gradient, opened from the Warning banner's
+ * "SEE DETAILS" action.
+ */
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun WarningRecentEarthquakeModalPreview() {
+    QuakeAlertTheme {
+        QuakeEventDetailModal(
+            event = PreviewEvent.copy(
+                intensity = "XI",
+                severity = MmiSeverity.SEVERE
+            ),
+            unitSystem = UnitSystem.METRIC,
+            onDismiss = {},
+            onShare = {},
+            title = "Recent Earthquake",
             modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)
         )
     }

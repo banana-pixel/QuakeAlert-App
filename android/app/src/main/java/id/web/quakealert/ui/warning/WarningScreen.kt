@@ -1,5 +1,6 @@
 package id.web.quakealert.ui.warning
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,24 +9,32 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.ui.common.QuakeAppBar
+import id.web.quakealert.ui.common.QuakeEventDetailModalDialog
 import id.web.quakealert.ui.common.fadingEdges
+import id.web.quakealert.ui.history.MmiSeverity
+import id.web.quakealert.ui.history.QuakeHistoryItem
+import id.web.quakealert.ui.history.toShareText
 import id.web.quakealert.ui.theme.Dimens
-import id.web.quakealert.ui.theme.NunitoFontFamily
 import id.web.quakealert.ui.theme.QuakeAlertTheme
-import id.web.quakealert.ui.theme.TextPrimary
+import id.web.quakealert.ui.theme.SectionTitle
 
 /**
  * Stateful entry point that connects [WarningViewModel] to the stateless
  * [WarningScreen]. Kept thin so the presentation layer stays testable.
+ *
+ * Sharing lives here rather than in the ViewModel: launching a chooser needs the
+ * composition-local [LocalContext], not app state — the same split HistoryRoute
+ * makes for its detail overlay's "Share" action.
  */
 @Composable
 fun WarningRoute(
@@ -34,22 +43,49 @@ fun WarningRoute(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
+    val context = LocalContext.current
+    val shareEvent: (QuakeHistoryItem) -> Unit = remember(context) {
+        { item ->
+            // startActivity throws when no app on the device can receive the
+            // intent. Swallow it so a missing target leaves the screen (and any
+            // open overlay) exactly as it was instead of crashing the app.
+            runCatching {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "QuakeAlert — ${item.location}")
+                    putExtra(Intent.EXTRA_TEXT, item.toShareText(uiState.unitSystem))
+                }
+                context.startActivity(Intent.createChooser(send, "Share earthquake details"))
+            }
+        }
+    }
+
     WarningScreen(
         uiState = uiState,
         onSeeDetails = viewModel::onSeeDetailsClicked,
         onEmergency = viewModel::onEmergencyClicked,
+        onDetailDismissed = viewModel::onDetailDismissed,
+        onPossibilityDismissed = viewModel::onPossibilityDismissed,
+        onShareClicked = shareEvent,
         modifier = modifier
     )
 }
 
 /**
- * Stateless Warning screen (Figma node 1:1024). Structure, top → bottom, mirrors
- * the Chat/History layout so all tabs share behaviour:
+ * Stateless Warning screen (Figma nodes 124:1297 / 124:1426 / 124:1605).
+ * Structure, top → bottom, mirrors the Chat/History layout so all tabs share
+ * behaviour:
  *  1. A static header [Column] pinned to the top: shared [QuakeAppBar] + the
  *     active [AlertBanner] + a short [WarningDivider].
- *  2. A weighted [LazyColumn] carrying the "Preparedness Tips" section title and
- *     the tip rows, with the shared soft [fadingEdges] at the scroll bounds.
+ *  2. A weighted [LazyColumn] carrying the state-driven section title and the
+ *     tip rows, with the shared soft [fadingEdges] at the scroll bounds.
  *  3. A pinned [EmergencyCta] at the bottom.
+ *
+ * Two sibling overlays can be raised, mirroring [WarningUiState]:
+ *  - the "Recent Earthquake" event detail (Figma 124:1192) from the active
+ *    banner's action, and
+ *  - the "Earthquake Possibility" card (Figma 124:1605) from the resting
+ *    banner's action.
  *
  * All state and events are hoisted to the caller ([WarningRoute] /
  * [WarningViewModel]).
@@ -59,6 +95,9 @@ fun WarningScreen(
     uiState: WarningUiState,
     onSeeDetails: () -> Unit,
     onEmergency: () -> Unit,
+    onDetailDismissed: () -> Unit,
+    onPossibilityDismissed: () -> Unit,
+    onShareClicked: (QuakeHistoryItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -90,13 +129,10 @@ fun WarningScreen(
             verticalArrangement = Arrangement.spacedBy(Dimens.PrepTipSpacing)
         ) {
             item(key = "prep-title") {
-                androidx.compose.material3.Text(
-                    text = "Preparedness Tips",
-                    color = TextPrimary,
-                    fontFamily = NunitoFontFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    lineHeight = 22.sp
+                Text(
+                    text = uiState.sectionTitle,
+                    style = SectionTitle,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
             items(
@@ -113,6 +149,25 @@ fun WarningScreen(
             modifier = Modifier.padding(bottom = Dimens.WarningListBottomPadding)
         )
     }
+
+    // --- "Recent Earthquake" detail overlay (Figma node 124:1192) -------------
+    uiState.selectedEventDetails?.let { event ->
+        QuakeEventDetailModalDialog(
+            event = event,
+            unitSystem = uiState.unitSystem,
+            onDismiss = onDetailDismissed,
+            onShare = { onShareClicked(event) },
+            title = "Recent Earthquake"
+        )
+    }
+
+    // --- "Earthquake Possibility" overlay (Figma node 124:1605) ---------------
+    uiState.selectedPossibility?.let { possibility ->
+        EarthquakePossibilityModal(
+            possibility = possibility,
+            onDismiss = onPossibilityDismissed
+        )
+    }
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
@@ -122,7 +177,82 @@ private fun WarningScreenPreview() {
         WarningScreen(
             uiState = WarningUiState(),
             onSeeDetails = {},
-            onEmergency = {}
+            onEmergency = {},
+            onDetailDismissed = {},
+            onPossibilityDismissed = {},
+            onShareClicked = {}
         )
     }
 }
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun WarningScreenActiveQuakePreview() {
+    QuakeAlertTheme {
+        WarningScreen(
+            uiState = WarningUiState(
+                banner = ActiveQuakeBanner(
+                    title = "Recent Earthquake Alert",
+                    timeAgo = "20 minutes ago",
+                    intensityLabel = "Intensity : IV (moderate)"
+                ),
+                sectionTitle = "Stay alert for aftershocks",
+                tips = activeQuakeTips()
+            ),
+            onSeeDetails = {},
+            onEmergency = {},
+            onDetailDismissed = {},
+            onPossibilityDismissed = {},
+            onShareClicked = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun WarningScreenWithDetailPreview() {
+    QuakeAlertTheme {
+        WarningScreen(
+            uiState = WarningUiState(
+                selectedEventDetails = previewActiveAlertDetails
+            ),
+            onSeeDetails = {},
+            onEmergency = {},
+            onDetailDismissed = {},
+            onPossibilityDismissed = {},
+            onShareClicked = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun WarningScreenWithPossibilityPreview() {
+    QuakeAlertTheme {
+        WarningScreen(
+            uiState = WarningUiState(
+                selectedPossibility = EarthquakePossibility()
+            ),
+            onSeeDetails = {},
+            onEmergency = {},
+            onDetailDismissed = {},
+            onPossibilityDismissed = {},
+            onShareClicked = {}
+        )
+    }
+}
+
+/** Shared preview fixture for the Warning detail overlay previews. */
+private val previewActiveAlertDetails = QuakeHistoryItem(
+    id = "active-alert",
+    intensity = "XI",
+    severity = MmiSeverity.SEVERE,
+    location = "Lembang, West Java, ID",
+    date = "20 Jun 2026",
+    time = "07:19:18 WIB",
+    distanceKm = 60,
+    relativeTime = "2 months ago",
+    pgaLabel = "61.5 gal",
+    durationLabel = "7 sec",
+    coordinates = "41.40338, 2.17403"
+)
