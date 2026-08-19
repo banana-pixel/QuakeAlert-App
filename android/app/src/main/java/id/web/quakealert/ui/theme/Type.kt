@@ -362,5 +362,49 @@ val PossibilityDisclaimer = TextStyle(
     lineHeightStyle = CenteredLineHeight
 )
 
+/**
+ * Warning banner headline (Figma 124:1297 / 124:1426): Nunito Black 16/20.
+ * Figma's 36px line-height is a text-box artifact; at a 20sp line height the
+ * glyphs sit in the same visual rhythm as the banner's metadata lines.
+ */
+val BannerTitle = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Black,
+    fontSize = 16.sp,
+    lineHeight = 20.sp,
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/**
+ * Warning banner relative-time line ("20 minutes ago", Figma 124:1297): Nunito
+ * Bold 14/18, one step below [BannerValue] so it reads as secondary copy.
+ */
+val BannerMeta = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 14.sp,
+    lineHeight = 18.sp,
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/**
+ * Warning banner value line ("Intensity : IV (moderate)" / "Possibility : High
+ * Risk", Figma 124:1297 / 124:1426): Nunito Bold 16/20 — the primary read of
+ * both banner variants.
+ */
+val BannerValue = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 16.sp,
+    lineHeight = 20.sp,
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
 
 

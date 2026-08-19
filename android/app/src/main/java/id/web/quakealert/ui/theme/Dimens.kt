@@ -378,10 +378,15 @@ object Dimens {
     /** Banner inner padding (Figma 20). */
     val AlertBannerPadding = 20.dp
     val AlertBannerRadius = 14.dp
-    /** Inner gap between the title line and "20 minutes ago". */
-    val AlertBannerTitleGap = 2.dp
-    /** Seismograph waveform icon size (Figma 74). */
-    val AlertWaveIconSize = 74.dp
+    /** Inner gap between the banner's text lines (Figma title-gap rhythm, tightened). */
+    val AlertBannerTitleGap = 4.dp
+    /**
+     * Banner glyph size. Figma ships 74dp; rendered at 64dp so the glyph reads
+     * balanced against the compact text block instead of dominating the card.
+     * Both variants' glyphs fill this box at the same stroke weight, so the
+     * active-alert waveform and resting globe read at the same visual size.
+     */
+    val AlertWaveIconSize = 64.dp
     /** "SEE DETAILS" capsule width (Figma 101) + padding (Figma 8/10). */
     val AlertActionWidth = 101.dp
     val AlertActionPaddingHorizontal = 10.dp

@@ -28,7 +28,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -37,6 +36,9 @@ import id.web.quakealert.R
 import id.web.quakealert.ui.common.QuakeModalHeader
 import id.web.quakealert.ui.theme.AlertActionBorder
 import id.web.quakealert.ui.theme.AlertBannerGradient
+import id.web.quakealert.ui.theme.BannerMeta
+import id.web.quakealert.ui.theme.BannerTitle
+import id.web.quakealert.ui.theme.BannerValue
 import id.web.quakealert.ui.theme.BorderLight
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.CardSubtitle
@@ -81,7 +83,7 @@ fun AlertBanner(
     val shape = RoundedCornerShape(Dimens.AlertBannerRadius)
     val interactionSource = remember { MutableInteractionSource() }
     val (gradient, glyph) = when (banner) {
-        is ActiveQuakeBanner -> AlertBannerGradient to R.drawable.ic_recording_wave
+        is ActiveQuakeBanner -> AlertBannerGradient to R.drawable.ic_recording_02
         is PossibilityBanner -> PossibilityBannerGradient to R.drawable.ic_globe_04
     }
 
@@ -102,20 +104,31 @@ fun AlertBanner(
         ) {
             Text(
                 text = banner.title,
-                color = TextPrimary,
-                fontFamily = NunitoFontFamily,
-                fontWeight = FontWeight.Black,
-                fontSize = 16.sp,
-                lineHeight = 36.sp,
+                style = BannerTitle,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             when (banner) {
                 is ActiveQuakeBanner -> {
-                    BannerLine(text = banner.timeAgo, fontSize = 14.sp)
-                    BannerLine(text = banner.intensityLabel, fontSize = 16.sp)
+                    Text(
+                        text = banner.timeAgo,
+                        style = BannerMeta,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = banner.intensityLabel,
+                        style = BannerValue,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                is PossibilityBanner -> BannerLine(text = banner.possibilityLabel, fontSize = 16.sp)
+                is PossibilityBanner -> Text(
+                    text = banner.possibilityLabel,
+                    style = BannerValue,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
             // "SEE DETAILS" capsule (Figma fill_a7745cf9): translucent stroke only.
@@ -149,30 +162,6 @@ fun AlertBanner(
             modifier = Modifier.size(Dimens.AlertWaveIconSize)
         )
     }
-}
-
-/**
- * One banner metadata line (Figma 124:1297 / 124:1426): Nunito Bold with the
- * banner's roomy 36sp line box, so every variant's text block keeps the same
- * vertical rhythm regardless of how many lines it carries.
- */
-@Composable
-private fun BannerLine(
-    text: String,
-    fontSize: TextUnit,
-    modifier: Modifier = Modifier
-) {
-    Text(
-        text = text,
-        color = TextPrimary,
-        fontFamily = NunitoFontFamily,
-        fontWeight = FontWeight.Bold,
-        fontSize = fontSize,
-        lineHeight = 36.sp,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = modifier
-    )
 }
 
 /**
