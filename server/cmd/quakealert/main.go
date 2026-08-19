@@ -100,12 +100,27 @@ func run(log *slog.Logger) error {
 		engine.Ingest(ctx, t.NodeID, t.PGA, t.TS)
 	}
 
+	// Handler heartbeat -> perbarui telemetri liveness node (RSSI, latency,
+	// last_heartbeat) yang dibaca endpoint /sensors.
+	hbValidator := ingest.NewHeartbeatValidator(log)
+	hbHandler := func(ctx context.Context, h *ingest.Heartbeat, latencyMs int) {
+		known, uerr := st.UpdateHeartbeat(ctx, h.ID, h.RSSI, latencyMs)
+		if uerr != nil {
+			log.Error("gagal update heartbeat", "station_id", h.ID, "err", uerr)
+			return
+		}
+		if !known {
+			log.Warn("heartbeat dari node tak dikenal", "station_id", h.ID)
+		}
+	}
+
 	client, err := newMQTTClient(cfg, log)
 	if err != nil {
 		return err
 	}
 
-	sub := ingest.NewSubscriber(client, verifier, handler, log, cfg.IOTimeout)
+	sub := ingest.NewSubscriber(client, verifier, handler, log, cfg.IOTimeout).
+		WithHeartbeat(hbValidator, hbHandler)
 	if err := sub.Start(); err != nil {
 		return err
 	}
@@ -134,11 +149,15 @@ func run(log *slog.Logger) error {
 		Broker: cfg.MQTTPublicBroker,
 		Port:   cfg.MQTTPublicPort,
 		TLS:    cfg.MQTTPublicTLS,
+	}, api.AuthConfig{
+		JWTSecret: cfg.JWTSecret,
+		TokenTTL:  cfg.JWTTokenTTL,
 	}, log)
 
 	// --- HTTP server (WebSocket WSS via reverse proxy TLS di produksi) ---
-	// Router chi memproteksi /api/v1/* dan /ws dengan Bearer JWT (HS256).
-	handlerHTTP := apiSrv.Router(cfg.JWTSecret, hub.ServeWS, log)
+	// Router chi: /api/v1/auth/anonymous publik, /api/v1/events auth opsional,
+	// sisanya + /ws wajib Bearer JWT (HS256).
+	handlerHTTP := apiSrv.Router(hub.ServeWS, log)
 	httpSrv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handlerHTTP,

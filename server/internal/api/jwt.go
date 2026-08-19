@@ -30,6 +30,8 @@ var (
 	errWrongAlg       = errors.New("algoritma JWT bukan HS256")
 	errExpired        = errors.New("token JWT kedaluwarsa")
 	errEmptySubject   = errors.New("klaim sub kosong")
+	errEmptySecret    = errors.New("secret HS256 kosong")
+	errNonPositiveTTL = errors.New("ttl token harus > 0")
 )
 
 // verifyHS256 memvalidasi token JWT HS256 secara byte-safe (constant-time
@@ -94,4 +96,31 @@ func mintHS256(claims jwtClaims, secret []byte) string {
 	c := base64.RawURLEncoding.EncodeToString(cb)
 	sig := signHS256([]byte(h+"."+c), secret)
 	return h + "." + c + "." + base64.RawURLEncoding.EncodeToString(sig)
+}
+
+// MintHS256 menerbitkan token JWT HS256 untuk userID dengan masa hidup ttl.
+// Ini jalur produksi yang dipakai HandleAnonymousAuth; klaim yang dihasilkan
+// adalah `sub` (=user_id), `iat`, dan `exp` (detik epoch UTC) — bentuk yang
+// sama dengan yang divalidasi verifyHS256, sehingga token terbitan sendiri
+// selalu lolos middleware auth.
+//
+// Argumen ditolak eksplisit alih-alih diperbaiki diam-diam: subject kosong,
+// secret kosong, atau ttl <= 0 akan menghasilkan token yang tidak berguna
+// (atau langsung kedaluwarsa) dan menyembunyikan salah-konfigurasi.
+func MintHS256(userID string, secret []byte, ttl time.Duration) (string, error) {
+	if userID == "" {
+		return "", errEmptySubject
+	}
+	if len(secret) == 0 {
+		return "", errEmptySecret
+	}
+	if ttl <= 0 {
+		return "", errNonPositiveTTL
+	}
+	now := time.Now()
+	return mintHS256(jwtClaims{
+		Sub: userID,
+		Iat: now.Unix(),
+		Exp: now.Add(ttl).Unix(),
+	}, secret), nil
 }

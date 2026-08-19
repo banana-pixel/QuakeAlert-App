@@ -4,13 +4,21 @@
 # agar perilaku OOM/tekanan memori terlihat sejak dev (ADR-0001).
 #
 # Jalankan:  docker compose up -d
-# Migrasi :  lihat contracts/db/migrations (mis. golang-migrate)
+# Migrasi :  otomatis oleh service `migrate` (golang-migrate) setelah postgis
+#            healthy. Sumber: contracts/db/migrations (contract-first, ADR-0004).
+#            Rollback manual:
+#              docker compose run --rm --entrypoint sh migrate \
+#                -c 'migrate -path=/migrations -database "$DB_URL" down 1'
 #
 # CATATAN KEAMANAN: konfigurasi ini untuk DEV LOKAL.
 #  - Mosquitto memakai plaintext 1883 + allow_anonymous HANYA untuk dev.
 #    Di PRODUKSI WAJIB MQTTS 8883 + TLS + auth (ADR-0003); 1883 dilarang.
 #  - Kredensial di bawah adalah default dev; JANGAN dipakai di produksi.
 # ============================================================================
+
+# DSN dev untuk golang-migrate. Didefinisikan sekali (anchor) lalu dipakai
+# sebagai argumen -database dan sebagai env DB_URL untuk operasi manual.
+x-migrate-dsn: &migrate_dsn "postgres://quakealert:${POSTGRES_PASSWORD:-devpassword}@postgis:5432/quakealert?sslmode=disable"
 
 services:
   postgis:
@@ -38,6 +46,27 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Migrasi skema otomatis. Sekali jalan (restart: "no"): tunggu postgis healthy,
+  # terapkan seluruh migrasi `up`, lalu exit 0. Idempoten — bila skema sudah
+  # mutakhir golang-migrate keluar dengan "no change".
+  migrate:
+    image: migrate/migrate:v4.17.0
+    container_name: quakealert-migrate
+    restart: "no"
+    mem_limit: 64m
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment:
+      DB_URL: *migrate_dsn
+    volumes:
+      - ../contracts/db/migrations:/migrations:ro
+    command:
+      - "-path=/migrations"
+      - "-database"
+      - *migrate_dsn
+      - "up"
 
   redis:
     image: redis:7-alpine

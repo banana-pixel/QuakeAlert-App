@@ -69,6 +69,3 @@ func TestComputeHMAC_KnownVector(t *testing.T) {
 		t.Fatalf("HMAC known-vector mismatch:\n got=%q\nwant=%q", sig, want)
 	}
 }
-
-
-

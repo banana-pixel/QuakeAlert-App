@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-
 // Config adalah konfigurasi tervalidasi untuk server QuakeAlert.
 type Config struct {
 	// Postgres
@@ -47,6 +46,11 @@ type Config struct {
 	// REST API: secret JWT (HS256) untuk auth anonymous. Wajib di-set.
 	JWTSecret []byte
 
+	// JWTTokenTTL adalah masa hidup token anonim yang diterbitkan
+	// POST /api/v1/auth/anonymous. Panjang secara default karena identitas
+	// anonim tidak punya alur refresh.
+	JWTTokenTTL time.Duration
+
 	// Redis: dipakai rate-limiter reroll pseudonym (SET NX EX 60s).
 	RedisURL string
 
@@ -56,8 +60,6 @@ type Config struct {
 	MQTTPublicPort   int
 	MQTTPublicTLS    bool
 }
-
-
 
 // Load membaca & memvalidasi konfigurasi dari environment.
 func Load() (*Config, error) {
@@ -78,8 +80,9 @@ func Load() (*Config, error) {
 		MQTTPublicBroker: getEnv("MQTT_PUBLIC_BROKER", "broker.quakealert.id"),
 		MQTTPublicPort:   getEnvInt("MQTT_PUBLIC_PORT", 8883),
 		MQTTPublicTLS:    getEnvBool("MQTT_PUBLIC_TLS", true),
-	}
 
+		JWTTokenTTL: time.Duration(getEnvInt("JWT_TTL_HOURS", 720)) * time.Hour,
+	}
 
 	if origins := os.Getenv("WS_ALLOWED_ORIGINS"); origins != "" {
 		for _, o := range strings.Split(origins, ",") {
@@ -88,7 +91,6 @@ func Load() (*Config, error) {
 			}
 		}
 	}
-
 
 	// Master key wajib untuk verifikasi HMAC (decrypt secret node).
 	keyHex := os.Getenv("MASTER_KEY_HEX")
@@ -108,13 +110,16 @@ func Load() (*Config, error) {
 	}
 	cfg.JWTSecret = []byte(jwtSecret)
 
+	if cfg.JWTTokenTTL <= 0 {
+		return nil, fmt.Errorf("JWT_TTL_HOURS harus > 0, dapat %s", cfg.JWTTokenTTL)
+	}
+
 	if cfg.IOTimeout > 2*time.Second {
 		return nil, fmt.Errorf("IO_TIMEOUT_MS harus <= 2000 (Aturan Server #3), dapat %s", cfg.IOTimeout)
 	}
 
 	return cfg, nil
 }
-
 
 func decodeKey(hexStr string) ([32]byte, error) {
 	var out [32]byte
@@ -155,4 +160,3 @@ func getEnvBool(key string, def bool) bool {
 	}
 	return def
 }
-

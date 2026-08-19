@@ -9,10 +9,19 @@ import (
 )
 
 // Router membangun http.Handler chi untuk REST API v1. wsHandler adalah handler
-// WebSocket (mis. Hub.ServeWS) yang juga diproteksi AuthMiddleware.
+// WebSocket (mis. Hub.ServeWS) yang juga diproteksi AuthMiddleware. Secret JWT
+// diambil dari Server.auth agar penerbitan (HandleAnonymousAuth) dan verifikasi
+// (middleware) tidak bisa memakai kunci yang berbeda.
 //
-// Semua rute /api/v1/* dan /ws memerlukan Bearer JWT (HS256). /healthz publik.
-func (s *Server) Router(jwtSecret []byte, wsHandler http.HandlerFunc, log *slog.Logger) http.Handler {
+// Tiga tingkat akses:
+//   - publik        : /healthz, POST /api/v1/auth/anonymous
+//   - auth opsional : GET /api/v1/events (token boleh absen; bila ada wajib valid)
+//   - auth wajib    : sisa /api/v1/* dan /ws
+//
+// Path didaftarkan penuh (tanpa chi Route/Mount) karena ketiga grup berbagi
+// prefix /api/v1 dengan middleware berbeda — Mount pada prefix yang sama akan
+// bertabrakan.
+func (s *Server) Router(wsHandler http.HandlerFunc, log *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -24,15 +33,23 @@ func (s *Server) Router(jwtSecret []byte, wsHandler http.HandlerFunc, log *slog.
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	auth := AuthMiddleware(jwtSecret, log)
+	// Bootstrap identitas: klien belum punya token saat memanggil ini.
+	r.Post("/api/v1/auth/anonymous", s.HandleAnonymousAuth)
+
+	// Riwayat gempa bersifat publik; token opsional hanya memperkaya (lokasi
+	// tersimpan user dipakai sebagai acuan filter radius).
+	r.Group(func(r chi.Router) {
+		r.Use(OptionalAuthMiddleware(s.auth.JWTSecret, log))
+		r.Get("/api/v1/events", s.HandleListEvents)
+	})
 
 	r.Group(func(r chi.Router) {
-		r.Use(auth)
-		r.Route("/api/v1", func(r chi.Router) {
-			r.Post("/nodes/provision", s.HandleProvision)
-			r.Get("/sensors", s.HandleListSensors)
-			r.Post("/users/pseudonym/reroll", s.HandleRerollPseudonym)
-		})
+		r.Use(AuthMiddleware(s.auth.JWTSecret, log))
+		r.Post("/api/v1/nodes/provision", s.HandleProvision)
+		r.Get("/api/v1/sensors", s.HandleListSensors)
+		r.Post("/api/v1/users/pseudonym/reroll", s.HandleRerollPseudonym)
+		r.Put("/api/v1/users/location", s.HandleUpdateLocation)
+		r.Put("/api/v1/users/fcm-token", s.HandleUpdateFCMToken)
 		// WebSocket realtime (WSS via reverse proxy TLS di produksi).
 		r.Get("/ws", wsHandler)
 	})

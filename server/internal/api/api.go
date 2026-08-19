@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -20,6 +21,30 @@ const rerollWindow = 60 * time.Second
 // provisionSecretBytes adalah panjang entropy provisioning_secret (32 byte).
 const provisionSecretBytes = 32
 
+// defaultTokenTTL adalah masa hidup token anonim bila tidak dikonfigurasi.
+// Panjang (30 hari) karena identitas anonim tidak punya alur refresh: klien
+// memanggil /auth/anonymous sekali lalu menyimpan token secara lokal.
+const defaultTokenTTL = 30 * 24 * time.Hour
+
+// Batas paginasi & radius GET /api/v1/events (cermin kontrak OpenAPI).
+const (
+	defaultEventsLimit = store.DefaultEventsLimit
+	maxEventsLimit     = store.MaxEventsLimit
+	maxEventsRangeKm   = 2000
+)
+
+// maxFCMTokenLen mengikuti user_profiles.fcm_token VARCHAR(255): ditolak di
+// handler agar klien mendapat 400 yang jelas, bukan 500 dari Postgres.
+const maxFCMTokenLen = 255
+
+// maxLocationNameLen mengikuti VARCHAR(150) pada iot_nodes.location_name dan
+// user_profiles.location_name (migrasi 000002).
+const maxLocationNameLen = 150
+
+// stationIDPattern mencerminkan ProvisionRequest.station_id pada
+// contracts/openapi/openapi.yaml (^NODE-[0-9A-F]{8}$).
+var stationIDPattern = regexp.MustCompile(`^NODE-[0-9A-F]{8}$`)
+
 // Repo adalah subset method store yang dibutuhkan API. Interface memudahkan
 // pengujian dengan fake store (tanpa Postgres nyata).
 type Repo interface {
@@ -27,6 +52,10 @@ type Repo interface {
 	ListSensorsWithin(ctx context.Context, lat, lon float64, rangeKm int) ([]store.SensorStatus, error)
 	GetUserLocation(ctx context.Context, userID string) (*store.UserLocation, error)
 	UpdatePseudonym(ctx context.Context, userID, pseudonym string) (time.Time, error)
+	CreateUserProfile(ctx context.Context, userID, pseudonym string) (time.Time, error)
+	UpdateUserLocation(ctx context.Context, userID string, lat, lon float64, locationName string) (time.Time, error)
+	UpdateUserFCMToken(ctx context.Context, userID, token string) (time.Time, error)
+	ListEvents(ctx context.Context, limit, offset int, filter *store.EventFilter) ([]store.Event, error)
 }
 
 // SecretEncryptor mengenkripsi provisioning secret menjadi (ciphertext, nonce)
@@ -42,18 +71,31 @@ type MQTTPublic struct {
 	TLS    bool
 }
 
+// AuthConfig memusatkan parameter token anonim: secret HS256 yang dipakai BAIK
+// untuk menerbitkan (HandleAnonymousAuth) MAUPUN memverifikasi (middleware),
+// plus masa hidup token. Disimpan di Server agar tidak ada dua sumber kebenaran
+// untuk secret yang sama.
+type AuthConfig struct {
+	JWTSecret []byte
+	TokenTTL  time.Duration
+}
+
 // Server memegang dependency handler REST.
 type Server struct {
 	repo    Repo
 	cipher  SecretEncryptor
 	limiter RateLimiter
 	mqtt    MQTTPublic
+	auth    AuthConfig
 	log     *slog.Logger
 }
 
-// NewServer membuat Server API.
-func NewServer(repo Repo, cipher SecretEncryptor, limiter RateLimiter, mqtt MQTTPublic, log *slog.Logger) *Server {
-	return &Server{repo: repo, cipher: cipher, limiter: limiter, mqtt: mqtt, log: log}
+// NewServer membuat Server API. TokenTTL yang kosong diisi defaultTokenTTL.
+func NewServer(repo Repo, cipher SecretEncryptor, limiter RateLimiter, mqtt MQTTPublic, auth AuthConfig, log *slog.Logger) *Server {
+	if auth.TokenTTL <= 0 {
+		auth.TokenTTL = defaultTokenTTL
+	}
+	return &Server{repo: repo, cipher: cipher, limiter: limiter, mqtt: mqtt, auth: auth, log: log}
 }
 
 // --- Helpers ---
@@ -76,6 +118,9 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 // --- Provision handler ---
 
 type provisionRequest struct {
+	// StationID opsional: bila node sudah punya ID di NVS, ID itu dikirim agar
+	// firmware & DB memakai identitas yang sama (topik MQTT sensor/<id>/...).
+	StationID    string  `json:"station_id"`
 	SensorModel  string  `json:"sensor_model"`
 	LocationName string  `json:"location_name"`
 	Latitude     float64 `json:"latitude"`
@@ -105,7 +150,7 @@ func (s *Server) HandleProvision(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "sensor_model & location_name wajib")
 		return
 	}
-	if len(req.LocationName) > 150 {
+	if len(req.LocationName) > maxLocationNameLen {
 		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "location_name maksimal 150 karakter")
 		return
 	}
@@ -118,12 +163,21 @@ func (s *Server) HandleProvision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stationID, err := randomStationID()
-	if err != nil {
-		s.log.Error("gagal generate station_id", "err", err)
-		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal membuat station_id")
+	// station_id: pakai milik node bila valid, jika absen/kosong generate baru.
+	stationID := req.StationID
+	if stationID == "" {
+		var gerr error
+		stationID, gerr = randomStationID()
+		if gerr != nil {
+			s.log.Error("gagal generate station_id", "err", gerr)
+			writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal membuat station_id")
+			return
+		}
+	} else if !stationIDPattern.MatchString(stationID) {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "station_id harus berpola NODE-XXXXXXXX (hex kapital)")
 		return
 	}
+
 	secret, err := randomSecret()
 	if err != nil {
 		s.log.Error("gagal generate secret", "err", err)
@@ -147,6 +201,15 @@ func (s *Server) HandleProvision(w http.ResponseWriter, r *http.Request) {
 		SecretEnc:    enc,
 		SecretNonce:  nonce,
 	}); err != nil {
+		// station_id sudah dipakai adalah konflik klien, bukan kegagalan server:
+		// node yang pernah di-provision harus memakai secret di NVS-nya. 409
+		// memberi firmware sinyal yang dapat ditindaklanjuti (jangan retry),
+		// sementara 500 akan memicu retry sia-sia pada loop provisioning.
+		if errors.Is(err, store.ErrNodeAlreadyExists) {
+			s.log.Warn("provisioning ditolak: station_id sudah ada", "station_id", stationID)
+			writeError(w, http.StatusConflict, "STATION_ALREADY_EXISTS", "station_id sudah terdaftar")
+			return
+		}
 		s.log.Error("gagal create node", "err", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal menyimpan node")
 		return
@@ -303,9 +366,354 @@ func (s *Server) HandleRerollPseudonym(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// --- Anonymous auth handler ---
+
+type anonymousAuthResponse struct {
+	Token     string `json:"token"`
+	TokenType string `json:"token_type"`
+	ExpiresAt string `json:"expires_at"` // RFC3339 UTC
+	UserID    string `json:"user_id"`
+	Pseudonym string `json:"pseudonym"`
+	CreatedAt string `json:"created_at"` // RFC3339 UTC
+}
+
+// HandleAnonymousAuth membuat profil anonim baru (user_id UUID v4 + pseudonym)
+// lalu menerbitkan JWT HS256 dengan klaim sub/iat/exp. Ini SATU-SATUNYA endpoint
+// tanpa Bearer token — klien memanggilnya sekali saat first launch.
+//
+// user_id di-generate di sisi server (bukan mengandalkan DEFAULT uuid_generate_v4
+// milik kolom) agar nilainya sudah tersedia sebelum INSERT dan dapat langsung
+// dipakai sebagai klaim `sub` tanpa round-trip kedua.
+func (s *Server) HandleAnonymousAuth(w http.ResponseWriter, r *http.Request) {
+	userID, err := randomUserID()
+	if err != nil {
+		s.log.Error("gagal generate user_id", "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal membuat user_id")
+		return
+	}
+	pseudonym, err := randomPseudonym()
+	if err != nil {
+		s.log.Error("gagal generate pseudonym", "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal membuat pseudonym")
+		return
+	}
+
+	createdAt, err := s.repo.CreateUserProfile(r.Context(), userID, pseudonym)
+	if err != nil {
+		s.log.Error("gagal membuat profil anonim", "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal membuat profil")
+		return
+	}
+
+	token, err := MintHS256(userID, s.auth.JWTSecret, s.auth.TokenTTL)
+	if err != nil {
+		// Profil sudah tersimpan tetapi token gagal dibuat: ini salah-konfigurasi
+		// server (secret kosong / TTL invalid), bukan kesalahan klien.
+		s.log.Error("gagal menerbitkan token", "err", err, "user_id", userID)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal menerbitkan token")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, anonymousAuthResponse{
+		Token:     token,
+		TokenType: "Bearer",
+		ExpiresAt: time.Now().Add(s.auth.TokenTTL).UTC().Format(time.RFC3339),
+		UserID:    userID,
+		Pseudonym: pseudonym,
+		CreatedAt: createdAt.UTC().Format(time.RFC3339),
+	})
+}
+
+// --- Update location handler ---
+
+// updateLocationRequest memakai pointer untuk latitude/longitude agar field yang
+// ABSEN dapat dibedakan dari nilai 0 — (0, 0) adalah koordinat yang sah (Null
+// Island), jadi zero-value JSON tidak boleh diperlakukan sebagai "tidak dikirim".
+type updateLocationRequest struct {
+	Latitude     *float64 `json:"latitude"`
+	Longitude    *float64 `json:"longitude"`
+	LocationName string   `json:"location_name"`
+}
+
+type updateLocationResponse struct {
+	UserID       string  `json:"user_id"`
+	Latitude     float64 `json:"latitude"`
+	Longitude    float64 `json:"longitude"`
+	LocationName *string `json:"location_name"`
+	UpdatedAt    string  `json:"updated_at"` // RFC3339 UTC
+}
+
+// HandleUpdateLocation menyimpan koordinat user ke last_location (PostGIS) yang
+// menjadi basis filter radius /sensors dan penargetan alert.
+func (s *Server) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "user tidak terautentikasi")
+		return
+	}
+
+	var req updateLocationRequest
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "body JSON tidak valid")
+		return
+	}
+	if req.Latitude == nil || req.Longitude == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "latitude & longitude wajib")
+		return
+	}
+	if *req.Latitude < -90 || *req.Latitude > 90 {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "latitude di luar rentang -90..90")
+		return
+	}
+	if *req.Longitude < -180 || *req.Longitude > 180 {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "longitude di luar rentang -180..180")
+		return
+	}
+	if len(req.LocationName) > maxLocationNameLen {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "location_name maksimal 150 karakter")
+		return
+	}
+
+	updatedAt, err := s.repo.UpdateUserLocation(r.Context(), userID, *req.Latitude, *req.Longitude, req.LocationName)
+	if errors.Is(err, store.ErrUserNotFound) {
+		writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "profil user tidak ditemukan")
+		return
+	}
+	if err != nil {
+		s.log.Error("gagal update lokasi user", "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal menyimpan lokasi")
+		return
+	}
+
+	resp := updateLocationResponse{
+		UserID:    userID,
+		Latitude:  *req.Latitude,
+		Longitude: *req.Longitude,
+		UpdatedAt: updatedAt.UTC().Format(time.RFC3339),
+	}
+	// Kosong dipersistensikan sebagai NULL (semantik PUT), jadi respons harus
+	// mencerminkan null—bukan "" — agar klien melihat state yang benar-benar tersimpan.
+	if req.LocationName != "" {
+		name := req.LocationName
+		resp.LocationName = &name
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// --- Update FCM token handler ---
+
+type updateFCMTokenRequest struct {
+	FCMToken string `json:"fcm_token"`
+}
+
+type updateFCMTokenResponse struct {
+	UpdatedAt string `json:"updated_at"` // RFC3339 UTC
+}
+
+// HandleUpdateFCMToken menyimpan registration token FCM perangkat agar alert
+// tetap sampai saat aplikasi di background (life-safety: kanal kedua di samping WS).
+func (s *Server) HandleUpdateFCMToken(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "user tidak terautentikasi")
+		return
+	}
+
+	var req updateFCMTokenRequest
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "body JSON tidak valid")
+		return
+	}
+	if req.FCMToken == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "fcm_token wajib")
+		return
+	}
+	if len(req.FCMToken) > maxFCMTokenLen {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "fcm_token maksimal 255 karakter")
+		return
+	}
+
+	updatedAt, err := s.repo.UpdateUserFCMToken(r.Context(), userID, req.FCMToken)
+	if errors.Is(err, store.ErrUserNotFound) {
+		writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "profil user tidak ditemukan")
+		return
+	}
+	if err != nil {
+		s.log.Error("gagal update fcm token", "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal menyimpan fcm_token")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updateFCMTokenResponse{
+		UpdatedAt: updatedAt.UTC().Format(time.RFC3339),
+	})
+}
+
+// --- List events handler ---
+
+type eventDTO struct {
+	EventID        string   `json:"event_id"`
+	Status         string   `json:"status"`
+	PGA            float64  `json:"pga"` // gal (satuan kanonik)
+	MMI            string   `json:"mmi"`
+	IntensityLabel string   `json:"intensity_label"`
+	Latitude       float64  `json:"latitude"`  // centroid, BUKAN episenter
+	Longitude      float64  `json:"longitude"` // centroid, BUKAN episenter
+	DepthKm        *float64 `json:"depth_km"`  // selalu null (lihat kontrak OpenAPI)
+	LocationName   string   `json:"location_name"`
+	TriggeredNodes int      `json:"triggered_nodes_count"`
+	CreatedAt      string   `json:"created_at"`            // RFC3339 UTC, dari started_at
+	ResolvedAt     *string  `json:"resolved_at,omitempty"` // absen selama HAPPENING
+}
+
+type eventsResponse struct {
+	Limit   int        `json:"limit"`
+	Offset  int        `json:"offset"`
+	Count   int        `json:"count"`
+	RangeKm *int       `json:"range_km"` // null bila filter spasial tidak aktif
+	Events  []eventDTO `json:"events"`
+}
+
+// HandleListEvents mengembalikan riwayat event terkonfirmasi (created_at DESC).
+// Auth opsional (OptionalAuthMiddleware): tanpa token endpoint tetap melayani,
+// dan bila token valid dikirim tanpa koordinat eksplisit, lokasi tersimpan user
+// dipakai sebagai acuan filter radius.
+func (s *Server) HandleListEvents(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	limit := defaultEventsLimit
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > maxEventsLimit {
+			writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "limit harus 1..100")
+			return
+		}
+		limit = n
+	}
+
+	offset := 0
+	if v := q.Get("offset"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "offset harus >= 0")
+			return
+		}
+		offset = n
+	}
+
+	filter, err := s.eventFilterFrom(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
+		return
+	}
+
+	events, err := s.repo.ListEvents(r.Context(), limit, offset, filter)
+	if err != nil {
+		s.log.Error("gagal list events", "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal memuat event")
+		return
+	}
+
+	out := make([]eventDTO, 0, len(events))
+	for _, e := range events {
+		dto := eventDTO{
+			EventID:        e.EventID,
+			Status:         e.Status,
+			PGA:            e.MaxPGA,
+			MMI:            e.MMIScale,
+			IntensityLabel: e.IntensityLabel,
+			Latitude:       e.Lat,
+			Longitude:      e.Lon,
+			LocationName:   e.LocationName,
+			TriggeredNodes: e.TriggeredNodes,
+			CreatedAt:      e.StartedAt.UTC().Format(time.RFC3339),
+		}
+		if e.ResolvedAt != nil {
+			resolved := e.ResolvedAt.UTC().Format(time.RFC3339)
+			dto.ResolvedAt = &resolved
+		}
+		out = append(out, dto)
+	}
+
+	resp := eventsResponse{Limit: limit, Offset: offset, Count: len(out), Events: out}
+	if filter != nil {
+		rangeKm := filter.RangeKm
+		resp.RangeKm = &rangeKm
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// eventFilterFrom membangun filter spasial dari query string. Mengembalikan
+// (nil, nil) bila range_km tidak dikirim (tanpa filter).
+//
+// Acuan koordinat: latitude+longitude eksplisit bila ada; jika tidak, lokasi
+// tersimpan user yang terautentikasi. Tanpa keduanya, range_km tidak dapat
+// diartikan dan request ditolak 400 alih-alih diam-diam mengabaikan filter —
+// mengembalikan event seluruh negeri kepada klien yang meminta radius 50 km
+// adalah kegagalan senyap yang berbahaya.
+func (s *Server) eventFilterFrom(r *http.Request) (*store.EventFilter, error) {
+	q := r.URL.Query()
+	rawRange := q.Get("range_km")
+	latStr, lonStr := q.Get("latitude"), q.Get("longitude")
+
+	if rawRange == "" {
+		if latStr != "" || lonStr != "" {
+			return nil, errors.New("latitude/longitude hanya berlaku bersama range_km")
+		}
+		return nil, nil
+	}
+
+	rangeKm, err := strconv.Atoi(rawRange)
+	if err != nil || rangeKm < 1 || rangeKm > maxEventsRangeKm {
+		return nil, errors.New("range_km harus 1..2000")
+	}
+
+	if (latStr == "") != (lonStr == "") {
+		return nil, errors.New("latitude & longitude harus dikirim bersamaan")
+	}
+	if latStr != "" {
+		lat, lerr := strconv.ParseFloat(latStr, 64)
+		if lerr != nil || lat < -90 || lat > 90 {
+			return nil, errors.New("latitude di luar rentang -90..90")
+		}
+		lon, lerr := strconv.ParseFloat(lonStr, 64)
+		if lerr != nil || lon < -180 || lon > 180 {
+			return nil, errors.New("longitude di luar rentang -180..180")
+		}
+		return &store.EventFilter{Lat: lat, Lon: lon, RangeKm: rangeKm}, nil
+	}
+
+	// Fallback: lokasi tersimpan user (hanya tersedia bila request terautentikasi).
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		return nil, errors.New("range_km butuh latitude & longitude (atau token dengan lokasi tersimpan)")
+	}
+	loc, err := s.repo.GetUserLocation(r.Context(), userID)
+	if err != nil || loc == nil || !loc.HasLocation {
+		return nil, errors.New("range_km butuh latitude & longitude: lokasi user belum tersimpan")
+	}
+	return &store.EventFilter{Lat: loc.Lat, Lon: loc.Lon, RangeKm: rangeKm}, nil
+}
+
 // --- Generators ---
 
 const hexAlphabet = "0123456789ABCDEF"
+
+// randomUserID menghasilkan UUID v4 (RFC 4122) dari crypto/rand tanpa dependency
+// eksternal. Formatnya cocok dengan kolom user_profiles.user_id bertipe UUID.
+func randomUserID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // versi 4
+	b[8] = (b[8] & 0x3f) | 0x80 // varian RFC 4122
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
+}
 
 func randomStationID() (string, error) {
 	b := make([]byte, 4)

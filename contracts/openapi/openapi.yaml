@@ -5,7 +5,9 @@ info:
   description: >
     Kontrak REST resmi QuakeAlert (contract-first, ADR-0004). Base URL selalu HTTPS.
     Satuan kanonik: PGA=gal (cm/s^2), timestamp=ms epoch UTC (int64), jarak=km, RSSI=dBm.
-    Semua endpoint kecuali provisioning bootstrap memerlukan Bearer JWT (anonymous).
+    Semua endpoint memerlukan Bearer JWT (anonymous) KECUALI:
+    `POST /api/v1/auth/anonymous` (publik — bootstrap identitas) dan
+    `GET /api/v1/events` (auth opsional; bila token dikirim ia wajib valid).
 servers:
   - url: https://api.quakealert.id
     description: Produksi
@@ -16,14 +18,39 @@ security:
   - bearerAuth: []
 
 tags:
+  - name: auth
+    description: Bootstrap identitas anonim (JWT HS256)
   - name: nodes
     description: Provisioning & manajemen sensor node
   - name: sensors
     description: Status & peta sensor
   - name: users
     description: Profil pengguna anonim
+  - name: events
+    description: Riwayat kejadian gempa terkonfirmasi
 
 paths:
+  /api/v1/auth/anonymous:
+    post:
+      tags: [auth]
+      summary: Terbitkan profil anonim + JWT (publik)
+      description: >
+        Membuat baris user_profiles baru (user_id UUID + pseudonym acak) dan
+        menerbitkan JWT HS256 dengan klaim standar `sub`/`iat`/`exp`.
+        Endpoint ini SATU-SATUNYA yang tidak memerlukan Bearer token — klien
+        memanggilnya sekali saat first launch lalu menyimpan token secara lokal.
+      operationId: authAnonymous
+      security: []
+      responses:
+        '201':
+          description: Profil & token berhasil dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnonymousAuthResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/v1/nodes/provision:
     post:
       tags: [nodes]
@@ -51,6 +78,18 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: >
+            station_id yang dikirim sudah terdaftar (unique violation pada
+            iot_nodes.station_id). Node yang sudah pernah di-provision harus
+            memakai secret yang tersimpan di NVS-nya, bukan meminta yang baru.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: STATION_ALREADY_EXISTS
+                message: station_id sudah terdaftar
 
   /api/v1/sensors:
     get:
@@ -102,6 +141,138 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/v1/users/location:
+    put:
+      tags: [users]
+      summary: Perbarui lokasi terakhir user (PostGIS)
+      description: >
+        Menyimpan koordinat user ke user_profiles.last_location
+        (GEOGRAPHY(Point,4326)) sebagai basis filter radius pada /sensors dan
+        penargetan alert. location_name adalah label hasil reverse-geocode di
+        sisi klien dan bersifat opsional.
+      operationId: updateUserLocation
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLocationRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateLocationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/users/fcm-token:
+    put:
+      tags: [users]
+      summary: Daftarkan/perbarui FCM registration token
+      description: >
+        Menyimpan token Firebase Cloud Messaging perangkat agar alert
+        life-safety tetap sampai saat aplikasi berada di background.
+      operationId: updateUserFCMToken
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFCMTokenRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateFCMTokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/events:
+    get:
+      tags: [events]
+      summary: Riwayat kejadian gempa terkonfirmasi
+      description: >
+        Mengembalikan event terurut `created_at DESC` (terbaru dulu).
+        Autentikasi opsional: tanpa Bearer token endpoint tetap melayani
+        (data gempa bersifat publik), namun bila header Authorization dikirim
+        token WAJIB valid — token kedaluwarsa/rusak ditolak 401, bukan
+        diperlakukan sebagai anonim.
+        Filter spasial aktif hanya bila `latitude`, `longitude`, dan `range_km`
+        dikirim bersamaan (ST_DWithin pada estimated_centroid).
+      operationId: listEvents
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: Jumlah maksimum event yang dikembalikan.
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+          description: Offset paginasi.
+        - name: range_km
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+          description: >
+            Radius filter dari (latitude, longitude). Wajib disertai kedua
+            koordinat; bila salah satu absen server menolak 400.
+        - name: latitude
+          in: query
+          required: false
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+          description: Latitude acuan filter radius.
+        - name: longitude
+          in: query
+          required: false
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+          description: Longitude acuan filter radius.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -122,6 +293,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Kesalahan internal server
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
 
   schemas:
     Error:
@@ -130,16 +307,65 @@ components:
       properties:
         code:
           type: string
+          description: >
+            Kode mesin yang stabil. Nilai yang dipakai server:
+            INVALID_ARGUMENT, UNAUTHENTICATED, STATION_ALREADY_EXISTS,
+            RATE_LIMITED, INTERNAL.
+          enum:
+            - INVALID_ARGUMENT
+            - UNAUTHENTICATED
+            - STATION_ALREADY_EXISTS
+            - RATE_LIMITED
+            - INTERNAL
           example: INVALID_ARGUMENT
         message:
           type: string
           example: latitude di luar rentang -90..90
+
+    AnonymousAuthResponse:
+      type: object
+      required: [token, token_type, expires_at, user_id, pseudonym, created_at]
+      properties:
+        token:
+          type: string
+          description: JWT HS256 dengan klaim `sub` (=user_id), `iat`, `exp`.
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzYTc4...
+        token_type:
+          type: string
+          enum: [Bearer]
+          example: Bearer
+        expires_at:
+          type: string
+          format: date-time
+          description: Waktu kedaluwarsa token (RFC3339 UTC), sama dengan klaim `exp`.
+          example: 2026-09-18T11:02:00Z
+        user_id:
+          type: string
+          format: uuid
+          example: 3a78f1c2-9d4e-4b0a-8f77-2c1b5e9a6d30
+        pseudonym:
+          type: string
+          maxLength: 32
+          example: Quakezen-7B9A
+        created_at:
+          type: string
+          format: date-time
+          example: 2026-08-19T11:02:00Z
 
     ProvisionRequest:
       type: object
       additionalProperties: false
       required: [sensor_model, location_name, latitude, longitude]
       properties:
+        station_id:
+          type: string
+          description: >-
+            Opsional. Station ID yang sudah di-generate node (disimpan di NVS)
+            agar ID di firmware & DB identik. Bila diisi, server memakai nilai
+            ini; bila kosong/absen, server men-generate sendiri lalu
+            mengembalikannya di ProvisionResponse.
+          pattern: '^NODE-[0-9A-F]{8}$'
+          example: NODE-163A149F
         sensor_model:
           type: string
           example: MPU 6050
@@ -243,3 +469,165 @@ components:
           type: string
           format: date-time
           example: 2026-08-17T18:30:00Z
+
+    UpdateLocationRequest:
+      type: object
+      additionalProperties: false
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          example: -6.8721
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          example: 107.5422
+        location_name:
+          type: string
+          maxLength: 150
+          description: >
+            Opsional. Label hasil reverse-geocode di sisi klien. Karena
+            endpoint ini bersemantik PUT (replace), mengirim body tanpa
+            location_name akan MENGOSONGKAN label yang tersimpan sebelumnya.
+          example: Cimahi, West Java, ID
+
+    UpdateLocationResponse:
+      type: object
+      required: [user_id, latitude, longitude, updated_at]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          example: 3a78f1c2-9d4e-4b0a-8f77-2c1b5e9a6d30
+        latitude:
+          type: number
+          format: double
+          example: -6.8721
+        longitude:
+          type: number
+          format: double
+          example: 107.5422
+        location_name:
+          type: [string, "null"]
+          maxLength: 150
+          description: null bila user belum/tidak mengirim label lokasi.
+          example: Cimahi, West Java, ID
+        updated_at:
+          type: string
+          format: date-time
+          example: 2026-08-19T11:02:00Z
+
+    UpdateFCMTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [fcm_token]
+      properties:
+        fcm_token:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: fMEP0vJq...:APA91bH-Xy9
+    UpdateFCMTokenResponse:
+      type: object
+      required: [updated_at]
+      properties:
+        updated_at:
+          type: string
+          format: date-time
+          example: 2026-08-19T11:02:00Z
+
+    EventsResponse:
+      type: object
+      required: [limit, offset, count, events]
+      properties:
+        limit:
+          type: integer
+          example: 20
+        offset:
+          type: integer
+          example: 0
+        count:
+          type: integer
+          description: Jumlah event pada halaman ini (bukan total keseluruhan).
+          example: 1
+        range_km:
+          type: [integer, "null"]
+          description: Radius yang dipakai bila filter spasial aktif; null bila tidak.
+          example: 300
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/EarthquakeEvent'
+
+    EarthquakeEvent:
+      type: object
+      description: >
+        Satu baris earthquake_events. Hanya event CONFIRMED (>= 3 node unik)
+        dipersistensikan, jadi seluruh isi endpoint ini sudah terkonfirmasi
+        konsensus — ADVISORY (1-2 node) tidak pernah muncul di sini.
+      required:
+        [event_id, status, pga, mmi, intensity_label, latitude, longitude,
+         location_name, triggered_nodes_count, created_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          example: a3f1c9de-51b2-4c77-9a0e-8d6f3b2c1a04
+        status:
+          type: string
+          enum: [HAPPENING, RESOLVED]
+          example: RESOLVED
+        pga:
+          type: number
+          format: double
+          description: max_pga dalam gal (cm/s^2) — satuan kanonik, konversi ke g hanya untuk tampilan.
+          example: 413.13
+        mmi:
+          type: string
+          description: mmi_scale (angka Romawi).
+          example: V
+        intensity_label:
+          type: string
+          example: Strong
+        latitude:
+          type: number
+          format: double
+          description: ST_Y(estimated_centroid) — pusat massa stasiun pemicu, BUKAN episenter.
+          example: -6.8721
+        longitude:
+          type: number
+          format: double
+          description: ST_X(estimated_centroid) — pusat massa stasiun pemicu, BUKAN episenter.
+          example: 107.5422
+        depth_km:
+          type: [number, "null"]
+          format: double
+          description: >
+            SELALU null. Jaringan MEMS permukaan ini mengestimasi centroid
+            2D, bukan hiposenter — kedalaman tidak dapat diturunkan dari data
+            yang ada. Field dipertahankan agar model klien stabil bila suatu
+            saat sumber katalog (mis. BMKG) diintegrasikan.
+          example: null
+        location_name:
+          type: string
+          example: Cimahi, West Java, ID
+        triggered_nodes_count:
+          type: integer
+          minimum: 3
+          example: 4
+        created_at:
+          type: string
+          format: date-time
+          description: Dipetakan dari kolom started_at (awal kejadian). Basis pengurutan DESC.
+          example: 2026-08-19T11:02:00Z
+        resolved_at:
+          type: [string, "null"]
+          format: date-time
+          description: >
+            Absen dari payload (atau null) selama status masih HAPPENING.
+          example: 2026-08-19T11:04:30Z
