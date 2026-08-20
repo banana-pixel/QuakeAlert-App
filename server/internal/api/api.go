@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -18,8 +20,16 @@ import (
 // rerollWindow adalah cooldown reroll pseudonym (kontrak: 1x/60s per user).
 const rerollWindow = 60 * time.Second
 
+// authWindow adalah batas pembuatan profil anonim per-IP (anti spam:
+// POST /auth/anonymous menciptakan baris user_profiles baru tanpa identitas).
+const authWindow = 30 * time.Second
+
 // provisionSecretBytes adalah panjang entropy provisioning_secret (32 byte).
 const provisionSecretBytes = 32
+
+// maxRequestBodyBytes membatasi ukuran body JSON pada seluruh endpoint yang
+// mem-decode request. Mencegah memory-exhaustion dari body tak terbatas.
+const maxRequestBodyBytes = 1 << 20 // 1 MB
 
 // defaultTokenTTL adalah masa hidup token anonim bila tidak dikonfigurasi.
 // Panjang (30 hari) karena identitas anonim tidak punya alur refresh: klien
@@ -31,6 +41,9 @@ const (
 	defaultEventsLimit = store.DefaultEventsLimit
 	maxEventsLimit     = store.MaxEventsLimit
 	maxEventsRangeKm   = 2000
+	// maxEventsOffset membatasi kedalaman paginasi agar offset liar tidak
+	// memicu scan O(offset) berulang pada indeks started_at DESC.
+	maxEventsOffset = 50_000
 )
 
 // maxFCMTokenLen mengikuti user_profiles.fcm_token VARCHAR(255): ditolak di
@@ -115,6 +128,49 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, apiError{Code: code, Message: msg})
 }
 
+// clientIP mengambil alamat IP klien dari r.RemoteAddr. Dengan chi
+// middleware.RealIP (dipakai di Router), nilai ini sudah berasal dari
+// X-Forwarded-For saat berada di belakang reverse proxy.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// maxBody membatasi body request menjadi maxRequestBodyBytes. Panggil sebelum
+// json.Decoder; body yang melebihi limit memicu error decode yang dipetakan ke
+// 413 RequestEntityTooLarge.
+func maxBody(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+}
+
+// decodeBody mem-decode body JSON berukuran max 1MB ke v dan memetakan error ke
+// respons 400/413 yang sesuai. Mengembalikan false bila respons sudah ditulis.
+func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	maxBody(w, r)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "INVALID_ARGUMENT", "body melebihi batas 1MB")
+			return false
+		}
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "body JSON tidak valid")
+		return false
+	}
+	// Tolak trailing data setelah SATU nilai JSON (mis. "{}JUNK", dua objek
+	// bertumpuk, atau koma-menyimpang). dec.Token() hanya mengembalikan io.EOF
+	// bila memang tidak ada lagi token valid.
+	if _, err := dec.Token(); err != io.EOF {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "body JSON tidak valid")
+		return false
+	}
+	return true
+}
+
 // --- Provision handler ---
 
 type provisionRequest struct {
@@ -140,10 +196,7 @@ type provisionResponse struct {
 // butuh key mentah (ADR-0003).
 func (s *Server) HandleProvision(w http.ResponseWriter, r *http.Request) {
 	var req provisionRequest
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "body JSON tidak valid")
+	if !s.decodeBody(w, r, &req) {
 		return
 	}
 	if req.SensorModel == "" || req.LocationName == "" {
@@ -385,6 +438,20 @@ type anonymousAuthResponse struct {
 // milik kolom) agar nilainya sudah tersedia sebelum INSERT dan dapat langsung
 // dipakai sebagai klaim `sub` tanpa round-trip kedua.
 func (s *Server) HandleAnonymousAuth(w http.ResponseWriter, r *http.Request) {
+	// Anti-spam: batasi pembuatan profil anonim per-IP (endpoint publik tanpa
+	// identitas, jadi IP adalah satu-satunya kunci yang tersedia). Setelah
+	// authWindow, IP dipersilakan membuat profil baru lagi.
+	allowed, err := s.limiter.Allow(r.Context(), "auth:"+clientIP(r), authWindow)
+	if err != nil {
+		s.log.Error("rate limiter error (auth)", "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal memeriksa rate limit")
+		return
+	}
+	if !allowed {
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "terlalu banyak pendaftaran, coba lagi nanti")
+		return
+	}
+
 	userID, err := randomUserID()
 	if err != nil {
 		s.log.Error("gagal generate user_id", "err", err)
@@ -398,19 +465,20 @@ func (s *Server) HandleAnonymousAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Terbitkan token SEBELUM insert profil: bila mint gagal (salah-konfigurasi
+	// secret/TTL), tidak ada profil yatim yang tertinggal; retry klien tidak
+	// menumpuk user_profiles tanpa token.
+	token, err := MintHS256(userID, s.auth.JWTSecret, s.auth.TokenTTL)
+	if err != nil {
+		s.log.Error("gagal menerbitkan token", "err", err, "user_id", userID)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal menerbitkan token")
+		return
+	}
+
 	createdAt, err := s.repo.CreateUserProfile(r.Context(), userID, pseudonym)
 	if err != nil {
 		s.log.Error("gagal membuat profil anonim", "err", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal membuat profil")
-		return
-	}
-
-	token, err := MintHS256(userID, s.auth.JWTSecret, s.auth.TokenTTL)
-	if err != nil {
-		// Profil sudah tersimpan tetapi token gagal dibuat: ini salah-konfigurasi
-		// server (secret kosong / TTL invalid), bukan kesalahan klien.
-		s.log.Error("gagal menerbitkan token", "err", err, "user_id", userID)
-		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal menerbitkan token")
 		return
 	}
 
@@ -453,10 +521,7 @@ func (s *Server) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req updateLocationRequest
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "body JSON tidak valid")
+	if !s.decodeBody(w, r, &req) {
 		return
 	}
 	if req.Latitude == nil || req.Longitude == nil {
@@ -522,10 +587,7 @@ func (s *Server) HandleUpdateFCMToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req updateFCMTokenRequest
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "body JSON tidak valid")
+	if !s.decodeBody(w, r, &req) {
 		return
 	}
 	if req.FCMToken == "" {
@@ -598,8 +660,8 @@ func (s *Server) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 	offset := 0
 	if v := q.Get("offset"); v != "" {
 		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 {
-			writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "offset harus >= 0")
+		if err != nil || n < 0 || n > maxEventsOffset {
+			writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "offset harus 0..50000")
 			return
 		}
 		offset = n
@@ -736,12 +798,15 @@ func randomSecret() (string, error) {
 	return "sec_" + string(out), nil
 }
 
+// randomPseudonym menghasilkan pseudonim 8-hex (4 byte = 32 bit entropy).
+// Ruang 2^32 menekan tabrakan nama antar-profil anonim jauh di bawah ambang
+// (birthday collision praktis tidak terjadi hingga ~65k profil).
 func randomPseudonym() (string, error) {
-	b := make([]byte, 2)
+	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Quakezen-%02X%02X", b[0], b[1]), nil
+	return fmt.Sprintf("Quakezen-%02X%02X%02X%02X", b[0], b[1], b[2], b[3]), nil
 }
 
 // humanizeAgo mengubah detik menjadi label relatif ("33s ago", "5m ago").

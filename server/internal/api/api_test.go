@@ -529,6 +529,8 @@ func TestUpdateLocation_PayloadKurang(t *testing.T) {
 		"tanpa latitude":    `{"longitude":107.6}`,
 		"json rusak":        `{"latitude":`,
 		"field tak dikenal": `{"latitude":-6.9,"longitude":107.6,"altitude":100}`,
+		"trailing garbage":  `{"latitude":-6.9,"longitude":107.6}JUNK`,
+		"dua objek":         `{"latitude":-6.9,"longitude":107.6}{"a":1}`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -795,6 +797,7 @@ func TestListEvents_ParamInvalid(t *testing.T) {
 		{"latitude di luar rentang", "?range_km=50&latitude=91&longitude=107.6"},
 		{"longitude di luar rentang", "?range_km=50&latitude=-6.9&longitude=181"},
 		{"koordinat tanpa range_km", "?latitude=-6.9&longitude=107.6"},
+		{"offset melebihi batas", "?offset=50001"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

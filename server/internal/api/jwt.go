@@ -29,6 +29,7 @@ var (
 	errBadSignature   = errors.New("signature JWT tidak valid")
 	errWrongAlg       = errors.New("algoritma JWT bukan HS256")
 	errExpired        = errors.New("token JWT kedaluwarsa")
+	errMissingExp     = errors.New("klaim exp wajib ada")
 	errEmptySubject   = errors.New("klaim sub kosong")
 	errEmptySecret    = errors.New("secret HS256 kosong")
 	errNonPositiveTTL = errors.New("ttl token harus > 0")
@@ -75,7 +76,13 @@ func verifyHS256(token string, secret []byte, now time.Time) (*jwtClaims, error)
 	if c.Sub == "" {
 		return nil, errEmptySubject
 	}
-	if c.Exp != 0 && now.Unix() >= c.Exp {
+	// exp WAJIB ada: token tanpa batas waktu efektif (exp=0) akan hidup selamanya
+	// bila secret bocor. Jalur mint selalu menetapkan exp; verifier menegakkannya
+	// sebagai pertahanan berlapis untuk jalur mint lain di masa depan.
+	if c.Exp == 0 {
+		return nil, errMissingExp
+	}
+	if now.Unix() >= c.Exp {
 		return nil, errExpired
 	}
 	return &c, nil
