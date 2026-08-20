@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import id.web.quakealert.R
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.ModalCloseFill
@@ -30,6 +32,11 @@ import id.web.quakealert.ui.theme.TextPrimary
  * the design's intent and stays symmetric at every width. Extracted so the About,
  * Earthquake Details and Earthquake Possibility overlays all share one source of
  * truth for the [Dimens.ModalCloseSize] chrome.
+ *
+ * Accessibility: the close disc is 44dp per Figma — just under the 48dp minimum —
+ * so [minimumInteractiveComponentSize] pads its *touch* box out to 48dp while the
+ * drawn disc keeps the design token exactly. It is applied outside the sizing and
+ * background so no visual token is altered.
  *
  * @param onDismiss invoked by the close button.
  * @param title centered overlay header text.
@@ -48,10 +55,11 @@ fun QuakeModalHeader(
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
+                .minimumInteractiveComponentSize()
                 .size(Dimens.ModalCloseSize)
                 .clip(closeShape)
                 .background(ModalCloseFill, closeShape)
-                .clickable(onClick = onDismiss),
+                .clickable(role = Role.Button, onClick = onDismiss),
             contentAlignment = Alignment.Center
         ) {
             Icon(

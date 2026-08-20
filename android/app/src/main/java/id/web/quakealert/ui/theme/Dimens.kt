@@ -420,6 +420,26 @@ object Dimens {
     val EmergencyCtaHeight = 34.dp
     val EmergencyCtaRadius = 10.dp
 
+    // --- Shared state feedback (loading / empty / error) ---------------------
+    // Geometry for the generic QuakeLoadingState / QuakeEmptyState /
+    // QuakeErrorState placeholders. Reuses the preparedness-tip icon circle
+    // rhythm (55dp disc / 35dp glyph) so a zero-data screen reads as part of the
+    // same system as the populated ones, one step larger because it stands alone
+    // in the middle of an empty viewport.
+    val StateIconCircleSize = 72.dp
+    val StateIconGlyphSize = 32.dp
+    /** Gap between the state glyph and its text block. */
+    val StateContentGap = 16.dp
+    /** Inner gap between a state message and its subtitle. */
+    val StateTextGap = 6.dp
+    /** Horizontal inset so long state copy never runs to the screen edge. */
+    val StateBlockPadding = 24.dp
+    /** Diameter of the centered loading spinner. */
+    val StateSpinnerSize = 36.dp
+    val StateSpinnerStroke = 3.dp
+    /** Side padding of the error state's "Retry" action (height is ModalActionHeight). */
+    val StateRetryPaddingHorizontal = 24.dp
+
     // --- Corner radii -------------------------------------------------------
     val RadiusSmall = 10.dp
 

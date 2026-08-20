@@ -3,7 +3,6 @@ package id.web.quakealert.ui.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -17,12 +16,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -94,6 +93,11 @@ fun ChatInputBar(
     }
 }
 
+/**
+ * Send action (Figma node 1:1020): a fixed 50×50 rounded square, already past the
+ * 48dp minimum touch target. The tap carries the standard ripple (previously
+ * suppressed with `indication = null`) and reports its enabled state to TalkBack.
+ */
 @Composable
 private fun SendButton(
     onSend: () -> Unit,
@@ -101,7 +105,6 @@ private fun SendButton(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(Dimens.ChatSendButtonRadius)
-    val interactionSource = remember { MutableInteractionSource() }
 
     Box(
         modifier = modifier
@@ -110,9 +113,8 @@ private fun SendButton(
             .background(ChatSendButtonFill, shape)
             .border(Dimens.BorderThin, CardBorder, shape)
             .clickable(
-                interactionSource = interactionSource,
-                indication = null,
                 enabled = canSend,
+                role = Role.Button,
                 onClick = onSend
             ),
         contentAlignment = Alignment.Center

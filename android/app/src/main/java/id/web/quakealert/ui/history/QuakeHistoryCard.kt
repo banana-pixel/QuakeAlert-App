@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -18,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -26,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 
@@ -54,6 +57,11 @@ import id.web.quakealert.ui.theme.TextPrimary
  *  1. Leading column: circular MMI intensity badge above a map thumbnail.
  *  2. Details column: location title, date/time metadata, distance badge + share.
  *  3. Trailing vertical accent bar acting as a "see more" affordance.
+ *
+ * The card height is a *minimum* rather than a fixed value: Figma's 132dp is the
+ * floor, and the card grows when its content genuinely needs more room — the share
+ * button's 48dp accessibility touch target, or a large system font scale. Pinning it
+ * would clip that content instead.
  */
 @Composable
 fun QuakeHistoryCard(
@@ -73,7 +81,7 @@ fun QuakeHistoryCard(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(Dimens.CardHeight)
+            .heightIn(min = Dimens.CardHeight)
             .clip(cardShape)
             .background(CardSurface, cardShape)
             .border(Dimens.BorderThin, CardBorder, cardShape)
@@ -193,16 +201,22 @@ private fun DetailsColumn(
 }
 
 
-/** Small share icon button (Figma node 1:728). */
-
+/**
+ * Small share icon button (Figma node 1:728).
+ *
+ * Accessibility: the drawn capsule stays at its Figma 28×22dp while
+ * [minimumInteractiveComponentSize] lifts the touch box to the 48dp minimum — the
+ * modifier is applied before the sizing/background chrome so no visual token moves.
+ */
 @Composable
 private fun ShareButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
+            .minimumInteractiveComponentSize()
             .size(width = Dimens.ShareButtonWidth, height = Dimens.ShareButtonHeight)
             .clip(RoundedCornerShape(Dimens.RadiusSmall))
             .background(ShareButtonFill, RoundedCornerShape(Dimens.RadiusSmall))
-            .clickable(onClick = onClick),
+            .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(

@@ -159,6 +159,25 @@ val CardSubtitle = TextStyle(
 
 
 /**
+ * Smallest label in the app — the sensor card's module caption ("MPU 6050", Figma
+ * node 1:1112): Nunito Bold 10/13.
+ *
+ * 10sp is the app's legibility floor for micro-captions; Figma ships this label at
+ * 8sp, which is below the minimum a sub-label should ever render at, so it is
+ * raised here rather than at the call site. Everything smaller in the design is
+ * lifted to this token so there is one place that defines "as small as text goes".
+ */
+val MicroCaption = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 10.sp,
+    lineHeight = 13.sp,
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/**
  * Label inside a shared QuakePill capsule (History "km Away" badge, Sensor
  * status + telemetry pills). Nunito Medium 11/12 to keep the capsules compact
  * and identical across both cards.

@@ -4,7 +4,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -81,7 +82,6 @@ fun AlertBanner(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(Dimens.AlertBannerRadius)
-    val interactionSource = remember { MutableInteractionSource() }
     val (gradient, glyph) = when (banner) {
         is ActiveQuakeBanner -> AlertBannerGradient to R.drawable.ic_recording_02
         is PossibilityBanner -> PossibilityBannerGradient to R.drawable.ic_globe_04
@@ -132,20 +132,20 @@ fun AlertBanner(
             }
 
             // "SEE DETAILS" capsule (Figma fill_a7745cf9): translucent stroke only.
+            // minimumInteractiveComponentSize lifts the ~32dp capsule's touch box to
+            // the 48dp minimum without touching its drawn geometry, and the tap
+            // carries the standard ripple (previously suppressed).
             Box(
                 modifier = Modifier
                     .padding(top = 6.dp)
+                    .minimumInteractiveComponentSize()
                     .clip(RoundedCornerShape(Dimens.AlertActionRadius))
                     .border(
                         Dimens.BorderMedium,
                         AlertActionBorder,
                         RoundedCornerShape(Dimens.AlertActionRadius)
                     )
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                        onClick = onSeeDetails
-                    )
+                    .clickable(role = Role.Button, onClick = onSeeDetails)
                     .padding(
                         horizontal = Dimens.AlertActionPaddingHorizontal,
                         vertical = Dimens.AlertActionPaddingVertical
@@ -235,6 +235,11 @@ fun PrepTipRow(
  * stadium button with a translucent wine fill and a white 30% stroke. Label
  * follows the current design's "SHELTER & EMERGENCY INFO"; the action is a stub
  * until the emergency-resource flow is defined.
+ *
+ * Full-width, so its touch area already clears the 48dp minimum on the horizontal
+ * axis; [minimumInteractiveComponentSize] lifts the 34dp height to 48dp too while
+ * the drawn capsule keeps its token. This is the app's most safety-critical tap
+ * target, so it gets the same treatment as the small icon buttons.
  */
 @Composable
 fun EmergencyCta(
@@ -242,20 +247,16 @@ fun EmergencyCta(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(Dimens.EmergencyCtaRadius)
-    val interactionSource = remember { MutableInteractionSource() }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .minimumInteractiveComponentSize()
             .height(Dimens.EmergencyCtaHeight)
             .clip(shape)
             .background(EmergencyCtaFill, shape)
             .border(Dimens.BorderMedium, EmergencyCtaBorder, shape)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            ),
+            .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(

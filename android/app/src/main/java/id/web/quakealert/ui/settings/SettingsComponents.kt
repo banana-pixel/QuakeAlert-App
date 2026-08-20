@@ -17,11 +17,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import id.web.quakealert.R
 import id.web.quakealert.ui.theme.AboutButtonFill
@@ -97,21 +99,31 @@ fun InfoPill(
  * "Sync now" refresh icon button (Figma node 1:882, refresh-cw-02): the trailing
  * control on the "Sync Location Now" card. Rendered as the flat 32dp Figma vector
  * with no container fill, per the design.
+ *
+ * Accessibility: the glyph keeps its 32dp token while
+ * [minimumInteractiveComponentSize] lifts the touch box to the 48dp minimum, and
+ * the tap carries the standard ripple bounded to the circular clip.
  */
 @Composable
 fun SyncRefreshButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Icon(
-        painter = painterResource(id = R.drawable.ic_refresh_cw),
-        contentDescription = "Sync location now",
-        tint = TextPrimary,
+    Box(
         modifier = modifier
+            .minimumInteractiveComponentSize()
             .size(Dimens.SyncRefreshIconSize)
             .clip(RoundedCornerShape(Dimens.SyncRefreshIconSize))
-            .clickable(onClick = onClick)
-    )
+            .clickable(role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(id = R.drawable.ic_refresh_cw),
+            contentDescription = "Sync location now",
+            tint = TextPrimary,
+            modifier = Modifier.size(Dimens.SyncRefreshIconSize)
+        )
+    }
 }
 
 /**

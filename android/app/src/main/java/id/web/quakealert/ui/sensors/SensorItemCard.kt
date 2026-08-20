@@ -22,10 +22,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.sp
 import id.web.quakealert.R
 
 import id.web.quakealert.ui.common.QuakePill
@@ -34,7 +32,7 @@ import id.web.quakealert.ui.theme.CardSubtitle
 import id.web.quakealert.ui.theme.CardSurface
 import id.web.quakealert.ui.theme.CardTitle
 import id.web.quakealert.ui.theme.Dimens
-import id.web.quakealert.ui.theme.NunitoFontFamily
+import id.web.quakealert.ui.theme.MicroCaption
 import id.web.quakealert.ui.theme.SensorChipBorder
 import id.web.quakealert.ui.theme.SensorChipFill
 import id.web.quakealert.ui.theme.SensorNodeIdText
@@ -113,15 +111,12 @@ private fun ChipColumn(label: String, modifier: Modifier = Modifier) {
                 modifier = Modifier.size(Dimens.SensorChipIconSize)
             )
         }
-        // "MPU 6050" — 8sp per Figma so the label never truncates in the column.
+        // "MPU 6050" — the card's smallest label. Figma ships 8sp; raised to the
+        // app's 10sp legibility floor for micro-captions, which still fits the
+        // SensorChipColumnWidth on one line.
         Text(
             text = label,
-            color = TextPrimary,
-            fontFamily = NunitoFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 8.sp,
-            lineHeight = 10.sp,
-
+            style = MicroCaption,
             maxLines = 1,
             softWrap = false
         )
