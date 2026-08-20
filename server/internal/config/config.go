@@ -28,6 +28,11 @@ type Config struct {
 	// Konsensus
 	ConsensusWindow time.Duration
 
+	// CooldownDuration: jeda minimum antar-emisi event gempa (dedup event_id)
+	// sekaligus waktu menuju EVENT_RESOLVED (state machine SYSTEM_SPEC:
+	// CONFIRMED -> COOLDOWN_RUNNING(90s) -> RESOLVED).
+	CooldownDuration time.Duration
+
 	// Timeout IO (Aturan Server #3: <= 2s)
 	IOTimeout time.Duration
 
@@ -64,14 +69,15 @@ type Config struct {
 // Load membaca & memvalidasi konfigurasi dari environment.
 func Load() (*Config, error) {
 	cfg := &Config{
-		DatabaseURL:     getEnv("DATABASE_URL", "postgres://quakealert:devpassword@localhost:5432/quakealert?sslmode=disable"),
-		MQTTBroker:      getEnv("MQTT_BROKER", "tcp://localhost:1883"),
-		MQTTUser:        getEnv("MQTT_USER", ""),
-		MQTTPassword:    getEnv("MQTT_PASSWORD", ""),
-		MQTTClientID:    getEnv("MQTT_CLIENT_ID", "quakealert-server"),
-		HTTPAddr:        getEnv("HTTP_ADDR", ":8080"),
-		ConsensusWindow: time.Duration(getEnvInt("CONSENSUS_WINDOW_MS", 8000)) * time.Millisecond,
-		IOTimeout:       time.Duration(getEnvInt("IO_TIMEOUT_MS", 2000)) * time.Millisecond,
+		DatabaseURL:      getEnv("DATABASE_URL", "postgres://quakealert:devpassword@localhost:5432/quakealert?sslmode=disable"),
+		MQTTBroker:       getEnv("MQTT_BROKER", "tcp://localhost:1883"),
+		MQTTUser:         getEnv("MQTT_USER", ""),
+		MQTTPassword:     getEnv("MQTT_PASSWORD", ""),
+		MQTTClientID:     getEnv("MQTT_CLIENT_ID", "quakealert-server"),
+		HTTPAddr:         getEnv("HTTP_ADDR", ":8080"),
+		ConsensusWindow:  time.Duration(getEnvInt("CONSENSUS_WINDOW_MS", 8000)) * time.Millisecond,
+		CooldownDuration: time.Duration(getEnvInt("COOLDOWN_MS", 90000)) * time.Millisecond,
+		IOTimeout:        time.Duration(getEnvInt("IO_TIMEOUT_MS", 2000)) * time.Millisecond,
 
 		FCMProjectID:       getEnv("FCM_PROJECT_ID", ""),
 		FCMCredentialsFile: getEnv("FCM_CREDENTIALS_FILE", ""),
@@ -116,6 +122,10 @@ func Load() (*Config, error) {
 
 	if cfg.IOTimeout > 2*time.Second {
 		return nil, fmt.Errorf("IO_TIMEOUT_MS harus <= 2000 (Aturan Server #3), dapat %s", cfg.IOTimeout)
+	}
+
+	if cfg.CooldownDuration <= 0 {
+		return nil, fmt.Errorf("COOLDOWN_MS harus > 0, dapat %s", cfg.CooldownDuration)
 	}
 
 	return cfg, nil
