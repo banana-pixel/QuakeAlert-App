@@ -197,6 +197,44 @@ func (s *Store) SaveEvent(ctx context.Context, e *EarthquakeEvent) (string, erro
 	return id, nil
 }
 
+// ErrEventNotFound dikembalikan ResolveEvent bila event_id tidak ada atau sudah
+// bukan berstatus HAPPENING (idempoten: tidak mengubah event yang sudah RESOLVED).
+var ErrEventNotFound = errors.New("event tidak ditemukan")
+
+// ResolveEvent menandai event CONFIRMED menjadi RESOLVED (all-clear) dan
+// mencatat resolved_at = NOW(). Hanya baris berstatus HAPPENING yang di-update,
+// sehingga pemanggilan ganda (timer ganda) bersifat idempoten.
+func (s *Store) ResolveEvent(ctx context.Context, eventID string) error {
+	const q = `
+		UPDATE earthquake_events
+		SET status = 'RESOLVED', resolved_at = NOW()
+		WHERE event_id = $1 AND status = 'HAPPENING'`
+	tag, err := s.pool.Exec(ctx, q, eventID)
+	if err != nil {
+		return fmt.Errorf("resolve event: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrEventNotFound
+	}
+	return nil
+}
+
+// ResolveStaleEvents menandai seluruh event HAPPENING yang mulai sebelum `before`
+// menjadi RESOLVED. Dipakai saat startup untuk merekonsiliasi event yang masih
+// aktif ketika proses mati sebelum state machine resolusi (in-memory di
+// dispatcher) sempat mengeksekusi. Mengembalikan jumlah baris yang ter-update.
+func (s *Store) ResolveStaleEvents(ctx context.Context, before time.Time) (int64, error) {
+	const q = `
+		UPDATE earthquake_events
+		SET status = 'RESOLVED', resolved_at = NOW()
+		WHERE status = 'HAPPENING' AND started_at < $1`
+	tag, err := s.pool.Exec(ctx, q, before)
+	if err != nil {
+		return 0, fmt.Errorf("resolve stale events: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // --- REST API repositories (Fase 4) ---
 
 // NewNode adalah data untuk membuat node baru saat provisioning. Secret HMAC
