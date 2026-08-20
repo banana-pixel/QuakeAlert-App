@@ -21,6 +21,20 @@ const clientSendBuffer = 16
 // writeWait adalah deadline penulisan ke soket klien.
 const writeWait = 5 * time.Second
 
+// pongWait adalah deadline membaca data/pong dari klien. Bila klien tidak
+// mengirim apa pun dalam pongWait (koneksi mati di jaringan seluler, switch
+// network, dsb.), readPump menutup koneksi sehingga klien zombie tidak menumpuk.
+const pongWait = 30 * time.Second
+
+// pingPeriod adalah interval pengiriman PingMessage oleh writePump. Harus lebih
+// kecil dari pongWait agar klien yang sehat selalu balas pong sebelum deadline.
+const pingPeriod = (pongWait * 9) / 10 // 27s
+
+// maxMessageSize membatasi ukuran frame yang dibaca klien. Klien tidak mengirim
+// pesan berarti (pesan masuk dibuang), jadi limit kecil mencegah penyalahgunaan
+// memori sambil tetap menerima ping/pong/close control frame.
+const maxMessageSize = 1024
+
 // AlertMessage adalah payload broadcast WebSocket. Bentuk JSON disederhanakan
 // dan konsisten dengan kontrak FCM (satuan: pga gal, timestamp ms epoch UTC).
 type AlertMessage struct {
@@ -126,18 +140,43 @@ func (h *Hub) remove(c *client) {
 }
 
 func (h *Hub) writePump(c *client) {
-	for payload := range c.send {
-		_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-		if err := c.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-			h.log.Debug("write ws gagal, tutup klien", "err", err)
-			break
+	defer h.remove(c)
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+	for {
+		select {
+		case payload, ok := <-c.send:
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				// Channel ditutup oleh remove(): kirim CloseMessage lalu bersihkan.
+				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+				h.log.Debug("write ws gagal, tutup klien", "err", err)
+				return
+			}
+		case <-ticker.C:
+			// Ping rutin: memaksa klien balas pong sehingga readPump dapat
+			// mendeteksi koneksi mati melalui read deadline.
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				h.log.Debug("ping ws gagal, tutup klien", "err", err)
+				return
+			}
 		}
 	}
-	h.remove(c)
 }
 
 func (h *Hub) readPump(c *client) {
 	defer h.remove(c)
+	// Deadline baca diperpanjang setiap kali data/pong diterima. Tanpa ini,
+	// koneksi TCP yang diam (matanya tak terlihat) tidak akan pernah ditutup.
+	c.conn.SetReadLimit(maxMessageSize)
+	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
 	for {
 		if _, _, err := c.conn.ReadMessage(); err != nil {
 			return
