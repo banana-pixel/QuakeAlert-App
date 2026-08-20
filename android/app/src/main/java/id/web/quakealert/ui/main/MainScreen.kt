@@ -15,7 +15,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,14 +28,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +48,9 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 
 import androidx.compose.ui.tooling.preview.Preview
 import id.web.quakealert.R
@@ -82,17 +87,50 @@ enum class MainDestination(
 }
 
 /**
+ * Saver for the selected [MainDestination]. Persisting the enum's stable [Enum.name]
+ * (rather than its ordinal, which would silently re-map if the tab order ever
+ * changed) keeps the selection valid across configuration changes and process
+ * death.
+ */
+private val MainDestinationSaver: Saver<MainDestination, String> = Saver(
+    save = { it.name },
+    restore = { name -> runCatching { MainDestination.valueOf(name) }.getOrNull() }
+)
+
+/**
  * Main app scaffold hosting the custom [QuakeBottomNavigation] and swapping the
- * body content for the currently selected [MainDestination]. Only History is
- * implemented for now; other tabs render a placeholder.
+ * body content for the currently selected [MainDestination].
+ *
+ * State survival (rotation + process death) is owned here rather than by the tabs:
+ *  - the selected tab is held in [rememberSaveable] via [MainDestinationSaver], so
+ *    a rotation or a process restart reopens the tab the user was on;
+ *  - each destination's scroll position lives in a [rememberLazyListState] created
+ *    *outside* [AnimatedContent] and passed down. `rememberLazyListState` is itself
+ *    saveable, so those positions survive a rotation and process death — and,
+ *    because they are not created inside the swapped-out content, they also survive
+ *    switching away to another tab and back.
+ *
+ * Screen UI state (filters, open overlays, loaded data) is owned by each tab's
+ * ViewModel, scoped to the host Activity's store, so it likewise outlives both tab
+ * switches and configuration changes.
  *
  * The [Scaffold] disables its default window insets so the custom bars can own
- * their own inset handling: the History content applies its status-bar padding
- * internally, while [QuakeBottomNavigation] applies navigation-bar padding.
+ * their own inset handling: each screen applies its status-bar padding internally,
+ * while [QuakeBottomNavigation] applies navigation-bar padding.
  */
 @Composable
 fun MainScreen(modifier: Modifier = Modifier) {
-    var selected by remember { mutableStateOf(MainDestination.HISTORY) }
+    var selected by rememberSaveable(stateSaver = MainDestinationSaver) {
+        mutableStateOf(MainDestination.HISTORY)
+    }
+
+    // One hoisted scroll state per scrolling destination. Declared here so a tab
+    // swap disposes the content but not its scroll position.
+    val historyListState = rememberLazyListState()
+    val sensorsListState = rememberLazyListState()
+    val warningListState = rememberLazyListState()
+    val chatListState = rememberLazyListState()
+    val settingsListState = rememberLazyListState()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -126,13 +164,14 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     .consumeWindowInsets(innerPadding)
             ) {
                 when (destination) {
-                    MainDestination.HISTORY -> HistoryRoute()
+                    MainDestination.HISTORY -> HistoryRoute(listState = historyListState)
                     MainDestination.SENSORS -> SensorsRoute(
-                        onOpenSettings = { selected = MainDestination.SETTINGS }
+                        onOpenSettings = { selected = MainDestination.SETTINGS },
+                        listState = sensorsListState
                     )
-                    MainDestination.WARNING -> WarningRoute()
-                    MainDestination.CHAT -> ChatRoute()
-                    MainDestination.SETTINGS -> SettingsRoute()
+                    MainDestination.WARNING -> WarningRoute(listState = warningListState)
+                    MainDestination.CHAT -> ChatRoute(listState = chatListState)
+                    MainDestination.SETTINGS -> SettingsRoute(listState = settingsListState)
                 }
 
             }
@@ -191,6 +230,13 @@ fun QuakeBottomNavigation(
 /**
  * A single navigation entry: a 55×55 column pill with a 24dp icon above its
  * label. The container fill, icon tint and label colour highlight when active.
+ *
+ * The 55dp square already exceeds the 48dp minimum touch target, and the tap is a
+ * plain [clickable] carrying the standard ripple (previously suppressed with
+ * `indication = null`). [Role.Tab] plus [selected] let TalkBack announce the entry
+ * as a tab and say which one is current, and the icon's `contentDescription` is
+ * dropped because the label beneath it already names the destination — keeping it
+ * would make TalkBack read every tab's name twice.
  */
 @Composable
 private fun NavItem(
@@ -199,34 +245,34 @@ private fun NavItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val containerColor = if (selected) NavActiveFill else Color.Transparent
-    val contentColor = if (selected) NavActiveText else NavLabel
-    val interactionSource = remember { MutableInteractionSource() }
+    // Captured under a distinct name: inside the semantics lambda a bare
+    // `selected` would resolve to SemanticsPropertyReceiver.selected (whose getter
+    // throws) rather than to this parameter.
+    val isSelected = selected
+    val containerColor = if (isSelected) NavActiveFill else Color.Transparent
+    val contentColor = if (isSelected) NavActiveText else NavLabel
 
     Column(
         modifier = modifier
             .size(Dimens.NavItemSize)
             .clip(RoundedCornerShape(Dimens.RadiusNavItem))
             .background(containerColor, RoundedCornerShape(Dimens.RadiusNavItem))
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            ),
+            .clickable(role = Role.Tab, onClick = onClick)
+            .semantics { this.selected = isSelected },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Dimens.NavItemGap, Alignment.CenterVertically)
     ) {
         Image(
             painter = painterResource(id = destination.icon),
-            contentDescription = destination.label,
+            contentDescription = null,
             contentScale = ContentScale.Fit,
-            colorFilter = ColorFilter.tint(if (selected) NavActiveText else TextPrimary),
+            colorFilter = ColorFilter.tint(if (isSelected) NavActiveText else TextPrimary),
             modifier = Modifier.size(Dimens.NavIconSize)
         )
 
         Text(
             text = destination.label,
-            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelSmall,
             color = contentColor
         )
     }

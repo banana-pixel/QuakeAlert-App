@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.fadingEdges
@@ -23,19 +25,25 @@ import id.web.quakealert.ui.theme.QuakeAlertTheme
 /**
  * Stateful entry point that connects [ChatViewModel] to the stateless
  * [ChatScreen]. Kept thin so the presentation layer stays testable.
+ *
+ * @param listState message-list scroll position, hoisted to
+ *   [id.web.quakealert.ui.main.MainScreen] so it survives tab switches, rotation
+ *   and process death.
  */
 @Composable
 fun ChatRoute(
     modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState(),
     viewModel: ChatViewModel = viewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     ChatScreen(
         uiState = uiState,
         onDraftChanged = viewModel::onDraftChanged,
         onSendClicked = viewModel::onSendClicked,
         onSwitchChannelClicked = viewModel::onSwitchChannelClicked,
+        listState = listState,
         modifier = modifier
     )
 }
@@ -59,7 +67,8 @@ fun ChatScreen(
     onDraftChanged: (String) -> Unit,
     onSendClicked: () -> Unit,
     onSwitchChannelClicked: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState()
 ) {
     Column(
         modifier = modifier
@@ -78,6 +87,7 @@ fun ChatScreen(
 
         // --- Scrolling message list, bounded by header and input bar ---------
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
