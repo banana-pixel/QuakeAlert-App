@@ -16,7 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -34,6 +33,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import id.web.quakealert.R
+import id.web.quakealert.ui.common.QuakeModalHeader
 import id.web.quakealert.ui.theme.AboutActionDonateFill
 import id.web.quakealert.ui.theme.AboutActionEmailFill
 import id.web.quakealert.ui.theme.AboutActionGithubFill
@@ -46,8 +46,6 @@ import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.ModalBodyText
-import id.web.quakealert.ui.theme.ModalCloseFill
-import id.web.quakealert.ui.theme.ModalTitle
 import id.web.quakealert.ui.theme.QuakeAlertTheme
 import id.web.quakealert.ui.theme.TextPrimary
 
@@ -119,7 +117,8 @@ fun AboutModalDialog(
  * Stateless About modal card (Figma node 4:668): a dark rounded surface filled
  * with the teal → near-black vertical gradient and a subtle white-10% stroke,
  * stacking four sections 26dp apart:
- *  1. Header — centered "About" title with a circular close (X) button trailing.
+ *  1. Header — the shared [QuakeModalHeader]: centered "About" title with a
+ *     circular close (X) button trailing.
  *  2. Logo badge — concentric glowing discs around the seismograph glyph.
  *  3. Body copy — mission, feedback note and the author attribution.
  *  4. Actions — "GitHub Pages" + "Email" on one row, full-width "Donate" below.
@@ -150,7 +149,7 @@ fun AboutModal(
             .padding(Dimens.ModalPadding),
         verticalArrangement = Arrangement.spacedBy(Dimens.AboutModalSectionGap)
     ) {
-        AboutModalHeader(onDismiss = onDismiss)
+        QuakeModalHeader(onDismiss = onDismiss, title = "About")
         AboutLogoBadge()
         AboutModalBody()
         AboutModalActions(
@@ -158,43 +157,6 @@ fun AboutModal(
             onEmailClick = onEmailClick,
             onDonateClick = onDonateClick
         )
-    }
-}
-
-/**
- * Modal header (Figma node 4:753): the "About" title optically centered across
- * the full card width with the circular close button pinned to the trailing edge.
- *
- * Figma balances the title with an empty 20dp spacer on the leading side, which
- * leaves it a few dp off-centre; centering against the container instead honours
- * the design's intent and stays symmetric at every width.
- */
-@Composable
-private fun AboutModalHeader(
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val closeShape = RoundedCornerShape(Dimens.ModalCloseRadius)
-
-    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Text(text = "About", style = ModalTitle)
-
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .size(Dimens.ModalCloseSize)
-                .clip(closeShape)
-                .background(ModalCloseFill, closeShape)
-                .clickable(onClick = onDismiss),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_close),
-                contentDescription = "Close",
-                tint = TextPrimary,
-                modifier = Modifier.size(Dimens.ModalCloseIconSize)
-            )
-        }
     }
 }
 

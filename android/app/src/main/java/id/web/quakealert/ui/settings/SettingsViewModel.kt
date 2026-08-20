@@ -58,7 +58,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         // Intentionally empty until a real alert-sound source is wired in.
     }
 
-    /** Toggles the "Light Mode (Beta)" switch (Appearance & Look section). */
+    /**
+     * Toggles the "Light Mode (Beta)" switch (Appearance & Look section).
+     *
+     * The switch is currently rendered disabled and badged "Coming Soon" — the app
+     * ships dark-theme only — so this never fires from the UI. It is kept wired so
+     * enabling the control is a one-flag change in [SettingsScreen] once a light
+     * palette exists.
+     */
     fun onLightModeToggled(enabled: Boolean) {
         _uiState.update { it.copy(lightMode = enabled) }
     }

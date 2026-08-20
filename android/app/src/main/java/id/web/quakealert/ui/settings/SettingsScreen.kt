@@ -13,10 +13,11 @@ import androidx.compose.foundation.layout.padding
 
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -24,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.QuakeAppBar
@@ -47,13 +49,18 @@ import id.web.quakealert.ui.theme.SectionHeaderPillFill
  *
  * External-link navigation lives here rather than in the ViewModel: opening a URI
  * needs the composition-local [LocalUriHandler], not app state.
+ *
+ * @param listState settings-list scroll position, hoisted to
+ *   [id.web.quakealert.ui.main.MainScreen] so it survives tab switches, rotation
+ *   and process death.
  */
 @Composable
 fun SettingsRoute(
     modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState(),
     viewModel: SettingsViewModel = viewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     val uriHandler = LocalUriHandler.current
     val openLink: (String) -> Unit = remember(uriHandler) {
@@ -79,6 +86,7 @@ fun SettingsRoute(
         onGithubClick = { openLink(AboutLinks.GITHUB_PAGES) },
         onEmailClick = { openLink(AboutLinks.EMAIL) },
         onDonateClick = { openLink(AboutLinks.DONATE) },
+        listState = listState,
         modifier = modifier
     )
 }
@@ -91,14 +99,16 @@ fun SettingsRoute(
  *     circle scales with the selected [CoverageRange], the Coverage segmented
  *     control, "Sync Location Now" action, and the "Auto Sync Location" switch.
  *  3. "Alert & Notification": "Test Alert Sound" action.
- *  4. "Appearance & Look": "Light Mode (Beta)" switch, "Units" segmented
- *     control and "Language" segmented control.
+ *  4. "Appearance & Look": "Light Mode (Beta)" switch — disabled and badged
+ *     "Coming Soon" while the app stays dark-theme only — plus the "Units" and
+ *     "Language" segmented controls.
  *  5. "About": "More About Us" action card, which raises the [AboutModalDialog]
  *     overlay (Figma node 4:654) via `uiState.showAboutModal`.
  *
  * The scrolling body carries the shared soft [fadingEdges] so content dissolves
  * at the scroll bounds, matching the History / Sensors screens. All state and
- * events are hoisted to the caller ([SettingsRoute] / [SettingsViewModel]).
+ * events are hoisted to the caller ([SettingsRoute] / [SettingsViewModel]),
+ * including [listState].
  */
 @Composable
 fun SettingsScreen(
@@ -115,7 +125,8 @@ fun SettingsScreen(
     onGithubClick: () -> Unit,
     onEmailClick: () -> Unit,
     onDonateClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState()
 ) {
     Column(
         modifier = modifier
@@ -125,6 +136,7 @@ fun SettingsScreen(
         QuakeAppBar(title = "Settings", isHealthy = uiState.isHealthy)
 
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
@@ -207,10 +219,17 @@ fun SettingsScreen(
             }
 
             item(key = "card_light_mode") {
-                QuakeCard(title = "Light Mode (Beta)") {
+                // Disabled while the app ships dark-theme only: the switch is
+                // greyed out and the card carries a "Coming Soon" badge so the
+                // control reads as deliberately unavailable rather than broken.
+                QuakeCard(
+                    title = "Light Mode (Beta)",
+                    detail = { QuakePill(text = "Coming Soon") }
+                ) {
                     QuakeSwitch(
                         checked = uiState.lightMode,
-                        onCheckedChange = onLightModeToggled
+                        onCheckedChange = onLightModeToggled,
+                        enabled = false
                     )
                 }
             }
