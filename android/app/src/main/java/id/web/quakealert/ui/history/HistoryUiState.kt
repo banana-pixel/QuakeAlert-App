@@ -92,6 +92,15 @@ fun QuakeHistoryItem.toShareText(unitSystem: UnitSystem): String = buildString {
  * consumed by the stateless [HistoryScreen]. The filter uses the shared
  * [QuakeFilter] enum common to History and Sensors.
  *
+ * [isLoading], [isError] and [errorMessage] form the screen's state machine: the
+ * body renders exactly one of loading / error / empty / content, and the header's
+ * "Healthy" badge is derived from the same flags via [isHealthy] rather than being
+ * hardcoded, so it can never claim health while the feed is failing.
+ *
+ * @param isLoading true while the history feed is in flight.
+ * @param isError true when the last load failed; pairs with [errorMessage].
+ * @param errorMessage failure copy shown by
+ *   [id.web.quakealert.ui.common.QuakeErrorState], or null when there is no error.
  * @param unitSystem distance unit system (Metric / Imperial), persisted via
  *   [id.web.quakealert.data.AppSettingsRepository] and shared with the Sensors
  *   and Settings screens.
@@ -102,10 +111,21 @@ fun QuakeHistoryItem.toShareText(unitSystem: UnitSystem): String = buildString {
 @Immutable
 data class HistoryUiState(
 
-    val isHealthy: Boolean = true,
+    val isLoading: Boolean = false,
+    val isError: Boolean = false,
+    val errorMessage: String? = null,
     val selectedFilter: QuakeFilter = QuakeFilter.ALL,
     val nearRadiusKm: Int = 39,
     val unitSystem: UnitSystem = UnitSystem.METRIC,
     val items: List<QuakeHistoryItem> = emptyList(),
     val selectedEvent: QuakeHistoryItem? = null
-)
+) {
+
+    /**
+     * Drives the shared [id.web.quakealert.ui.common.QuakeAppBar] network-status
+     * badge. Derived rather than stored so the badge always agrees with the body:
+     * a screen that is loading or has failed is not "Healthy".
+     */
+    val isHealthy: Boolean
+        get() = !isLoading && !isError
+}

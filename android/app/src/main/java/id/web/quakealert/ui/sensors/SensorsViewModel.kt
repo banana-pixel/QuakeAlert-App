@@ -6,12 +6,14 @@ import androidx.lifecycle.viewModelScope
 import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.QuakeFilter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /**
  * Hosts the [SensorsUiState] for the Sensors screen and exposes it as a
@@ -27,7 +29,7 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
 
     private val repository = AppSettingsRepository(application)
 
-    private val _uiState = MutableStateFlow(SensorsUiState(sensors = mockSensors()))
+    private val _uiState = MutableStateFlow(SensorsUiState(isLoading = true))
 
     val uiState: StateFlow<SensorsUiState> = combine(
         repository.unitSystem,
@@ -35,8 +37,56 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
     ) { unit, state -> state.copy(unitSystem = unit) }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = SensorsUiState(sensors = mockSensors())
+        initialValue = SensorsUiState(isLoading = true)
     )
+
+    init {
+        load()
+    }
+
+    /**
+     * Re-runs the station-roll load after a failure, from
+     * [id.web.quakealert.ui.common.QuakeErrorState]'s "Retry" action.
+     */
+    fun onRetry() {
+        load()
+    }
+
+    /**
+     * Single entry point into the loading → content / error state machine, used by
+     * both the initial load and [onRetry]. [fetchSensors] is the only seam a real
+     * REST/WS repository has to replace.
+     */
+    private fun load() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isLoading = true, isError = false, errorMessage = null)
+            }
+            try {
+                val sensors = fetchSensors()
+                _uiState.update { it.copy(sensors = sensors, isLoading = false) }
+            } catch (cancellation: CancellationException) {
+                // Never treat scope cancellation as a load failure — rethrow so the
+                // coroutine machinery sees it and the screen keeps its last state.
+                throw cancellation
+            } catch (throwable: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isError = true,
+                        errorMessage = throwable.message ?: LOAD_ERROR_MESSAGE
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Fetches the sensor station roll. Currently returns the Figma-mirroring mock
+     * fixture; `suspend` so swapping in the REST/WS source is a body change rather
+     * than a signature change.
+     */
+    private suspend fun fetchSensors(): List<SensorStationItem> = mockSensors()
 
     /** Switches between the "All" and "Near" filter pills. */
     fun onFilterSelected(filter: QuakeFilter) {
@@ -48,12 +98,21 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
         // Intentionally empty until a date-range picker is implemented.
     }
 
-    /** Placeholder hook for tapping a station card. */
+    /**
+     * Placeholder hook for tapping a station card. The tapped [item] is accepted
+     * now so the call site does not change once a station-detail destination
+     * exists; it is deliberately unused until then.
+     */
+    @Suppress("UNUSED_PARAMETER")
     fun onSensorClicked(item: SensorStationItem) {
         // Intentionally empty until a station-detail screen is implemented.
     }
 
     private companion object {
+        /** Fallback copy when a load failure carries no message of its own. */
+        const val LOAD_ERROR_MESSAGE =
+            "Could not reach the sensor network. Check your connection and try again."
+
         private val OFFLINE_TELEMETRY = SensorTelemetry(
             lastPing = "Last Ping : - s ago",
             rssi = "RSSI : - dBm",

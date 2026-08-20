@@ -6,12 +6,14 @@ import androidx.lifecycle.viewModelScope
 import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.QuakeFilter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /**
  * Hosts the [HistoryUiState] for the History screen and exposes it as a
@@ -32,7 +34,7 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
 
     private val repository = AppSettingsRepository(application)
 
-    private val _uiState = MutableStateFlow(HistoryUiState(items = mockHistoryItems()))
+    private val _uiState = MutableStateFlow(HistoryUiState(isLoading = true))
 
     val uiState: StateFlow<HistoryUiState> = combine(
         repository.unitSystem,
@@ -40,8 +42,57 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
     ) { unit, state -> state.copy(unitSystem = unit) }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = HistoryUiState(items = mockHistoryItems())
+        initialValue = HistoryUiState(isLoading = true)
     )
+
+    init {
+        load()
+    }
+
+    /**
+     * Re-runs the feed load after a failure, from
+     * [id.web.quakealert.ui.common.QuakeErrorState]'s "Retry" action.
+     */
+    fun onRetry() {
+        load()
+    }
+
+    /**
+     * Single entry point into the loading → content / error state machine, used by
+     * both the initial load and [onRetry]. [fetchHistory] is the only seam a real
+     * REST/Room repository has to replace; the state transitions around it stay
+     * exactly as they are.
+     */
+    private fun load() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isLoading = true, isError = false, errorMessage = null)
+            }
+            try {
+                val items = fetchHistory()
+                _uiState.update { it.copy(items = items, isLoading = false) }
+            } catch (cancellation: CancellationException) {
+                // Never treat scope cancellation as a load failure — rethrow so the
+                // coroutine machinery sees it and the screen keeps its last state.
+                throw cancellation
+            } catch (throwable: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isError = true,
+                        errorMessage = throwable.message ?: LOAD_ERROR_MESSAGE
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Fetches the event history. Currently returns the Figma-mirroring mock
+     * fixture; `suspend` so swapping in the REST/Room source is a body change
+     * rather than a signature change.
+     */
+    private suspend fun fetchHistory(): List<QuakeHistoryItem> = mockHistoryItems()
 
     /** Switches between the "All" and "Near" filter pills. */
     fun onFilterSelected(filter: QuakeFilter) {
@@ -70,6 +121,10 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private companion object {
+        /** Fallback copy when a load failure carries no message of its own. */
+        const val LOAD_ERROR_MESSAGE =
+            "Could not load earthquake history. Check your connection and try again."
+
         fun mockHistoryItems(): List<QuakeHistoryItem> = listOf(
             QuakeHistoryItem(
                 id = "1",

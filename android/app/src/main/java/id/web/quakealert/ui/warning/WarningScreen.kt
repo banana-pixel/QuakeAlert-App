@@ -8,18 +8,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.web.quakealert.R
 import id.web.quakealert.ui.common.QuakeAppBar
+import id.web.quakealert.ui.common.QuakeEmptyState
+import id.web.quakealert.ui.common.QuakeErrorState
 import id.web.quakealert.ui.common.QuakeEventDetailModalDialog
+import id.web.quakealert.ui.common.QuakeLoadingState
 import id.web.quakealert.ui.common.fadingEdges
 import id.web.quakealert.ui.history.MmiSeverity
 import id.web.quakealert.ui.history.QuakeHistoryItem
@@ -39,9 +45,10 @@ import id.web.quakealert.ui.theme.SectionTitle
 @Composable
 fun WarningRoute(
     modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState(),
     viewModel: WarningViewModel = viewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val shareEvent: (QuakeHistoryItem) -> Unit = remember(context) {
@@ -67,6 +74,8 @@ fun WarningRoute(
         onDetailDismissed = viewModel::onDetailDismissed,
         onPossibilityDismissed = viewModel::onPossibilityDismissed,
         onShareClicked = shareEvent,
+        onRetry = viewModel::onRetry,
+        listState = listState,
         modifier = modifier
     )
 }
@@ -77,9 +86,14 @@ fun WarningRoute(
  * behaviour:
  *  1. A static header [Column] pinned to the top: shared [QuakeAppBar] + the
  *     active [AlertBanner] + a short [WarningDivider].
- *  2. A weighted [LazyColumn] carrying the state-driven section title and the
- *     tip rows, with the shared soft [fadingEdges] at the scroll bounds.
- *  3. A pinned [EmergencyCta] at the bottom.
+ *  2. A weighted body rendering exactly one of [QuakeLoadingState],
+ *     [QuakeErrorState], [QuakeEmptyState] or the [LazyColumn] carrying the
+ *     state-driven section title and the tip rows, with the shared soft
+ *     [fadingEdges] at the scroll bounds. The banner deliberately stays outside
+ *     the branch: a failed refresh must never blank out an alert the user is
+ *     already looking at.
+ *  3. A pinned [EmergencyCta] at the bottom, which stays reachable in every state
+ *     — the emergency route is the last thing to hide when something goes wrong.
  *
  * Two sibling overlays can be raised, mirroring [WarningUiState]:
  *  - the "Recent Earthquake" event detail (Figma 124:1192) from the active
@@ -88,7 +102,9 @@ fun WarningRoute(
  *    banner's action.
  *
  * All state and events are hoisted to the caller ([WarningRoute] /
- * [WarningViewModel]).
+ * [WarningViewModel]), including [listState] — hoisted to
+ * [id.web.quakealert.ui.main.MainScreen] so the scroll position survives tab
+ * switches, rotation and process death.
  */
 @Composable
 fun WarningScreen(
@@ -98,7 +114,9 @@ fun WarningScreen(
     onDetailDismissed: () -> Unit,
     onPossibilityDismissed: () -> Unit,
     onShareClicked: (QuakeHistoryItem) -> Unit,
-    modifier: Modifier = Modifier
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState()
 ) {
     Column(
         modifier = modifier
@@ -116,30 +134,52 @@ fun WarningScreen(
 
         WarningDivider()
 
-        // --- Scrolling preparedness tips -------------------------------------
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .fadingEdges(),
-            contentPadding = PaddingValues(
-                top = Dimens.PrepSectionGap,
-                bottom = Dimens.WarningListBottomPadding
-            ),
-            verticalArrangement = Arrangement.spacedBy(Dimens.PrepTipSpacing)
-        ) {
-            item(key = "prep-title") {
-                Text(
-                    text = uiState.sectionTitle,
-                    style = SectionTitle,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            items(
-                items = uiState.tips,
-                key = { it.id }
-            ) { tip ->
-                PrepTipRow(tip = tip)
+        // --- Body: loading / error / empty / preparedness tips ---------------
+        val bodyModifier = Modifier
+            .weight(1f)
+            .fillMaxWidth()
+
+        when {
+            uiState.isLoading -> QuakeLoadingState(
+                modifier = bodyModifier,
+                message = "Checking the alert network..."
+            )
+
+            uiState.isError -> QuakeErrorState(
+                message = uiState.errorMessage ?: GENERIC_ERROR_MESSAGE,
+                onRetry = onRetry,
+                modifier = bodyModifier
+            )
+
+            uiState.tips.isEmpty() -> QuakeEmptyState(
+                icon = R.drawable.ic_nav_warning,
+                message = "No Guidance Available",
+                subtitle = "Preparedness guidance for your area will appear here.",
+                modifier = bodyModifier
+            )
+
+            else -> LazyColumn(
+                state = listState,
+                modifier = bodyModifier.fadingEdges(),
+                contentPadding = PaddingValues(
+                    top = Dimens.PrepSectionGap,
+                    bottom = Dimens.WarningListBottomPadding
+                ),
+                verticalArrangement = Arrangement.spacedBy(Dimens.PrepTipSpacing)
+            ) {
+                item(key = "prep-title") {
+                    Text(
+                        text = uiState.sectionTitle,
+                        style = SectionTitle,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                items(
+                    items = uiState.tips,
+                    key = { it.id }
+                ) { tip ->
+                    PrepTipRow(tip = tip)
+                }
             }
         }
 
@@ -170,6 +210,10 @@ fun WarningScreen(
     }
 }
 
+/** Fallback shown when a failed load carried no message of its own. */
+private const val GENERIC_ERROR_MESSAGE =
+    "Could not reach the alert network. Check your connection and try again."
+
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
 private fun WarningScreenPreview() {
@@ -180,7 +224,8 @@ private fun WarningScreenPreview() {
             onEmergency = {},
             onDetailDismissed = {},
             onPossibilityDismissed = {},
-            onShareClicked = {}
+            onShareClicked = {},
+            onRetry = {}
         )
     }
 }
@@ -203,7 +248,8 @@ private fun WarningScreenActiveQuakePreview() {
             onEmergency = {},
             onDetailDismissed = {},
             onPossibilityDismissed = {},
-            onShareClicked = {}
+            onShareClicked = {},
+            onRetry = {}
         )
     }
 }
@@ -220,7 +266,8 @@ private fun WarningScreenWithDetailPreview() {
             onEmergency = {},
             onDetailDismissed = {},
             onPossibilityDismissed = {},
-            onShareClicked = {}
+            onShareClicked = {},
+            onRetry = {}
         )
     }
 }
@@ -237,7 +284,43 @@ private fun WarningScreenWithPossibilityPreview() {
             onEmergency = {},
             onDetailDismissed = {},
             onPossibilityDismissed = {},
-            onShareClicked = {}
+            onShareClicked = {},
+            onRetry = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun WarningScreenLoadingPreview() {
+    QuakeAlertTheme {
+        WarningScreen(
+            uiState = WarningUiState(isLoading = true),
+            onSeeDetails = {},
+            onEmergency = {},
+            onDetailDismissed = {},
+            onPossibilityDismissed = {},
+            onShareClicked = {},
+            onRetry = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun WarningScreenErrorPreview() {
+    QuakeAlertTheme {
+        WarningScreen(
+            uiState = WarningUiState(
+                isError = true,
+                errorMessage = "Could not reach the alert network. Check your connection and try again."
+            ),
+            onSeeDetails = {},
+            onEmergency = {},
+            onDetailDismissed = {},
+            onPossibilityDismissed = {},
+            onShareClicked = {},
+            onRetry = {}
         )
     }
 }

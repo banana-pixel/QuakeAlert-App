@@ -40,9 +40,12 @@ enum class AppLanguage(val label: String) {
  * @param coverageRange selected coverage radius (Coverage segmented control);
  *   also drives the reactive geofence circle + range badge on the map preview.
  * @param sensorCount number of sensors within the selected range (map summary).
- * @param lastSyncLabel human-readable last-sync time (e.g. "2 min. ago").
+ * @param lastSyncLabel human-readable last-sync time (e.g. "2 min. ago"), or null
+ *   when the device location has never been synced.
  * @param autoSyncLocation "Auto Sync Location / Intelligent Location Sync" toggle.
  * @param lightMode "Light Mode (Beta)" toggle (Appearance & Look section).
+ *   Currently inert: the switch is disabled and badged "Coming Soon" while the app
+ *   remains dark-theme only.
  * @param language selected app language (Language segmented control).
  * @param unitSystem distance unit system (Metric / Imperial), persisted via
  *   [id.web.quakealert.data.AppSettingsRepository] and shared with the History
@@ -57,11 +60,10 @@ enum class AppLanguage(val label: String) {
  */
 @Immutable
 data class SettingsUiState(
-    val isHealthy: Boolean = true,
     val locationLabel: String = "Bandung, West Java, ID",
     val coverageRange: CoverageRange = CoverageRange.KM_500,
     val sensorCount: Int = 2,
-    val lastSyncLabel: String = "2 min. ago",
+    val lastSyncLabel: String? = "2 min. ago",
     val autoSyncLocation: Boolean = true,
     val lightMode: Boolean = false,
     val language: AppLanguage = AppLanguage.EN,
@@ -71,7 +73,13 @@ data class SettingsUiState(
     val showAboutModal: Boolean = false
 ) {
 
-
+    /**
+     * Drives the shared [id.web.quakealert.ui.common.QuakeAppBar] network-status
+     * badge. Derived rather than hardcoded: coverage only works once the device
+     * location has been resolved, so a never-synced device is not "Healthy".
+     */
+    val isHealthy: Boolean
+        get() = lastSyncLabel != null
 
     /** Pre-formatted "Range : {km} km, {n} sensors" summary badge text. */
     val rangeSummaryLabel: String
@@ -79,5 +87,5 @@ data class SettingsUiState(
 
     /** Pre-formatted "Last Sync : {time}" info-pill text. */
     val lastSyncPillLabel: String
-        get() = "Last Sync : $lastSyncLabel"
+        get() = "Last Sync : ${lastSyncLabel ?: "never"}"
 }

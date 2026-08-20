@@ -80,10 +80,22 @@ data class SensorMapOverview(
  * Immutable UI state for the Sensors screen (Figma node 1:1081). Hoisted into
  * [SensorsViewModel] and consumed by the stateless [SensorsScreen]. The filter
  * uses the shared [QuakeFilter] enum common to History and Sensors.
+ *
+ * [isLoading], [isError] and [errorMessage] form the screen's state machine: the
+ * station list region renders exactly one of loading / error / empty / content,
+ * and the header's "Healthy" badge is derived from the same flags plus the live
+ * station roll via [isHealthy] rather than being hardcoded.
+ *
+ * @param isLoading true while the station roll is in flight.
+ * @param isError true when the last load failed; pairs with [errorMessage].
+ * @param errorMessage failure copy shown by
+ *   [id.web.quakealert.ui.common.QuakeErrorState], or null when there is no error.
  */
 @Immutable
 data class SensorsUiState(
-    val isHealthy: Boolean = true,
+    val isLoading: Boolean = false,
+    val isError: Boolean = false,
+    val errorMessage: String? = null,
     val overview: SensorMapOverview = SensorMapOverview(
         locationLabel = "Bandung, West Java, ID",
         rangeKm = 500,
@@ -93,4 +105,14 @@ data class SensorsUiState(
     val nearRadiusKm: Int = 39,
     val unitSystem: UnitSystem = UnitSystem.METRIC,
     val sensors: List<SensorStationItem> = emptyList()
-)
+) {
+
+    /**
+     * Drives the shared [id.web.quakealert.ui.common.QuakeAppBar] network-status
+     * badge. Derived rather than stored: the sensor network is only "Healthy" when
+     * the roll loaded successfully *and* at least one station is actually
+     * reporting — an all-offline network is a failure the badge must not hide.
+     */
+    val isHealthy: Boolean
+        get() = !isLoading && !isError && sensors.any { it.status == SensorStatus.ONLINE }
+}

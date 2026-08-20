@@ -80,15 +80,12 @@ data class ChatChannelInfo(
  * Immutable UI state for the Chat screen (Figma node 1:925). Hoisted into
  * [ChatViewModel] and consumed by the stateless [ChatScreen].
  *
- * @param isHealthy drives the shared [id.web.quakealert.ui.common.QuakeAppBar]
- *   network-status badge.
  * @param channel active channel header summary.
  * @param items ordered stream of messages + date separators to render.
  * @param draft the current text in the input field (hoisted for UDF).
  */
 @Immutable
 data class ChatUiState(
-    val isHealthy: Boolean = true,
     val channel: ChatChannelInfo = ChatChannelInfo(
         channelName = "West Java Mesh",
         usersOnline = 12
@@ -99,4 +96,12 @@ data class ChatUiState(
     /** True when the draft has non-blank content and can be sent. */
     val canSend: Boolean
         get() = draft.isNotBlank()
+
+    /**
+     * Drives the shared [id.web.quakealert.ui.common.QuakeAppBar] network-status
+     * badge. Derived from the mesh itself rather than hardcoded: a channel with
+     * nobody connected is not a healthy mesh, so the badge drops out.
+     */
+    val isHealthy: Boolean
+        get() = channel.usersOnline > 0
 }

@@ -90,8 +90,16 @@ data class PreparednessTip(
  * coherent: an active alert pairs the crimson banner with aftershock tips, and
  * the resting state pairs the possibility banner with preparedness tips.
  *
- * @param isHealthy drives the shared [id.web.quakealert.ui.common.QuakeAppBar]
- *   network-status badge.
+ * [isLoading], [isError] and [errorMessage] form the screen's state machine: the
+ * tips region renders exactly one of loading / error / empty / content, and the
+ * header's "Healthy" badge is derived from the same flags via [isHealthy] rather
+ * than being hardcoded — critical on this screen, where a stale "Healthy" badge
+ * beside a failed alert feed would actively mislead.
+ *
+ * @param isLoading true while the alert feed is in flight.
+ * @param isError true when the last load failed; pairs with [errorMessage].
+ * @param errorMessage failure copy shown by
+ *   [id.web.quakealert.ui.common.QuakeErrorState], or null when there is no error.
  * @param banner the active [WarningBanner] variant.
  * @param sectionTitle headline above the tip list, driven by the banner state.
  * @param tips ordered preparedness tips to render.
@@ -106,7 +114,9 @@ data class PreparednessTip(
  */
 @Immutable
 data class WarningUiState(
-    val isHealthy: Boolean = true,
+    val isLoading: Boolean = false,
+    val isError: Boolean = false,
+    val errorMessage: String? = null,
     val banner: WarningBanner = PossibilityBanner(
         title = "No Recent Earthquake",
         possibilityLabel = "Possibility : High Risk"
@@ -116,7 +126,16 @@ data class WarningUiState(
     val unitSystem: UnitSystem = UnitSystem.METRIC,
     val selectedEventDetails: QuakeHistoryItem? = null,
     val selectedPossibility: EarthquakePossibility? = null
-)
+) {
+
+    /**
+     * Drives the shared [id.web.quakealert.ui.common.QuakeAppBar] network-status
+     * badge. Derived rather than stored so the badge always agrees with the body:
+     * a screen that is loading or has failed is not "Healthy".
+     */
+    val isHealthy: Boolean
+        get() = !isLoading && !isError
+}
 
 /**
  * Tips for the active-alert state (Figma 124:1297): post-quake guidance for
