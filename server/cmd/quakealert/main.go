@@ -6,7 +6,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -90,10 +90,26 @@ func run(log *slog.Logger) error {
 		log.Warn("FCM tidak dikonfigurasi — delivery background nonaktif (hanya WebSocket)")
 	}
 
-	dispatcher := dispatch.NewDispatcher(st, hub, fcm, log)
+	dispatcher := dispatch.NewDispatcher(st, hub, fcm, cfg.CooldownDuration, log)
 
 	// --- Consensus tier: spatial engine ---
-	engine := consensus.NewEngine(cfg.ConsensusWindow, st, dispatcher.Dispatch, log)
+	// Cooldown = jeda antar-emisi + waktu menuju EVENT_RESOLVED (state machine).
+	engine := consensus.NewEngine(cfg.ConsensusWindow, cfg.CooldownDuration, st, dispatcher.Dispatch, log)
+
+	// Rekonsiliasi startup: event HAPPENING yang lebih tua dari cooldown
+	// ditandai RESOLVED. State machine resolusi dispatcher hanya in-memory —
+	// tanpa ini, event yang sedang berlangsung saat proses restart akan
+	// selamanya menggantung sebagai HAPPENING (tanpa EVENT_RESOLVED).
+	{
+		recCtx, cancel := context.WithTimeout(context.Background(), cfg.IOTimeout)
+		n, rerr := st.ResolveStaleEvents(recCtx, time.Now().Add(-cfg.CooldownDuration))
+		cancel()
+		if rerr != nil {
+			log.Warn("gagal rekonsiliasi event stale saat startup", "err", rerr)
+		} else if n > 0 {
+			log.Info("event stale ditandai RESOLVED saat startup", "count", n)
+		}
+	}
 
 	// Handler trigger yang lolos verifikasi -> masukkan ke consensus engine.
 	handler := func(ctx context.Context, t *ingest.Trigger) {
@@ -162,19 +178,33 @@ func run(log *slog.Logger) error {
 		Addr:              cfg.HTTPAddr,
 		Handler:           handlerHTTP,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
+	// Catatan WebSocket: gorilla/websocket menghapus deadline HTTP setelah
+	// hijack (server.go:254 netConn.SetDeadline(time.Time{})), jadi timeout di
+	// atas tidak memutus koneksi WS yang idle; liveness WS ditangani ping/pong.
 
+	// Jalankan HTTP server di goroutine. Bila ListenAndServe gagal SEBELUM
+	// menerima sinyal shutdown (mis. port sudah terpakai), error langsung
+	// dikembalikan agar proses mati cepat (fail-fast) alih-alih diam-diam
+	// berjalan tanpa API.
+	serveErr := make(chan error, 1)
 	go func() {
 		log.Info("http server listen", "addr", cfg.HTTPAddr)
-		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("http server error", "err", err)
-		}
+		serveErr <- httpSrv.ListenAndServe()
 	}()
 
 	// --- Graceful shutdown (Aturan Server #4) ---
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
-	<-stop
+
+	select {
+	case err := <-serveErr:
+		return fmt.Errorf("http server gagal start: %w", err)
+	case <-stop:
+	}
 	log.Info("sinyal shutdown diterima, drain koneksi")
 
 	// Putuskan MQTT dengan quiesce 250ms.
