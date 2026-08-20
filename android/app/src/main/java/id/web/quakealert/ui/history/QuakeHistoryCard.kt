@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,7 +18,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -58,10 +56,9 @@ import id.web.quakealert.ui.theme.TextPrimary
  *  2. Details column: location title, date/time metadata, distance badge + share.
  *  3. Trailing vertical accent bar acting as a "see more" affordance.
  *
- * The card height is a *minimum* rather than a fixed value: Figma's 132dp is the
- * floor, and the card grows when its content genuinely needs more room — the share
- * button's 48dp accessibility touch target, or a large system font scale. Pinning it
- * would clip that content instead.
+ * The card is pinned to Figma's fixed 132dp height; the share button keeps its
+ * compact 28x22dp box (no 48dp touch-target padding) so the row never outgrows
+ * that height.
  */
 @Composable
 fun QuakeHistoryCard(
@@ -81,7 +78,7 @@ fun QuakeHistoryCard(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = Dimens.CardHeight)
+            .height(Dimens.CardHeight)
             .clip(cardShape)
             .background(CardSurface, cardShape)
             .border(Dimens.BorderThin, CardBorder, cardShape)
@@ -109,7 +106,7 @@ fun QuakeHistoryCard(
     }
 }
 
-/** Circular MMI badge stacked above a map thumbnail (Figma node 1:716). */
+/** Circular MMI badge centered above the map thumbnail (Figma node 1:716). */
 @Composable
 private fun LeadingColumn(
     intensity: String,
@@ -204,15 +201,13 @@ private fun DetailsColumn(
 /**
  * Small share icon button (Figma node 1:728).
  *
- * Accessibility: the drawn capsule stays at its Figma 28×22dp while
- * [minimumInteractiveComponentSize] lifts the touch box to the 48dp minimum — the
- * modifier is applied before the sizing/background chrome so no visual token moves.
+ * Accessibility: the capsule stays at its compact Figma 28×22dp with an explicit
+ * button role; the whole card behind it is clickable for the "see more" action.
  */
 @Composable
 private fun ShareButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .minimumInteractiveComponentSize()
             .size(width = Dimens.ShareButtonWidth, height = Dimens.ShareButtonHeight)
             .clip(RoundedCornerShape(Dimens.RadiusSmall))
             .background(ShareButtonFill, RoundedCornerShape(Dimens.RadiusSmall))
@@ -221,27 +216,36 @@ private fun ShareButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     ) {
         Icon(
             painter = painterResource(id = R.drawable.ic_share),
-            contentDescription = "Share",
+            contentDescription = "Share earthquake details",
             tint = TextPrimary,
             modifier = Modifier.size(13.dp)
         )
     }
 }
 
-/** Right-hand vertical accent bar hinting at a "see more" tap target. */
+/**
+ * Subtle right-hand vertical accent strip with a trailing arrow hinting at the
+ * "see more" action (Figma node 1:733).
+ *
+ * Accessibility: the arrow is decorative — [contentDescription] is null because
+ * the whole card is already the clickable, announced element for this action;
+ * announcing the icon separately would duplicate it for TalkBack users.
+ */
 @Composable
 private fun SeeMoreBar(accent: Color, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(Dimens.RadiusSmall)
     Box(
         modifier = modifier
             .fillMaxHeight()
             .width(Dimens.SeeMoreBarWidth)
-            .clip(RoundedCornerShape(Dimens.RadiusSmall))
-            .background(accent, RoundedCornerShape(Dimens.RadiusSmall)),
+            .clip(shape)
+            .background(accent, shape)
+            .border(Dimens.BorderThin, CardBorder, shape),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             painter = painterResource(id = R.drawable.ic_arrow_right),
-            contentDescription = "See more",
+            contentDescription = null,
             tint = Color.White,
             modifier = Modifier.size(13.dp)
         )

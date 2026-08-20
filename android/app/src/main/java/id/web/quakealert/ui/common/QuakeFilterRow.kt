@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,11 +76,8 @@ fun QuakeFilterRow(
 /**
  * Stadium/pill toggle used for the "All" and "Near" filters.
  *
- * Accessibility: the pill is 30dp tall per Figma, so [minimumInteractiveComponentSize]
- * pads its *touch* box out to the 48dp minimum. It is applied before the sizing and
- * background chrome, so the drawn capsule keeps its Figma height, radius, padding and
- * stroke exactly — only the invisible hit area (and therefore the row's own height)
- * grows. [Role.RadioButton] plus `selected` semantics let TalkBack announce the pair
+ * The pill keeps its compact Figma 30dp height with no touch-target padding.
+ * [Role.RadioButton] plus `selected` semantics let TalkBack announce the pair
  * as a single-choice group and say which pill is active.
  */
 @Composable
@@ -99,7 +95,6 @@ private fun FilterPill(
     val isSelected = selected
     Box(
         modifier = modifier
-            .minimumInteractiveComponentSize()
             .height(Dimens.FilterPillHeight)
             .clip(shape)
             .background(fill, shape)
@@ -123,10 +118,8 @@ private fun FilterPill(
 /**
  * Rounded-square (squircle) calendar icon button that opens a date-range picker.
  * Uses the same height, corner radius and border token as the filter pills so it
- * aligns flush with them (Figma node 1:701 / 1:1105).
- *
- * Accessibility: like the pills, the drawn square stays at its Figma 30dp while
- * [minimumInteractiveComponentSize] lifts the touch box to 48dp.
+ * aligns flush with them (Figma node 1:701 / 1:1105), kept at its compact Figma
+ * 30dp with no touch-target padding.
  */
 @Composable
 private fun CalendarButton(
@@ -136,7 +129,6 @@ private fun CalendarButton(
     val shape = RoundedCornerShape(Dimens.RadiusSmall)
     Box(
         modifier = modifier
-            .minimumInteractiveComponentSize()
             .size(Dimens.FilterPillHeight)
             .clip(shape)
             .background(FilterInactiveFill, shape)
