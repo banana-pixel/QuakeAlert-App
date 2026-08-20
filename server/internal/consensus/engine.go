@@ -2,7 +2,9 @@ package consensus
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -16,6 +18,12 @@ const (
 	ClusterRadiusKm = 50.0
 	// MinNodesConfirmed: >= 3 node unik terverifikasi -> CONFIRMED.
 	MinNodesConfirmed = 3
+	// MinPGAGal: ambang PGA minimum (gal) agar satu kluster dianggap peristiwa
+	// gempa yang layak di-alert. Sama dengan batas bawah label "light" pada
+	// Intensity(). Di bawah ini dianggap noise: firmware STA/LTA sudah meng-gate
+	// di sisi sensor, ini pertahanan server kedua terhadap node yang salah
+	// konfigurasi (mis. PGA=0 ikut menambah hitungan node).
+	MinPGAGal = 16.6
 )
 
 // Status hasil evaluasi kluster.
@@ -35,7 +43,8 @@ type Event struct {
 	IntensityLabel string
 	NodeCount      int
 	Readings       []Reading
-	CreatedAtMs    int64 // ms epoch UTC
+	LocationName   string // label dari node terdekat centroid
+	CreatedAtMs    int64  // ms epoch UTC
 }
 
 // locator mengambil koordinat node (diabstraksi agar engine dapat diuji tanpa DB).
@@ -49,9 +58,17 @@ type EventSink func(ctx context.Context, ev *Event)
 // Engine adalah Spatial Consensus Engine dengan sliding window in-memory.
 // Aman untuk akses konkuren (subscriber MQTT memanggil Ingest dari goroutine
 // callback paho). Retensi window = windowMs; reading kadaluarsa dipangkas.
+//
+// Cooldown diterapkan PER-SEL spasial (~1° grid, lihat cellKey): engine hanya
+// mengemisi event baru untuk sebuah sel bila cooldown sel itu sudah lewat.
+// Dalam cooldown hanya eskalasi ADVISORY -> CONFIRMED yang diizinkan. Ini
+// menghasilkan event_id yang stabil untuk satu gempa (dispatcher hanya dipanggil
+// sekali per gempa, tanpa spam re-emisi) SEKALIGUS tidak menekan gempa nyata di
+// wilayah lain yang terpisah (false-negative multi-region).
 type Engine struct {
 	mu       sync.Mutex
 	window   time.Duration
+	cooldown time.Duration
 	readings map[string]Reading // key = node_id (dedup: reading terbaru per node)
 
 	loc  locator
@@ -59,14 +76,26 @@ type Engine struct {
 	log  *slog.Logger
 	now  func() time.Time
 
-	lastEmitMs int64 // cooldown sederhana agar tidak spam event identik
+	emit map[string]emitState // cooldown per sel spasial (bukan global)
 }
 
-// NewEngine membuat engine. window biasanya dari cfg.ConsensusWindow (8000ms).
-func NewEngine(window time.Duration, loc locator, sink EventSink, log *slog.Logger) *Engine {
+// emitState melacak emisi terakhir per sel spasial.
+type emitState struct {
+	lastEmitMs int64
+	status     Status
+}
+
+// NewEngine membuat engine. window biasanya dari cfg.ConsensusWindow (8000ms),
+// cooldown dari cfg.CooldownDuration (default 90s).
+func NewEngine(window, cooldown time.Duration, loc locator, sink EventSink, log *slog.Logger) *Engine {
+	if cooldown <= 0 {
+		cooldown = 90 * time.Second
+	}
 	return &Engine{
 		window:   window,
+		cooldown: cooldown,
 		readings: make(map[string]Reading, 16),
+		emit:     make(map[string]emitState),
 		loc:      loc,
 		sink:     sink,
 		log:      log,
@@ -85,7 +114,7 @@ func (e *Engine) Ingest(ctx context.Context, nodeID string, pga float64, ts int6
 		return
 	}
 
-	r := Reading{NodeID: nodeID, Lat: nl.Lat, Lon: nl.Lon, PGA: pga, TS: ts}
+	r := Reading{NodeID: nodeID, Lat: nl.Lat, Lon: nl.Lon, PGA: pga, TS: ts, LocationName: nl.LocationName}
 
 	e.mu.Lock()
 	nowMs := e.now().UnixMilli()
@@ -102,9 +131,48 @@ func (e *Engine) Ingest(ctx context.Context, nodeID string, pga float64, ts int6
 		return
 	}
 
-	// Hanya CONFIRMED yang dipersistensi & dibroadcast penuh; ADVISORY tetap
-	// diteruskan agar dispatch dapat mengirim silent yellow banner.
+	// Cooldown dievaluasi di bawah kunci untuk serialisasi antar-goroutine.
+	e.mu.Lock()
+	allowed := e.allowEmitLocked(ev, nowMs)
+	e.mu.Unlock()
+	if !allowed {
+		e.log.Debug("konsensus: emisi ditekan cooldown", "status", ev.Status, "now_ms", nowMs)
+		return
+	}
+
+	// Dispatcher menangani persistensi (hanya CONFIRMED), broadcast WS, dan FCM.
 	e.sink(ctx, ev)
+}
+
+// allowEmitLocked memutuskan apakah event boleh diemisi untuk sel spasialnya.
+// Wajib dipanggil dengan e.mu terkunci.
+//
+// Aturan (per sel):
+//   - Belum pernah emisi di sel itu (lastEmitMs == 0)  -> izinkan.
+//   - Cooldown sel sudah lewat dari emisi terakhir     -> izinkan (gempa baru).
+//   - Dalam cooldown, eskalasi ADVISORY -> CONFIRMED   -> izinkan (satu node
+//     lagi menguatkan konsensus; life-safety menuntut eskalasi).
+//   - Selainnya                                        -> tekan (dedup event_id).
+func (e *Engine) allowEmitLocked(ev *Event, nowMs int64) bool {
+	cell := cellKey(ev.Centroid)
+	st := e.emit[cell]
+	cooldownMs := e.cooldown.Milliseconds()
+	if st.lastEmitMs == 0 || nowMs >= st.lastEmitMs+cooldownMs {
+		e.emit[cell] = emitState{lastEmitMs: nowMs, status: ev.Status}
+		return true
+	}
+	if ev.Status == StatusConfirmed && st.status == StatusAdvisory {
+		e.emit[cell] = emitState{lastEmitMs: nowMs, status: StatusConfirmed}
+		return true
+	}
+	return false
+}
+
+// cellKey memetakan centroid ke sel grid ~1° (≈111 km). Cooldown per-sel
+// memastikan gempa di wilayah berbeda tidak saling menekan, sementara gempa
+// susulan/duplikat di sel yang sama tetap di-dedup.
+func cellKey(c Centroid) string {
+	return fmt.Sprintf("%.0f:%.0f", math.Round(c.Lat), math.Round(c.Lon))
 }
 
 // pruneLocked membuang reading yang lebih tua dari window. Harus dipanggil
@@ -130,7 +198,8 @@ func (e *Engine) snapshotLocked() []Reading {
 // Evaluate mengelompokkan reading secara spasial (radius 50 km) lalu memilih
 // kluster terbesar. Bila kluster terbesar >= 3 node -> CONFIRMED; 1-2 node ->
 // ADVISORY. nowMs dipakai sebagai CreatedAtMs event. Mengembalikan nil bila
-// tidak ada reading.
+// tidak ada reading ATAU kluster tidak memenuhi ambang PGA minimum (MinPGAGal)
+// — kluster dengan PGA di bawah ambang dianggap noise, bukan gempa.
 //
 // Fungsi murni (tanpa side-effect) agar mudah diuji.
 func Evaluate(readings []Reading, nowMs int64) *Event {
@@ -143,14 +212,19 @@ func Evaluate(readings []Reading, nowMs int64) *Event {
 	}
 
 	maxPGA := MaxPGA(cluster)
+	if maxPGA < MinPGAGal {
+		return nil
+	}
 	mmi, label := Intensity(maxPGA)
+	centroid := WeightedCentroid(cluster)
 	ev := &Event{
-		Centroid:       WeightedCentroid(cluster),
+		Centroid:       centroid,
 		MaxPGA:         maxPGA,
 		MMIScale:       mmi,
 		IntensityLabel: label,
 		NodeCount:      len(cluster),
 		Readings:       cluster,
+		LocationName:   nearestToCentroid(cluster, centroid).LocationName,
 		CreatedAtMs:    nowMs,
 	}
 	if len(cluster) >= MinNodesConfirmed {

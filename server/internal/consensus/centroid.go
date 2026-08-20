@@ -5,11 +5,12 @@ import "math"
 // Reading adalah satu laporan node terverifikasi di dalam window konsensus.
 // Lat/Lon berasal dari master node (bukan dari perangkat), PGA dalam gal.
 type Reading struct {
-	NodeID string
-	Lat    float64
-	Lon    float64
-	PGA    float64 // gal
-	TS     int64   // ms epoch UTC
+	NodeID       string
+	Lat          float64
+	Lon          float64
+	PGA          float64 // gal
+	TS           int64   // ms epoch UTC
+	LocationName string  // label lokasi dari master node (untuk label event)
 }
 
 // Centroid adalah hasil weighted centroid algorithm.
@@ -57,6 +58,20 @@ func MaxPGA(rs []Reading) float64 {
 		}
 	}
 	return max
+}
+
+// nearestToCentroid mengembalikan reading yang koordinatnya paling dekat dengan
+// centroid (jarak great-circle). Dipakai untuk memberi label lokasi event
+// (location_name) dari stasiun terdekat pusat getaran.
+func nearestToCentroid(rs []Reading, c Centroid) Reading {
+	best := rs[0]
+	bestDist := haversineKm(rs[0].Lat, rs[0].Lon, c.Lat, c.Lon)
+	for i := 1; i < len(rs); i++ {
+		if d := haversineKm(rs[i].Lat, rs[i].Lon, c.Lat, c.Lon); d < bestDist {
+			best, bestDist = rs[i], d
+		}
+	}
+	return best
 }
 
 // MMIFromPGA mengonversi PGA (gal) ke nilai MMI numerik memakai relasi
