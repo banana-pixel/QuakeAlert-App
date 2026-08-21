@@ -53,7 +53,10 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.R
+import id.web.quakealert.ui.app.ServerHealthViewModel
 import id.web.quakealert.ui.chat.ChatRoute
 import id.web.quakealert.ui.history.HistoryRoute
 import id.web.quakealert.ui.sensors.SensorsRoute
@@ -117,12 +120,26 @@ private val MainDestinationSaver: Saver<MainDestination, String> = Saver(
  * The [Scaffold] disables its default window insets so the custom bars can own
  * their own inset handling: each screen applies its status-bar padding internally,
  * while [QuakeBottomNavigation] applies navigation-bar padding.
+ *
+ * Server health is hoisted here for the same reason as the scroll positions: it is
+ * shared by all five tabs. One [ServerHealthViewModel] is collected once and the
+ * resulting [id.web.quakealert.domain.ServerConnectionState] is handed to every
+ * route, so each tab's status badge is literally the same value rather than five
+ * per-screen derivations that can disagree.
  */
 @Composable
-fun MainScreen(modifier: Modifier = Modifier) {
+fun MainScreen(
+    modifier: Modifier = Modifier,
+    serverHealthViewModel: ServerHealthViewModel = viewModel()
+) {
     var selected by rememberSaveable(stateSaver = MainDestinationSaver) {
         mutableStateOf(MainDestination.HISTORY)
     }
+
+    // Collected at this single point: observing it is also what keeps the shared
+    // alert socket open, so the connection the badge reports is the same one an
+    // earthquake alert would arrive on, on whichever tab the user is sitting.
+    val connectionState by serverHealthViewModel.connectionState.collectAsStateWithLifecycle()
 
     // One hoisted scroll state per scrolling destination. Declared here so a tab
     // swap disposes the content but not its scroll position.
@@ -164,14 +181,31 @@ fun MainScreen(modifier: Modifier = Modifier) {
                     .consumeWindowInsets(innerPadding)
             ) {
                 when (destination) {
-                    MainDestination.HISTORY -> HistoryRoute(listState = historyListState)
+                    MainDestination.HISTORY -> HistoryRoute(
+                        connectionState = connectionState,
+                        listState = historyListState
+                    )
+
                     MainDestination.SENSORS -> SensorsRoute(
                         onOpenSettings = { selected = MainDestination.SETTINGS },
+                        connectionState = connectionState,
                         listState = sensorsListState
                     )
-                    MainDestination.WARNING -> WarningRoute(listState = warningListState)
-                    MainDestination.CHAT -> ChatRoute(listState = chatListState)
-                    MainDestination.SETTINGS -> SettingsRoute(listState = settingsListState)
+
+                    MainDestination.WARNING -> WarningRoute(
+                        connectionState = connectionState,
+                        listState = warningListState
+                    )
+
+                    MainDestination.CHAT -> ChatRoute(
+                        connectionState = connectionState,
+                        listState = chatListState
+                    )
+
+                    MainDestination.SETTINGS -> SettingsRoute(
+                        connectionState = connectionState,
+                        listState = settingsListState
+                    )
                 }
 
             }
