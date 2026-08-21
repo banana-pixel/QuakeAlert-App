@@ -16,9 +16,8 @@ import id.web.quakealert.data.network.ApiException
 import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.mapper.QuakeFormat
 import id.web.quakealert.data.users.LocationSyncResult
-import id.web.quakealert.device.AlertSiren
+import id.web.quakealert.device.hasLocationPermission
 import id.web.quakealert.domain.SafetyPolicy
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -97,14 +96,20 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
         viewModelScope.launch {
             network.sessionStore.userLocation.collect { location ->
-                _uiState.update { it.copy(locationLabel = location?.locationName) }
+                _uiState.update {
+                    it.copy(
+                        locationLabel = location?.locationName,
+                        latitude = location?.latitude,
+                        longitude = location?.longitude
+                    )
+                }
             }
         }
     }
 
     /**
      * Re-reads the two pieces of state the user can change outside the app — the
-     * notification grant and the battery-optimisation exemption.
+     * notification grant, the location grant and the battery-optimisation exemption.
      *
      * Called from `init` and again whenever the screen resumes, since both can be
      * revoked in system Settings while the app sits in the background.
@@ -114,6 +119,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _uiState.update {
             it.copy(
                 notificationPermissionGranted = context.canPostNotifications(),
+                locationPermissionGranted = context.hasLocationPermission(),
                 batteryUnrestricted = context.isBatteryUnrestricted()
             )
         }
@@ -162,27 +168,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
      */
     fun onLocationPermissionDenied() {
         post("Location permission denied — enable it in system Settings to sync")
-    }
-
-    /**
-     * "Test Alert Sound" — plays the real siren on the alarm stream for a few
-     * seconds so the user can check audibility before an actual quake.
-     *
-     * The same [AlertSiren] the warning path uses, deliberately: a test that played
-     * a different tone at a different volume would prove nothing. Stopped explicitly
-     * rather than left to the 90 s expiry.
-     */
-    fun onTestAlertSound() {
-        viewModelScope.launch {
-            val siren = AlertSiren(getApplication())
-            siren.start()
-            post("Playing test alert on the alarm volume")
-            try {
-                delay(TEST_SOUND_MS)
-            } finally {
-                siren.release()
-            }
-        }
     }
 
     /**
@@ -319,7 +304,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private companion object {
         const val TAG = "SettingsViewModel"
-        const val TEST_SOUND_MS = 3_000L
         const val HTTP_TOO_MANY_REQUESTS = 429
     }
 }

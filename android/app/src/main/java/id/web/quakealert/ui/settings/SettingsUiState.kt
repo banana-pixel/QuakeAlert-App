@@ -39,6 +39,11 @@ enum class AppLanguage(val label: String, val tag: String) {
  *
  * @param locationLabel the reverse-geocoded name of the last synced position, or
  *   null when the device has never synced one.
+ * @param latitude latitude of the last synced position, centring the coverage
+ *   card's basemap, or null when none was ever synced — a map confidently centred
+ *   on somewhere the user is not is worse than one that admits it has no fix, and
+ *   [locationPillLabel] already says so.
+ * @param longitude longitude of the last synced position; see [latitude].
  * @param sensorCount stations the server reports inside the alert radius.
  * @param lastSyncLabel human-readable last-sync time ("2 min. ago"), or null for
  *   "never".
@@ -49,6 +54,10 @@ enum class AppLanguage(val label: String, val tag: String) {
  *   revoked system permission has to be surfaced rather than silently flipping the
  *   user's preference.
  * @param notificationPermissionGranted whether the OS currently allows posting.
+ * @param locationPermissionGranted whether the OS currently allows reading a
+ *   position. Without it the device never registers a location, so every alert is
+ *   filtered out by distance before it can be shown — which looks exactly like a
+ *   quiet week.
  * @param batteryUnrestricted whether the app is exempt from battery optimisation.
  *   Doze can delay a data-only push, so this is a delivery setting, not a nicety.
  * @param isSyncing a position sync is in flight (the refresh control spins).
@@ -71,11 +80,14 @@ enum class AppLanguage(val label: String, val tag: String) {
 @Immutable
 data class SettingsUiState(
     val locationLabel: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
     val sensorCount: Int = 0,
     val lastSyncLabel: String? = null,
     val autoSyncLocation: Boolean = true,
     val notificationsEnabled: Boolean = true,
     val notificationPermissionGranted: Boolean = true,
+    val locationPermissionGranted: Boolean = true,
     val batteryUnrestricted: Boolean = false,
     val isSyncing: Boolean = false,
     val statusMessage: String? = null,
@@ -126,7 +138,29 @@ data class SettingsUiState(
     val alertsDeliverable: Boolean
         get() = notificationsEnabled && notificationPermissionGranted
 
+    /**
+     * How many of the three delivery prerequisites are satisfied, for the hub's
+     * "2 of 3 ready" summary.
+     *
+     * Counted rather than reduced to a boolean because partial readiness is the
+     * common case and the honest thing to print: an app with notifications but no
+     * location will pass any single check the user happens to look at.
+     */
+    val permissionsReadyCount: Int
+        get() = listOf(
+            notificationPermissionGranted,
+            locationPermissionGranted,
+            batteryUnrestricted
+        ).count { it }
+
+    /** Total prerequisites the hub lists. */
+    val permissionsTotal: Int get() = PERMISSIONS_TOTAL
+
+    /** Whether every prerequisite is satisfied — the hub's only all-clear. */
+    val allPermissionsReady: Boolean get() = permissionsReadyCount == PERMISSIONS_TOTAL
+
     private companion object {
+        const val PERMISSIONS_TOTAL = 3
         const val FIXED_GEOFENCE_FRACTION = 0.8f
     }
 }

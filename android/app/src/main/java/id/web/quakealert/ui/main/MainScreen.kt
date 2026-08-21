@@ -187,7 +187,6 @@ fun MainScreen(
                     )
 
                     MainDestination.SENSORS -> SensorsRoute(
-                        onOpenSettings = { selected = MainDestination.SETTINGS },
                         connectionState = connectionState,
                         listState = sensorsListState
                     )

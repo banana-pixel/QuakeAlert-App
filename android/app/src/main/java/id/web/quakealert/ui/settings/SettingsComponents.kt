@@ -1,5 +1,6 @@
 package id.web.quakealert.ui.settings
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,6 +31,7 @@ import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.theme.AboutButtonFill
 import id.web.quakealert.ui.theme.AboutCardBorder
 import id.web.quakealert.ui.theme.AboutCardGradient
+import id.web.quakealert.ui.theme.BorderFaint
 import id.web.quakealert.ui.theme.BorderLight
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.CardSubtitle
@@ -37,11 +39,14 @@ import id.web.quakealert.ui.theme.CardTitle
 import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.InfoPillFill
+import id.web.quakealert.ui.theme.MmiOrange
 import id.web.quakealert.ui.theme.MmiRed
 import id.web.quakealert.ui.theme.PillLabel
 import id.web.quakealert.ui.theme.SectionHeaderPillFill
 import id.web.quakealert.ui.theme.SegmentActiveFill
 import id.web.quakealert.ui.theme.SegmentInactiveFill
+import id.web.quakealert.ui.theme.SuccessGreen
+import id.web.quakealert.ui.theme.SuccessGreenTranslucent
 import id.web.quakealert.ui.theme.TextPrimary
 import id.web.quakealert.ui.theme.TextSecondary
 import kotlin.math.roundToInt
@@ -305,6 +310,134 @@ fun ProtectionStatusCardBody(
                 "wherever you are. At that size there is no distance at which you " +
                 "did not need to know."
         )
+    }
+}
+
+/**
+ * The permissions hub's body: the three system prerequisites an alert has to clear
+ * before it can reach the user, each with its live grant state and a tap that fixes
+ * it (Settings "Alert & Notification" section).
+ *
+ * Grouped into one panel rather than left as three unrelated rows because they fail
+ * as a set: notifications allowed but location denied means every alert is discarded
+ * by distance before it is shown, and a user reading a single green row has no way to
+ * know that. The summary line above them counts what is ready, so a partial state
+ * cannot pass for a working one.
+ *
+ * Each row states *why* it matters, not just what it is — a permission list with no
+ * consequences attached invites the user to decline the one that looks optional.
+ *
+ * @param notificationGranted the OS `POST_NOTIFICATIONS` grant.
+ * @param locationGranted whether a position can be read at all.
+ * @param batteryUnrestricted whether Doze is exempted for this app.
+ * @param onFixNotifications opens the app's notification settings.
+ * @param onFixLocation requests (or, after a terminal decline, points at) the
+ *   location permission.
+ * @param onFixBattery opens the battery-optimisation screen.
+ */
+@Composable
+fun PermissionsHubCardBody(
+    notificationGranted: Boolean,
+    locationGranted: Boolean,
+    batteryUnrestricted: Boolean,
+    onFixNotifications: () -> Unit,
+    onFixLocation: () -> Unit,
+    onFixBattery: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardContentGap)
+    ) {
+        PermissionHubRow(
+            iconRes = R.drawable.ic_notification_permission,
+            title = "Notifications",
+            detail = "Without this the warning arrives silently, or not at all.",
+            granted = notificationGranted,
+            grantedLabel = "Allowed",
+            onFix = onFixNotifications
+        )
+        PermissionHubRow(
+            iconRes = R.drawable.ic_pin_location,
+            title = "Precise Location",
+            detail = "Alerts are chosen by how close the quake is to you. With no " +
+                "position, every one of them is filtered out.",
+            granted = locationGranted,
+            grantedLabel = "Allowed",
+            onFix = onFixLocation
+        )
+        PermissionHubRow(
+            iconRes = R.drawable.ic_battery_optimization,
+            title = "Background Delivery",
+            detail = "Doze can hold a push until the next maintenance window. For a " +
+                "few seconds of warning, that is the same as never.",
+            granted = batteryUnrestricted,
+            grantedLabel = "Unrestricted",
+            onFix = onFixBattery
+        )
+    }
+}
+
+/**
+ * One prerequisite in [PermissionsHubCardBody].
+ *
+ * Clickable only while unsatisfied: a granted row has nothing left to do, and a tap
+ * that opens system Settings to show the user what they already did is noise. The
+ * missing state is tinted [MmiOrange] rather than red — it is a gap the user can
+ * close in one tap, not a failure.
+ */
+@Composable
+private fun PermissionHubRow(
+    @DrawableRes iconRes: Int,
+    title: String,
+    detail: String,
+    granted: Boolean,
+    grantedLabel: String,
+    onFix: () -> Unit
+) {
+    val shape = RoundedCornerShape(Dimens.RadiusSmall)
+    val base = Modifier
+        .fillMaxWidth()
+        .clip(shape)
+        .background(if (granted) SuccessGreenTranslucent else InfoPillFill, shape)
+        .border(Dimens.BorderThin, if (granted) BorderFaint else BorderLight, shape)
+    Row(
+        modifier = (if (granted) base else base.clickable(role = Role.Button, onClick = onFix))
+            .padding(Dimens.SettingCardContentGap),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.SettingCardContentGap),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            painter = painterResource(id = iconRes),
+            contentDescription = null,
+            tint = if (granted) SuccessGreen else MmiOrange,
+            modifier = Modifier.size(Dimens.PermissionHubGlyphSize)
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)
+        ) {
+            Text(text = title, style = ChipLabel, color = TextPrimary)
+            Text(text = detail, style = CardSubtitle, color = TextSecondary)
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (granted) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_check_circle),
+                    contentDescription = null,
+                    tint = SuccessGreen,
+                    modifier = Modifier.size(Dimens.PermissionHubBadgeGlyphSize)
+                )
+            }
+            Text(
+                text = if (granted) grantedLabel else "Fix",
+                style = ChipLabel,
+                color = if (granted) TextPrimary else MmiOrange
+            )
+        }
     }
 }
 

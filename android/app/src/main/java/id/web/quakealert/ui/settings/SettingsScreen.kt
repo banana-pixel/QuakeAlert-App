@@ -27,7 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import android.content.Context
@@ -54,6 +56,7 @@ import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeCard
 import id.web.quakealert.ui.common.QuakePill
 import id.web.quakealert.ui.common.QuakeSwitch
+import id.web.quakealert.ui.common.TestAlertSoundDialog
 import id.web.quakealert.ui.common.fadingEdges
 import id.web.quakealert.ui.sensors.SensorMapCard
 import id.web.quakealert.ui.sensors.SensorMapOverview
@@ -139,14 +142,27 @@ fun SettingsRoute(
         { value -> clipboard.setText(AnnotatedString(value)) }
     }
 
+    // Local to the Route rather than in SettingsUiState: the modal owns its own
+    // playback and there is nothing for the ViewModel to decide or persist about it,
+    // so putting it in the state would only widen what a Settings test has to know.
+    var showTestAlertSound by remember { mutableStateOf(false) }
+    if (showTestAlertSound) {
+        TestAlertSoundDialog(onDismissRequest = { showTestAlertSound = false })
+    }
+
     SettingsScreen(
         uiState = uiState,
         connectionState = connectionState,
         onAutoSyncToggled = viewModel::onAutoSyncToggled,
         onSyncLocationNow = syncLocation,
         onNotificationsToggled = viewModel::onNotificationsToggled,
-        onTestAlertSound = viewModel::onTestAlertSound,
+        onTestAlertSound = { showTestAlertSound = true },
         onBatterySettings = { context.openBatteryOptimizationSettings() },
+        onFixNotifications = { context.openNotificationSettings() },
+        // The same launcher "Sync Now" uses: granting the permission and taking a
+        // first fix are one action, and a grant that leaves the position unset would
+        // still show the checklist's own consequence.
+        onFixLocation = syncLocation,
         onCopyValue = copy,
         onRerollPseudonym = viewModel::onRerollPseudonym,
         onResetProfileRequested = viewModel::onResetProfileRequested,
@@ -164,6 +180,26 @@ fun SettingsRoute(
         listState = listState,
         modifier = modifier
     )
+}
+
+/**
+ * Opens the app's notification settings, the only place a revoked
+ * `POST_NOTIFICATIONS` grant can be restored — a second runtime request is a no-op
+ * once the user has denied it twice, so a launcher here would silently do nothing.
+ * Falls back to the app's own detail page on a device without the direct screen.
+ */
+private fun Context.openNotificationSettings() {
+    val intents = listOf(
+        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+        Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", packageName, null)
+        )
+    )
+    intents.firstNotNullOfOrNull { intent ->
+        runCatching { startActivity(intent) }.getOrNull()
+    }
 }
 
 /**
@@ -193,15 +229,16 @@ private fun Context.openBatteryOptimizationSettings() {
  * top → bottom:
  *  1. A static [QuakeAppBar] header ("Settings" + connection badge), plus a status
  *     pill for the result of the last action.
- *  2. "Location & Coverage": the [SensorMapCard], the read-only
+ *  2. "Location & Coverage": the read-only
  *     [ProtectionStatusCardBody] stating the fixed safety rules, "Sync Location
- *     Now" and the "Auto Sync Location" switch. There is no radius control — see
+ *     Now" — which now carries the [SensorMapCard] inline, confirming the position
+ *     the control produces — and the "Auto Sync Location" switch. There is no radius control — see
  *     [id.web.quakealert.domain.SafetyPolicy] for why that decision is not the
  *     user's to make.
  *  3. "Alert & Notification": the alert switch (which also surfaces a revoked OS
- *     notification permission), "Test Alert Sound", and the battery-optimisation
- *     row — Doze can hold a data-only push until the next maintenance window, which
- *     for an earthquake warning means it never arrives.
+ *     notification permission), "Test Alert Sound", and the "Delivery Checklist" —
+ *     the three system prerequisites (notifications, location, Doze exemption)
+ *     grouped in one panel because they fail as a set, not one at a time.
  *  4. "Account & Privacy": the anonymous pseudonym and `user_id`, both copyable,
  *     with a reroll and an irreversible profile reset behind a confirmation.
  *  5. "Appearance & Look": "Light Mode (Beta)" and the "Units" / "Language"
@@ -220,6 +257,8 @@ fun SettingsScreen(
     onNotificationsToggled: (Boolean) -> Unit,
     onTestAlertSound: () -> Unit,
     onBatterySettings: () -> Unit,
+    onFixNotifications: () -> Unit,
+    onFixLocation: () -> Unit,
     onCopyValue: (String) -> Unit,
     onRerollPseudonym: () -> Unit,
     onResetProfileRequested: () -> Unit,
@@ -275,21 +314,6 @@ fun SettingsScreen(
                 CenteredSectionBadge(title = "Location & Coverage")
             }
 
-            item(key = "map_coverage") {
-                // Same linked map as the Sensors screen, minus the settings
-                // shortcut (Settings passes no onSettingsShortcut). The circle is
-                // the fixed alert radius, so it no longer moves with a control.
-                SensorMapCard(
-                    overview = SensorMapOverview(
-                        locationLabel = uiState.locationPillLabel,
-                        rangeKm = SafetyPolicy.ALERT_RADIUS_KM,
-                        sensorCount = uiState.sensorCount,
-                        geofenceFraction = uiState.geofenceFraction
-                    ),
-                    unitSystem = uiState.unitSystem
-                )
-            }
-
             item(key = "card_protection") {
                 QuakeCard(
                     title = "Protection Status",
@@ -305,7 +329,29 @@ fun SettingsScreen(
             item(key = "card_location") {
                 QuakeCard(
                     title = "Sync Location Now",
-                    detail = { QuakePill(text = uiState.lastSyncPillLabel) }
+                    detail = {
+                        QuakePill(text = uiState.lastSyncPillLabel)
+                        // The map moved inside this card (plan item 9): what a sync
+                        // produces is a position, so the confirmation of it belongs
+                        // next to the control that asks for one rather than in a
+                        // separate card the user has to connect it to. Short, and
+                        // without the coverage circle — at 130dp the circle would
+                        // fill the frame and say nothing about coverage.
+                        SensorMapCard(
+                            overview = SensorMapOverview(
+                                locationLabel = uiState.locationPillLabel,
+                                rangeKm = SafetyPolicy.ALERT_RADIUS_KM,
+                                sensorCount = uiState.sensorCount,
+                                geofenceFraction = uiState.geofenceFraction,
+                                latitude = uiState.latitude,
+                                longitude = uiState.longitude
+                            ),
+                            unitSystem = uiState.unitSystem,
+                            showGeofence = false,
+                            height = Dimens.MapCardInlineHeight,
+                            modifier = Modifier.padding(top = Dimens.SettingCardTitleGap)
+                        )
+                    }
                 ) {
                     if (uiState.isSyncing) {
                         CircularProgressIndicator(
@@ -359,22 +405,30 @@ fun SettingsScreen(
                 )
             }
 
-            item(key = "card_battery") {
+            item(key = "card_permissions") {
                 QuakeCard(
-                    title = "Background Delivery",
-                    onClick = onBatterySettings.takeIf { !uiState.batteryUnrestricted },
+                    title = "Delivery Checklist",
                     detail = {
                         QuakePill(
-                            text = if (uiState.batteryUnrestricted) {
-                                "Unrestricted — alerts can wake the device"
+                            text = if (uiState.allPermissionsReady) {
+                                "All set — alerts can reach you"
                             } else {
-                                "Battery optimised — alerts may be delayed"
+                                "${uiState.permissionsReadyCount} of " +
+                                    "${uiState.permissionsTotal} ready"
                             }
+                        )
+                        PermissionsHubCardBody(
+                            notificationGranted = uiState.notificationPermissionGranted,
+                            locationGranted = uiState.locationPermissionGranted,
+                            batteryUnrestricted = uiState.batteryUnrestricted,
+                            onFixNotifications = onFixNotifications,
+                            onFixLocation = onFixLocation,
+                            onFixBattery = onBatterySettings,
+                            modifier = Modifier.padding(top = Dimens.SettingCardTitleGap)
                         )
                     }
                 )
             }
-
 
             // --- Account & Privacy ----------------------------------------
             item(key = "header_account") {
@@ -581,6 +635,8 @@ private fun SettingsScreenPreview() {
             ),
             onAutoSyncToggled = {},
             onSyncLocationNow = {},
+            onFixNotifications = {},
+            onFixLocation = {},
             onNotificationsToggled = {},
             onTestAlertSound = {},
             onBatterySettings = {},
