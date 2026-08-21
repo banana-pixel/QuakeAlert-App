@@ -120,6 +120,10 @@ fun QuakeHistoryItem.toShareText(unitSystem: UnitSystem): String = buildString {
  *   `min_pga` and `since` — so a matching event on page 3 is never lost behind
  *   twenty rows that were fetched and then hidden, and each page arrives full so
  *   pagination keeps working.
+ * @param needsPosition true when the feed is filtered to "Near" and the device has
+ *   never synced a position, so there is nothing to measure a radius from. Its own
+ *   flag rather than an empty list: no request is issued at all in this state, and
+ *   the screen offers a sync instead of a reset.
  * @param isLoadingMore true while the next page is in flight; distinct from
  *   [isLoading] so appending does not blank the list already on screen.
  * @param isRefreshing true while a pull-to-refresh is in flight. A third loading
@@ -141,6 +145,7 @@ data class HistoryUiState(
     val filter: QuakeFilterState = QuakeFilterState(),
     val unitSystem: UnitSystem = UnitSystem.METRIC,
     val items: List<QuakeHistoryItem> = emptyList(),
+    val needsPosition: Boolean = false,
     val isLoadingMore: Boolean = false,
     val isRefreshing: Boolean = false,
     val hasMore: Boolean = false,

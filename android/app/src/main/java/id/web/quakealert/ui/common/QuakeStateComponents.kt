@@ -248,6 +248,34 @@ fun QuakeNoCoverageState(
 }
 
 /**
+ * "Location Not Synced" — the user asked for events near them and the device has
+ * never told the server where that is.
+ *
+ * Its own state rather than an empty result, because the alternatives are both
+ * dishonest: the client drops the `range_km`/`latitude`/`longitude` trio when it has
+ * no position, so a "Near" query without a fix returns the whole country under a
+ * pill that says "Near" — a user reading it would conclude those events are next to
+ * them. Nothing is requested in this state at all; there is no question to ask yet.
+ *
+ * @param onSyncLocation opens the Settings screen, where "Sync Location Now" is the
+ *   one control that resolves this.
+ */
+@Composable
+fun QuakeNoPositionState(
+    onSyncLocation: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    QuakeEmptyState(
+        icon = R.drawable.ic_nav_settings,
+        message = "Location Not Synced",
+        modifier = modifier,
+        subtitle = "QuakeAlert needs your location before it can show what is near you.",
+        actionLabel = "Sync Location",
+        onAction = onSyncLocation
+    )
+}
+
+/**
  * "No Stations Match" — the roll came back with stations in it, but the
  * station-status criterion excluded all of them.
  *
@@ -426,6 +454,14 @@ private fun QuakeEmptyStatePreview() {
 private fun QuakeNoCoverageStatePreview() {
     QuakeAlertTheme {
         QuakeNoCoverageState(onWidenRadius = {})
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun QuakeNoPositionStatePreview() {
+    QuakeAlertTheme {
+        QuakeNoPositionState(onSyncLocation = {})
     }
 }
 

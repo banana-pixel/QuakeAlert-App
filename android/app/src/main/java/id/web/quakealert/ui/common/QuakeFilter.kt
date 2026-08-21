@@ -175,6 +175,18 @@ data class QuakeFilterState(
         get() = radius.km.takeIf { mode == QuakeFilter.NEAR }
 
     /**
+     * Whether this filter asks a question that cannot be answered without a device
+     * position: "Near" is measured from one, and [QuakeFilter.ALL] is not.
+     *
+     * Lives here, next to [eventsRadiusKm], because it is the same fact read the
+     * other way round: a radius the client cannot send is a query it must not issue.
+     *
+     * @param hasPosition whether a position has ever been synced.
+     */
+    fun needsPosition(hasPosition: Boolean): Boolean =
+        mode == QuakeFilter.NEAR && !hasPosition
+
+    /**
      * Radius for `/sensors`, clamped to the endpoint's 500 km ceiling. The clamp is
      * surfaced in the sheet via [isSensorsRadiusClamped] rather than applied
      * silently, because a 1000 km request would otherwise be rejected by the server

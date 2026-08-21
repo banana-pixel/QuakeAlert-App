@@ -196,6 +196,11 @@ fun MainScreen(
                         when (destination) {
                             MainDestination.HISTORY -> HistoryRoute(
                                 connectionState = connectionState,
+                                // A "Near" feed with no synced position offers a
+                                // sync, and the control that performs one lives on
+                                // Settings — so the offer switches tabs rather than
+                                // duplicating that control here.
+                                onSyncLocation = { selected = MainDestination.SETTINGS },
                                 listState = historyListState
                             )
 

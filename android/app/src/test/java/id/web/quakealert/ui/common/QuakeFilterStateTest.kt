@@ -170,6 +170,22 @@ class QuakeFilterStateTest {
     }
 
     @Test
+    fun `near without a synced position has no query behind it`() {
+        val near = QuakeFilterState(mode = QuakeFilter.NEAR)
+
+        // The one combination that must not reach the network: the client drops the
+        // spatial trio when it has no centre, which would answer "Near" with the
+        // whole feed.
+        assertTrue(near.needsPosition(hasPosition = false))
+        assertFalse(near.needsPosition(hasPosition = true))
+
+        // "All areas" is measured from nothing, so a missing fix changes nothing.
+        val all = QuakeFilterState(mode = QuakeFilter.ALL)
+        assertFalse(all.needsPosition(hasPosition = false))
+        assertFalse(all.needsPosition(hasPosition = true))
+    }
+
+    @Test
     fun `default radius equals the documented history near radius`() {
         assertEquals(
             SafetyPolicy.HISTORY_NEAR_RADIUS_KM,

@@ -39,8 +39,10 @@ import id.web.quakealert.ui.common.QuakeFilter
 import id.web.quakealert.ui.common.FilterSection
 import id.web.quakealert.ui.common.QuakeFilterDialog
 import id.web.quakealert.ui.common.QuakeFilterRow
+import id.web.quakealert.ui.common.QuakeFilterState
 import id.web.quakealert.ui.common.QuakeFilterViewModel
 import id.web.quakealert.ui.common.QuakeNoDataState
+import id.web.quakealert.ui.common.QuakeNoPositionState
 import id.web.quakealert.ui.common.QuakeSkeletonList
 import id.web.quakealert.ui.common.fadingEdges
 import id.web.quakealert.ui.theme.Dimens
@@ -59,6 +61,7 @@ import id.web.quakealert.ui.theme.QuakeAlertTheme
 @Composable
 fun HistoryRoute(
     connectionState: ServerConnectionState,
+    onSyncLocation: () -> Unit,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     viewModel: HistoryViewModel = viewModel(),
@@ -102,6 +105,7 @@ fun HistoryRoute(
         onSeeMoreClicked = viewModel::onSeeMoreClicked,
         onDetailDismissed = viewModel::onDetailDismissed,
         onRetry = viewModel::onRetry,
+        onSyncLocation = onSyncLocation,
         onRefresh = viewModel::onRefresh,
         onLoadMore = viewModel::onLoadMore,
         listState = listState,
@@ -156,6 +160,7 @@ fun HistoryScreen(
     onSeeMoreClicked: (QuakeHistoryItem) -> Unit,
     onDetailDismissed: () -> Unit,
     onRetry: () -> Unit,
+    onSyncLocation: () -> Unit = {},
     onFilterSheetClicked: (() -> Unit)? = null,
     onFiltersReset: () -> Unit = {},
     onRefresh: () -> Unit = {},
@@ -237,6 +242,14 @@ fun HistoryScreen(
                     // filter the server refused is the one failure the user can
                     // resolve themselves.
                     onResetFilters = onFiltersReset
+                )
+
+                // Checked before the empty branch: with no fix there was no query,
+                // so calling it "no data" would blame the network for a question
+                // that was never asked.
+                uiState.needsPosition -> QuakeNoPositionState(
+                    onSyncLocation = onSyncLocation,
+                    modifier = bodyModifier
                 )
 
                 // An empty feed under a filter is a different statement from an
@@ -375,6 +388,24 @@ private fun HistoryScreenEmptyPreview() {
     QuakeAlertTheme {
         HistoryScreen(
             uiState = HistoryUiState(),
+            onModeSelected = {},
+            onShareClicked = {},
+            onSeeMoreClicked = {},
+            onDetailDismissed = {},
+            onRetry = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun HistoryScreenNoPositionPreview() {
+    QuakeAlertTheme {
+        HistoryScreen(
+            uiState = HistoryUiState(
+                needsPosition = true,
+                filter = QuakeFilterState(mode = QuakeFilter.NEAR)
+            ),
             onModeSelected = {},
             onShareClicked = {},
             onSeeMoreClicked = {},

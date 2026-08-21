@@ -97,8 +97,24 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
                     isLoading = !isRefresh,
                     isRefreshing = isRefresh,
                     isError = false,
-                    errorCopy = null
+                    errorCopy = null,
+                    needsPosition = false
                 )
+            }
+            // Asked before anything is requested: "Near" with no fix has no query
+            // behind it, so the screen says so instead of showing a national feed
+            // under a pill that reads "Near".
+            if (needsPosition()) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        isRefreshing = false,
+                        items = emptyList(),
+                        hasMore = false,
+                        needsPosition = true
+                    )
+                }
+                return@launch
             }
             try {
                 val items = fetchPage(offset = 0)
@@ -150,6 +166,7 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
     fun onLoadMore() {
         val state = _uiState.value
         if (state.isLoading || state.isLoadingMore || !state.hasMore) return
+        if (state.needsPosition) return
 
         _uiState.update { it.copy(isLoadingMore = true) }
         viewModelScope.launch {
@@ -191,10 +208,25 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
      * 20-item page down to two locally would read as "no more data" to the screen's
      * prefetch and stall pagination.
      *
-     * With no stored position there is nothing to measure a radius from, so the
-     * spatial part is dropped and the rest of the filter still applies — the same
-     * fail-open reasoning as [id.web.quakealert.domain.AlertGate].
+     * A radius is only ever sent in "Near" mode, and [needsPosition] has already
+     * stopped that mode from reaching here without a fix, so the spatial trio is
+     * either complete or absent. It is never half-sent, which is what the server
+     * answers 400 to.
      */
+    /**
+     * Whether the current filter asks a question the device cannot answer: "Near"
+     * measured from a position that has never been synced.
+     *
+     * Read from the session store rather than tracked as state, because the position
+     * can be synced from Settings while this screen sits in the background, and a
+     * cached "no" would keep the sync-prompt up after the user did exactly what it
+     * asked.
+     */
+    private suspend fun needsPosition(): Boolean =
+        _uiState.value.filter.needsPosition(
+            hasPosition = apiClient.currentUserLocation() != null
+        )
+
     private suspend fun fetchPage(offset: Int): List<QuakeHistoryItem> {
         val userLocation = apiClient.currentUserLocation()
         val filter = _uiState.value.filter
