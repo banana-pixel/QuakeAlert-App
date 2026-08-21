@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,7 +23,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import id.web.quakealert.R
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.theme.CardBorder
@@ -30,6 +30,7 @@ import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.FilterActiveFill
 import id.web.quakealert.ui.theme.FilterInactiveFill
+import id.web.quakealert.ui.theme.MmiOrange
 import id.web.quakealert.ui.theme.TextPrimary
 
 
@@ -37,21 +38,27 @@ import id.web.quakealert.ui.theme.TextPrimary
  * Shared row of filter controls beneath a screen header, used identically by
  * History (Figma node 1:711) and Sensors (Figma node 1:1105):
  *  - "All" pill
- *  - "Near - {radius}{unit}" pill (km or mi, driven by [UnitSystem])
- *  - an optional trailing calendar icon button, rendered only when
- *    [onCalendarClicked] is supplied
+ *  - "Near" pill
+ *  - a trailing `filter-lines` button opening [QuakeFilterDialog], rendered only
+ *    when [onFilterSheetClicked] is supplied
  *
- * The row is stateless and generic over the shared [QuakeFilter] enum so both
- * screens can reuse it without duplicating styling or token wiring. The current
- * [selectedFilter] and callbacks are hoisted to the caller.
+ * The "Near" pill no longer prints its radius. The radius is now the user's to
+ * choose in the sheet, so baking it into the pill label would either go stale or
+ * make the pill grow and shrink as the sheet changed — the active radius is shown
+ * in the sheet, and named again by the no-data card when a filter finds nothing.
+ *
+ * The row is stateless: the current [filter] and callbacks are hoisted to the
+ * caller, which on both screens is the shared [QuakeFilterViewModel].
+ *
+ * @param unitSystem still required — the sheet's radius options are rendered in
+ *   the user's unit, and this row hands it down.
  */
 @Composable
 fun QuakeFilterRow(
-    selectedFilter: QuakeFilter,
-    nearRadiusKm: Int,
+    filter: QuakeFilterState,
     unitSystem: UnitSystem,
-    onFilterSelected: (QuakeFilter) -> Unit,
-    onCalendarClicked: (() -> Unit)? = null,
+    onModeSelected: (QuakeFilter) -> Unit,
+    onFilterSheetClicked: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -61,20 +68,23 @@ fun QuakeFilterRow(
     ) {
         FilterPill(
             label = "All",
-            selected = selectedFilter == QuakeFilter.ALL,
-            onClick = { onFilterSelected(QuakeFilter.ALL) }
+            selected = filter.mode == QuakeFilter.ALL,
+            onClick = { onModeSelected(QuakeFilter.ALL) }
         )
         FilterPill(
-            label = "Near - ${unitSystem.convertFromKm(nearRadiusKm)}${unitSystem.distanceUnit}",
-            selected = selectedFilter == QuakeFilter.NEAR,
-            onClick = { onFilterSelected(QuakeFilter.NEAR) }
+            label = "Near",
+            selected = filter.mode == QuakeFilter.NEAR,
+            onClick = { onModeSelected(QuakeFilter.NEAR) }
         )
-        // Omitted, not disabled, when the caller has no date filter to offer: the
-        // server exposes no date parameters, and a visible control that does
-        // nothing when tapped reads as a broken app rather than a missing feature.
-        onCalendarClicked?.let { openPicker ->
+        // Omitted, not disabled, when the caller has no sheet to offer: a visible
+        // control that does nothing when tapped reads as a broken app rather than a
+        // missing feature.
+        onFilterSheetClicked?.let { openSheet ->
             Spacer(modifier = Modifier.weight(1f))
-            CalendarButton(onClick = openPicker)
+            FilterSheetButton(
+                activeCriteriaCount = filter.activeCriteriaCount,
+                onClick = openSheet
+            )
         }
     }
 }
@@ -122,17 +132,28 @@ private fun FilterPill(
 
 
 /**
- * Rounded-square (squircle) calendar icon button that opens a date-range picker.
- * Uses the same height, corner radius and border token as the filter pills so it
- * aligns flush with them (Figma node 1:701 / 1:1105), kept at its compact Figma
- * 30dp with no touch-target padding.
+ * Rounded-square (squircle) `filter-lines` button that opens [QuakeFilterDialog]
+ * (Figma node 1:714, glyph component 149:1093). Uses the same height, corner
+ * radius and border token as the filter pills so it aligns flush with them, kept
+ * at its compact Figma 30dp with no touch-target padding.
+ *
+ * @param activeCriteriaCount how many sheet criteria are narrowing the query. A
+ *   non-zero count paints a dot on the corner and is spoken in the content
+ *   description, because a filter the user forgot about is indistinguishable from
+ *   a network with nothing to report.
  */
 @Composable
-private fun CalendarButton(
+private fun FilterSheetButton(
+    activeCriteriaCount: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(Dimens.RadiusSmall)
+    val description = if (activeCriteriaCount == 0) {
+        "Filter"
+    } else {
+        "Filter, $activeCriteriaCount active"
+    }
     Box(
         modifier = modifier
             .size(Dimens.FilterPillHeight)
@@ -144,10 +165,22 @@ private fun CalendarButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            painter = painterResource(id = R.drawable.ic_calendar),
-            contentDescription = "Filter by date",
+            painter = painterResource(id = R.drawable.ic_filter_lines),
+            contentDescription = description,
             tint = TextPrimary,
-            modifier = Modifier.size(16.dp)
+            modifier = Modifier.size(Dimens.FilterTriggerGlyphSize)
         )
+        if (activeCriteriaCount > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    // Nudged outward so the dot reads as a badge on the button's corner
+                    // rather than as part of the glyph.
+                    .offset(x = Dimens.FilterTriggerBadgeSize / 2, y = -Dimens.FilterTriggerBadgeSize / 2)
+                    .size(Dimens.FilterTriggerBadgeSize)
+                    .clip(RoundedCornerShape(Dimens.RadiusStadium))
+                    .background(MmiOrange)
+            )
+        }
     }
 }

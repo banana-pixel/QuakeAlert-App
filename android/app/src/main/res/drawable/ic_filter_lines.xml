@@ -1,0 +1,17 @@
+<!--
+  filter-lines glyph for the filter sheet trigger in the shared filter row
+  (Figma node 1:714, component 149:1093). Stroked, not filled, so it is tinted by
+  the caller like every other icon in ui/common.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="20dp"
+    android:height="20dp"
+    android:viewportWidth="20"
+    android:viewportHeight="20">
+    <path
+        android:pathData="M5 10H15M2.5 5H17.5M7.5 15H12.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

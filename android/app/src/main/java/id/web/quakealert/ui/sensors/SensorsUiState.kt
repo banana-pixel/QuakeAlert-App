@@ -3,7 +3,7 @@ package id.web.quakealert.ui.sensors
 import androidx.compose.runtime.Immutable
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.domain.SafetyPolicy
-import id.web.quakealert.ui.common.QuakeFilter
+import id.web.quakealert.ui.common.QuakeFilterState
 
 /**
  * Connectivity state of a sensor station, driving the coloured status chip on a
@@ -60,13 +60,20 @@ data class SensorStationItem(
  * @param geofenceFraction radius of the reactive coverage circle as a fraction
  *   (0f..1f) of the card's minimum side, so the visualised radius scales with the
  *   selected coverage.
+ * @param latitude device latitude the basemap is centred on, or null when no
+ *   position has ever been synced. Null rather than a default coordinate on
+ *   purpose: a map confidently centred on somewhere the user is not is worse than
+ *   a map that admits it has no fix, and [locationLabel] already says so.
+ * @param longitude device longitude; see [latitude].
  */
 @Immutable
 data class SensorMapOverview(
     val locationLabel: String,
     val rangeKm: Int,
     val sensorCount: Int,
-    val geofenceFraction: Float = 0.9f
+    val geofenceFraction: Float = 0.9f,
+    val latitude: Double? = null,
+    val longitude: Double? = null
 ) {
     /**
      * Pre-formatted "Range : {km} km, {n} sensors" summary badge text in the
@@ -80,7 +87,7 @@ data class SensorMapOverview(
 /**
  * Immutable UI state for the Sensors screen (Figma node 1:1081). Hoisted into
  * [SensorsViewModel] and consumed by the stateless [SensorsScreen]. The filter
- * uses the shared [QuakeFilter] enum common to History and Sensors.
+ * uses the shared [QuakeFilterState] common to History and Sensors.
  *
  * [isLoading], [isError] and [errorMessage] form the screen's state machine: the
  * station list region renders exactly one of loading / error / empty / content.
@@ -91,7 +98,11 @@ data class SensorMapOverview(
  * connectivity is expressed where the design puts it — the per-row [SensorStatus]
  * chips and the map's active-sensor count.
  *
- * @param isLoading true while the station roll is in flight.
+ * @param isLoading true while the station roll is in flight for the first time,
+ *   which swaps the list for a skeleton.
+ * @param isRefreshing true while a pull-to-refresh is in flight. Its own flag
+ *   rather than a reuse of [isLoading]: the roll the user pulled stays on screen
+ *   under the indicator instead of being replaced.
  * @param isError true when the last load failed; pairs with [errorMessage].
  * @param errorMessage failure copy shown by
  *   [id.web.quakealert.ui.common.QuakeErrorState], or null when there is no error.
@@ -99,6 +110,7 @@ data class SensorMapOverview(
 @Immutable
 data class SensorsUiState(
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val isError: Boolean = false,
     val errorMessage: String? = null,
     // Empty rather than a sample station: the roll is genuinely unknown until
@@ -109,8 +121,7 @@ data class SensorsUiState(
         rangeKm = SafetyPolicy.SENSORS_NEAR_RADIUS_KM,
         sensorCount = 0
     ),
-    val selectedFilter: QuakeFilter = QuakeFilter.ALL,
-    val nearRadiusKm: Int = SafetyPolicy.SENSORS_NEAR_RADIUS_KM,
+    val filter: QuakeFilterState = QuakeFilterState(),
     val unitSystem: UnitSystem = UnitSystem.METRIC,
     val sensors: List<SensorStationItem> = emptyList()
 )

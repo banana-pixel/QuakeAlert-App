@@ -10,20 +10,27 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import id.web.quakealert.R
 import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.ui.common.QuakeAppBar
-import id.web.quakealert.ui.common.QuakeEmptyState
 import id.web.quakealert.ui.common.QuakeErrorState
 import id.web.quakealert.ui.common.QuakeFilter
+import id.web.quakealert.ui.common.QuakeFilterDialog
 import id.web.quakealert.ui.common.QuakeFilterRow
-import id.web.quakealert.ui.common.QuakeLoadingState
+import id.web.quakealert.ui.common.QuakeFilterViewModel
+import id.web.quakealert.ui.common.QuakeNoCoverageState
+import id.web.quakealert.ui.common.QuakeSkeletonList
 import id.web.quakealert.ui.common.fadingEdges
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.QuakeAlertTheme
@@ -32,32 +39,52 @@ import id.web.quakealert.ui.theme.QuakeAlertTheme
  * Stateful entry point that connects [SensorsViewModel] to the stateless
  * [SensorsScreen]. Kept thin so the presentation layer stays testable.
  *
- * @param onOpenSettings navigates to the Settings tab when the map's settings
- *   shortcut is tapped (hoisted to [id.web.quakealert.ui.main.MainScreen]).
  * @param listState station-list scroll position, hoisted to
  *   [id.web.quakealert.ui.main.MainScreen] so it survives tab switches, rotation
  *   and process death.
  */
 @Composable
 fun SensorsRoute(
-    onOpenSettings: () -> Unit,
     connectionState: ServerConnectionState,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
-    viewModel: SensorsViewModel = viewModel()
+    viewModel: SensorsViewModel = viewModel(),
+    filterViewModel: QuakeFilterViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Same Activity-scoped instance the History tab uses, so a filter set on either
+    // tab is already in force on the other. Pushed in rather than read, which keeps
+    // SensorsViewModel unaware that a second tab exists.
+    val filter by filterViewModel.filter.collectAsStateWithLifecycle()
+    val isSheetOpen by filterViewModel.isSheetOpen.collectAsStateWithLifecycle()
+    LaunchedEffect(filter) { viewModel.applyFilter(filter) }
 
     SensorsScreen(
         uiState = uiState,
         connectionState = connectionState,
-        onFilterSelected = viewModel::onFilterSelected,
+        onModeSelected = filterViewModel::onModeSelected,
+        onFilterSheetClicked = filterViewModel::onSheetOpened,
+        onWidenRadius = filterViewModel::onRadiusWidened,
         onSensorClicked = viewModel::onSensorClicked,
-        onOpenSettings = onOpenSettings,
         onRetry = viewModel::onRetry,
+        onRefresh = viewModel::onRefresh,
         listState = listState,
         modifier = modifier
     )
+
+    if (isSheetOpen) {
+        QuakeFilterDialog(
+            filter = filter,
+            unitSystem = uiState.unitSystem,
+            onDismiss = filterViewModel::onSheetDismissed,
+            onApply = filterViewModel::onCriteriaApplied,
+            onReset = {
+                filterViewModel.onFiltersReset()
+                filterViewModel.onSheetDismissed()
+            }
+        )
+    }
 }
 
 /**
@@ -66,8 +93,9 @@ fun SensorsRoute(
  *  1. A static header [Column] pinned to the top: shared [QuakeAppBar] +
  *     [SensorMapCard] + shared [QuakeFilterRow].
  *  2. A weighted body filling the remaining space between the filter row and the
- *     bottom navigation bar, rendering exactly one of [QuakeLoadingState],
- *     [QuakeErrorState], [QuakeEmptyState] or the station [LazyColumn] — which
+ *     bottom navigation bar, inside a [PullToRefreshBox] and rendering exactly one
+ *     of [QuakeSkeletonList],
+ *     [QuakeErrorState], [QuakeNoCoverageState] or the station [LazyColumn] — which
  *     carries the shared soft [fadingEdges] so cards dissolve in/out at the scroll
  *     bounds. The header stays outside the branch so the map and filters hold
  *     their place as the state changes.
@@ -77,14 +105,17 @@ fun SensorsRoute(
  * scrolls. All state and events are hoisted to the caller ([SensorsRoute] /
  * [SensorsViewModel]).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SensorsScreen(
     uiState: SensorsUiState,
     connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
-    onFilterSelected: (QuakeFilter) -> Unit,
+    onModeSelected: (QuakeFilter) -> Unit,
     onSensorClicked: (SensorStationItem) -> Unit,
-    onOpenSettings: () -> Unit,
     onRetry: () -> Unit,
+    onFilterSheetClicked: (() -> Unit)? = null,
+    onWidenRadius: () -> Unit = {},
+    onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState()
 ) {
@@ -99,65 +130,97 @@ fun SensorsScreen(
         SensorMapCard(
             overview = uiState.overview,
             unitSystem = uiState.unitSystem,
-            onSettingsShortcut = onOpenSettings,
             modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
         )
 
         QuakeFilterRow(
-            selectedFilter = uiState.selectedFilter,
-            nearRadiusKm = uiState.nearRadiusKm,
+            filter = uiState.filter,
             unitSystem = uiState.unitSystem,
-            onFilterSelected = onFilterSelected,
+            onModeSelected = onModeSelected,
+            onFilterSheetClicked = onFilterSheetClicked,
             modifier = Modifier.padding(top = Dimens.SensorsHeaderBlockGap)
         )
 
-        // --- Body: loading / error / empty / content -------------------------
-        val bodyModifier = Modifier
-            .weight(1f)
-            .fillMaxWidth()
+        // --- Body: pull-to-refresh over loading / error / empty / content ----
+        // The refresh gesture wraps *all four* states, not just the list: a user
+        // looking at an error or an empty roll is exactly the user most likely to
+        // pull, and sending them to the Retry button instead would be arbitrary.
+        val pullState = rememberPullToRefreshState()
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = onRefresh,
+            state = pullState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                // PullToRefreshBox does not clip, and the body below is translated
+                // during a pull — without this the roll would paint over the bottom
+                // navigation bar as the finger moves.
+                .clipToBounds()
+        ) {
+            // Elastic follow-through, identical to History: read inside
+            // graphicsLayer so a pull invalidates only the draw phase, and applied
+            // outside fadingEdges() so the fade travels with the content.
+            val bodyModifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = pullState.distanceFraction * Dimens.PullElasticDistance.toPx()
+                }
 
-        when {
-            uiState.isLoading -> QuakeLoadingState(
-                modifier = bodyModifier,
-                message = "Scanning the sensor network..."
-            )
+            when {
+                uiState.isLoading -> QuakeSkeletonList(
+                    loadingLabel = LOADING_MESSAGE,
+                    modifier = bodyModifier.padding(top = Dimens.CardListTopPadding)
+                )
 
-            uiState.isError -> QuakeErrorState(
-                message = uiState.errorMessage ?: GENERIC_ERROR_MESSAGE,
-                onRetry = onRetry,
-                modifier = bodyModifier
-            )
+                uiState.isError -> QuakeErrorState(
+                    message = uiState.errorMessage ?: GENERIC_ERROR_MESSAGE,
+                    onRetry = onRetry,
+                    modifier = bodyModifier
+                )
 
-            uiState.sensors.isEmpty() -> QuakeEmptyState(
-                icon = R.drawable.ic_nav_sensors,
-                message = "No Sensors Found",
-                subtitle = "No stations are reporting inside your coverage range yet.",
-                modifier = bodyModifier
-            )
+                // Worth the separate copy: the browse radius reaches far beyond
+                // the network, so an empty roll usually means "we do not watch
+                // there", not "there is nothing to watch". The widen action appears
+                // only when a radius is actually narrowing the query.
+                uiState.sensors.isEmpty() -> QuakeNoCoverageState(
+                    onWidenRadius = onWidenRadius.takeIf {
+                        uiState.filter.mode == QuakeFilter.NEAR
+                    },
+                    modifier = bodyModifier
+                )
 
-            else -> LazyColumn(
-                state = listState,
-                modifier = bodyModifier.fadingEdges(),
-                contentPadding = PaddingValues(
-                    top = Dimens.CardListTopPadding,
-                    bottom = Dimens.CardListBottomPadding
-                ),
-                verticalArrangement = Arrangement.spacedBy(Dimens.CardListSpacing)
-            ) {
-                items(
-                    items = uiState.sensors,
-                    key = { it.id },
-                    contentType = { "SensorItemCard" }
-                ) { item ->
-                    SensorItemCard(
-                        item = item,
-                        onClick = { onSensorClicked(item) }
-                    )
+                else -> LazyColumn(
+                    state = listState,
+                    modifier = bodyModifier.fadingEdges(),
+                    contentPadding = PaddingValues(
+                        top = Dimens.CardListTopPadding,
+                        bottom = Dimens.CardListBottomPadding
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(Dimens.CardListSpacing)
+                ) {
+                    items(
+                        items = uiState.sensors,
+                        key = { it.id },
+                        contentType = { "SensorItemCard" }
+                    ) { item ->
+                        SensorItemCard(
+                            item = item,
+                            onClick = { onSensorClicked(item) }
+                        )
+                    }
                 }
             }
         }
     }
 }
+
+/**
+ * What a screen reader announces while the skeleton is up. A skeleton conveys
+ * "loading" visually and nothing at all otherwise, so the copy the spinner used to
+ * show is spoken instead.
+ */
+private const val LOADING_MESSAGE = "Scanning the sensor network..."
 
 /** Fallback shown when a failed load carried no message of its own. */
 private const val GENERIC_ERROR_MESSAGE =
@@ -196,9 +259,8 @@ private fun SensorsScreenPreview() {
                     )
                 )
             ),
-            onFilterSelected = {},
+            onModeSelected = {},
             onSensorClicked = {},
-            onOpenSettings = {},
             onRetry = {}
         )
     }
@@ -210,9 +272,8 @@ private fun SensorsScreenLoadingPreview() {
     QuakeAlertTheme {
         SensorsScreen(
             uiState = SensorsUiState(isLoading = true),
-            onFilterSelected = {},
+            onModeSelected = {},
             onSensorClicked = {},
-            onOpenSettings = {},
             onRetry = {}
         )
     }
@@ -224,9 +285,8 @@ private fun SensorsScreenEmptyPreview() {
     QuakeAlertTheme {
         SensorsScreen(
             uiState = SensorsUiState(),
-            onFilterSelected = {},
+            onModeSelected = {},
             onSensorClicked = {},
-            onOpenSettings = {},
             onRetry = {}
         )
     }
@@ -241,9 +301,8 @@ private fun SensorsScreenErrorPreview() {
                 isError = true,
                 errorMessage = "Could not reach the sensor network. Check your connection and try again."
             ),
-            onFilterSelected = {},
+            onModeSelected = {},
             onSensorClicked = {},
-            onOpenSettings = {},
             onRetry = {}
         )
     }

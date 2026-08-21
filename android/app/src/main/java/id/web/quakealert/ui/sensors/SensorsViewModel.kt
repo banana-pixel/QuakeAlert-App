@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.sensors
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.web.quakealert.data.AppSettingsRepository
@@ -9,13 +10,12 @@ import id.web.quakealert.data.network.QuakeApiClient
 import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.mapper.toStationItems
 import id.web.quakealert.domain.SafetyPolicy
-import id.web.quakealert.ui.common.QuakeFilter
+import id.web.quakealert.ui.common.QuakeFilterState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -61,23 +61,45 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Single entry point into the loading → content / error state machine, used by
-     * both the initial load and [onRetry].
+     * Re-queries the station roll from a pull-to-refresh gesture.
+     *
+     * Distinct from [load] in what it shows, not in what it fetches: the roll the
+     * user pulled stays on screen under the indicator instead of being replaced by a
+     * skeleton, because a refresh that blanks the list looks like a failure. Ignored
+     * while any load is already in flight — the gesture is easy to repeat by accident.
      */
-    private fun load() {
+    fun onRefresh() {
+        if (_uiState.value.isLoading || _uiState.value.isRefreshing) return
+        load(isRefresh = true)
+    }
+
+    /**
+     * Single entry point into the loading → content / error state machine, used by
+     * the initial load, [onRetry] and [onRefresh].
+     *
+     * @param isRefresh routes the in-flight flag to [SensorsUiState.isRefreshing]
+     *   instead of [SensorsUiState.isLoading], and keeps the current stations while
+     *   the request runs.
+     */
+    private fun load(isRefresh: Boolean = false) {
         viewModelScope.launch {
             _uiState.update {
-                it.copy(isLoading = true, isError = false, errorMessage = null)
+                it.copy(
+                    isLoading = !isRefresh,
+                    isRefreshing = isRefresh,
+                    isError = false,
+                    errorMessage = null
+                )
             }
             try {
                 val sensors = fetchSensors()
-                val locationLabel = apiClient.currentUserLocation()?.locationName?.takeIf {
-                    it.isNotBlank()
-                }
+                val userLocation = apiClient.currentUserLocation()
+                val locationLabel = userLocation?.locationName?.takeIf { it.isNotBlank() }
                 _uiState.update { state ->
                     state.copy(
                         sensors = sensors,
                         isLoading = false,
+                        isRefreshing = false,
                         // The map badge counts *reporting* stations, matching the
                         // server's `active_sensors_count`; an offline node is in the
                         // list but is not coverage.
@@ -85,7 +107,12 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                             sensorCount = sensors.count { it.status == SensorStatus.ONLINE },
                             locationLabel = locationLabel ?: state.overview.locationLabel,
                             rangeKm = effectiveRangeKm(),
-                            geofenceFraction = geofenceFraction(effectiveRangeKm())
+                            geofenceFraction = geofenceFraction(effectiveRangeKm()),
+                            // Left at the previous value when the position is
+                            // unknown, so a transient null does not blank a basemap
+                            // that was already centred correctly.
+                            latitude = userLocation?.latitude ?: state.overview.latitude,
+                            longitude = userLocation?.longitude ?: state.overview.longitude
                         )
                     )
                 }
@@ -94,11 +121,21 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                 // coroutine machinery sees it and the screen keeps its last state.
                 throw cancellation
             } catch (throwable: Throwable) {
+                // A failed *refresh* keeps the roll it could not replace: the error
+                // screen is for having nothing to show, and after a pull there is
+                // still a list. Only a refresh over an empty roll surfaces it.
+                val hadContent = isRefresh && _uiState.value.sensors.isNotEmpty()
+                if (hadContent) Log.w(TAG, "could not refresh the sensor roll", throwable)
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        isError = true,
-                        errorMessage = throwable.message ?: LOAD_ERROR_MESSAGE
+                        isRefreshing = false,
+                        isError = !hadContent,
+                        errorMessage = if (hadContent) {
+                            null
+                        } else {
+                            throwable.message ?: LOAD_ERROR_MESSAGE
+                        }
                     )
                 }
             }
@@ -120,15 +157,14 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
      * The radius sent as `range_km`.
      *
      * "All" is not "unfiltered": the endpoint always measures from the position the
-     * server holds, so the widest honest answer is its own 500 km ceiling. "Near"
-     * narrows to [SafetyPolicy.SENSORS_NEAR_RADIUS_KM], deliberately tighter than the
-     * 200 km alert radius — this list answers "what is watching my area", and a
-     * station 200 km away is not meaningfully watching it.
+     * server holds, so the widest honest answer is its own 500 km ceiling — which is
+     * also why "Near" uses [QuakeFilterState.sensorsRadiusKm] rather than the raw
+     * choice: a 1000 km browse radius is legal on `/events` and rejected here, so it
+     * is clamped, and the sheet says so rather than letting the tab quietly answer a
+     * narrower question than the one on screen.
      */
-    private fun effectiveRangeKm(): Int = when (_uiState.value.selectedFilter) {
-        QuakeFilter.ALL -> QuakeApiClient.MAX_SENSOR_RANGE_KM
-        QuakeFilter.NEAR -> SafetyPolicy.SENSORS_NEAR_RADIUS_KM
-    }
+    private fun effectiveRangeKm(): Int =
+        _uiState.value.filter.sensorsRadiusKm ?: QuakeApiClient.MAX_SENSOR_RANGE_KM
 
     /** Coverage circle radius as a fraction of the map card, matching Settings. */
     private fun geofenceFraction(rangeKm: Int): Float {
@@ -140,15 +176,23 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Switches between the "All" and "Near" filter pills, reloading the roll.
+     * Adopts the shared filter and reloads the roll.
+     *
+     * Pushed in by [SensorsRoute] from
+     * [id.web.quakealert.ui.common.QuakeFilterViewModel], the same instance the
+     * History tab reads, so switching tabs never changes the question being asked.
+     *
+     * Only the radius reaches `/sensors` — a station has no intensity and no time of
+     * occurrence, so the intensity and time criteria are simply not applicable here
+     * rather than silently ignored.
      *
      * The filter is applied server-side (`ST_DWithin` around the stored position),
-     * so it re-queries rather than hiding rows: a station omitted from the wide
-     * page cannot be recovered locally, and distance is not in the response.
+     * so it re-queries rather than hiding rows: a station omitted from the wide page
+     * cannot be recovered locally, and distance is not in the response.
      */
-    fun onFilterSelected(filter: QuakeFilter) {
-        if (_uiState.value.selectedFilter == filter) return
-        _uiState.update { it.copy(selectedFilter = filter) }
+    fun applyFilter(filter: QuakeFilterState) {
+        if (_uiState.value.filter == filter) return
+        _uiState.update { it.copy(filter = filter) }
         load()
     }
 
@@ -163,6 +207,8 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private companion object {
+        const val TAG = "SensorsViewModel"
+
         /** "All" spans the endpoint ceiling, so the circle is drawn against that. */
         const val MAP_RANGE_CEILING_KM = QuakeApiClient.MAX_SENSOR_RANGE_KM
         const val MIN_GEOFENCE_FRACTION = 0.35f

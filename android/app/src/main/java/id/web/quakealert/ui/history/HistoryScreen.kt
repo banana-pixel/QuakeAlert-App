@@ -14,6 +14,9 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -21,19 +24,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import id.web.quakealert.R
 import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.ui.common.QuakeAppBar
-import id.web.quakealert.ui.common.QuakeEmptyState
 import id.web.quakealert.ui.common.QuakeErrorState
 import id.web.quakealert.ui.common.QuakeEventDetailModalDialog
 import id.web.quakealert.ui.common.QuakeFilter
+import id.web.quakealert.ui.common.QuakeFilterDialog
 import id.web.quakealert.ui.common.QuakeFilterRow
-import id.web.quakealert.ui.common.QuakeLoadingState
+import id.web.quakealert.ui.common.QuakeFilterViewModel
+import id.web.quakealert.ui.common.QuakeNoDataState
+import id.web.quakealert.ui.common.QuakeSkeletonList
 import id.web.quakealert.ui.common.fadingEdges
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.TextPrimary
@@ -53,9 +59,19 @@ fun HistoryRoute(
     connectionState: ServerConnectionState,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
-    viewModel: HistoryViewModel = viewModel()
+    viewModel: HistoryViewModel = viewModel(),
+    filterViewModel: QuakeFilterViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // The filter is owned by an Activity-scoped ViewModel shared with the Sensors
+    // tab, so both answer the same question; it is pushed *into* this tab rather
+    // than read by it, which keeps HistoryViewModel unaware that a second tab
+    // exists. Re-runs on change only, and applyFilter no-ops on an equal value, so
+    // a recomposition cannot re-query.
+    val filter by filterViewModel.filter.collectAsStateWithLifecycle()
+    val isSheetOpen by filterViewModel.isSheetOpen.collectAsStateWithLifecycle()
+    LaunchedEffect(filter) { viewModel.applyFilter(filter) }
 
     val context = LocalContext.current
     val shareEvent: (QuakeHistoryItem) -> Unit = remember(context) {
@@ -77,15 +93,31 @@ fun HistoryRoute(
     HistoryScreen(
         uiState = uiState,
         connectionState = connectionState,
-        onFilterSelected = viewModel::onFilterSelected,
+        onModeSelected = filterViewModel::onModeSelected,
+        onFilterSheetClicked = filterViewModel::onSheetOpened,
+        onFiltersReset = filterViewModel::onFiltersReset,
         onShareClicked = shareEvent,
         onSeeMoreClicked = viewModel::onSeeMoreClicked,
         onDetailDismissed = viewModel::onDetailDismissed,
         onRetry = viewModel::onRetry,
+        onRefresh = viewModel::onRefresh,
         onLoadMore = viewModel::onLoadMore,
         listState = listState,
         modifier = modifier
     )
+
+    if (isSheetOpen) {
+        QuakeFilterDialog(
+            filter = filter,
+            unitSystem = uiState.unitSystem,
+            onDismiss = filterViewModel::onSheetDismissed,
+            onApply = filterViewModel::onCriteriaApplied,
+            onReset = {
+                filterViewModel.onFiltersReset()
+                filterViewModel.onSheetDismissed()
+            }
+        )
+    }
 }
 
 /**
@@ -93,12 +125,13 @@ fun HistoryRoute(
  *  1. A static header [Column] pinned to the top: shared [QuakeAppBar] +
  *     [QuakeFilterRow].
  *  2. A weighted body filling the remaining space between the filter row and the
- *     bottom navigation bar. It renders exactly one of four states, driven by
- *     [HistoryUiState]: [QuakeLoadingState], [QuakeErrorState], [QuakeEmptyState]
- *     or the [LazyColumn] of cards, whose bounds carry a soft vertical fading edge
- *     (shared [fadingEdges]) so cards dissolve in/out at the scroll bounds.
- *     Keeping the header outside the branch means the title, badge and filters stay
- *     put as the state changes instead of the whole screen flashing.
+ *     bottom navigation bar, inside a [PullToRefreshBox]. It renders exactly one of
+ *     four states, driven by [HistoryUiState]: [QuakeSkeletonList],
+ *     [QuakeErrorState], [QuakeNoDataState] or the [LazyColumn] of cards, whose
+ *     bounds carry a soft vertical fading edge (shared [fadingEdges]) so cards
+ *     dissolve in/out at the scroll bounds. Keeping the header outside the branch
+ *     means the title, badge and filters stay put as the state changes instead of
+ *     the whole screen flashing.
  *  3. The [QuakeEventDetailModalDialog] overlay (Figma node 123:743), raised whenever
  *     [HistoryUiState.selectedEvent] is non-null. It is a sibling of the list
  *     rather than a child so the dialog window is never affected by the list's
@@ -110,15 +143,19 @@ fun HistoryRoute(
  * [listState] — hoisted to [id.web.quakealert.ui.main.MainScreen] so the scroll
  * position survives tab switches, rotation and process death.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
     uiState: HistoryUiState,
     connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
-    onFilterSelected: (QuakeFilter) -> Unit,
+    onModeSelected: (QuakeFilter) -> Unit,
     onShareClicked: (QuakeHistoryItem) -> Unit,
     onSeeMoreClicked: (QuakeHistoryItem) -> Unit,
     onDetailDismissed: () -> Unit,
     onRetry: () -> Unit,
+    onFilterSheetClicked: (() -> Unit)? = null,
+    onFiltersReset: () -> Unit = {},
+    onRefresh: () -> Unit = {},
     onLoadMore: () -> Unit = {},
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState()
@@ -132,10 +169,10 @@ fun HistoryScreen(
         QuakeAppBar(title = "History", connectionState = connectionState)
 
         QuakeFilterRow(
-            selectedFilter = uiState.selectedFilter,
-            nearRadiusKm = uiState.nearRadiusKm,
+            filter = uiState.filter,
             unitSystem = uiState.unitSystem,
-            onFilterSelected = onFilterSelected,
+            onModeSelected = onModeSelected,
+            onFilterSheetClicked = onFilterSheetClicked,
             modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
         )
 
@@ -154,67 +191,93 @@ fun HistoryScreen(
             if (shouldLoadMore) onLoadMore()
         }
 
-        // --- Body: loading / error / empty / content -------------------------
-        val bodyModifier = Modifier
-            .weight(1f)
-            .fillMaxWidth()
-
-        when {
-            uiState.isLoading -> QuakeLoadingState(
-                modifier = bodyModifier,
-                message = "Loading earthquake history..."
-            )
-
-            uiState.isError -> QuakeErrorState(
-                message = uiState.errorMessage ?: GENERIC_ERROR_MESSAGE,
-                onRetry = onRetry,
-                modifier = bodyModifier
-            )
-
-            uiState.items.isEmpty() -> QuakeEmptyState(
-                icon = R.drawable.ic_nav_history,
-                message = "No Earthquake History",
-                subtitle = "Events detected near your coverage area will appear here.",
-                modifier = bodyModifier
-            )
-
-            else -> LazyColumn(
-                state = listState,
-                modifier = bodyModifier.fadingEdges(),
-                contentPadding = PaddingValues(
-                    top = Dimens.CardListTopPadding,
-                    bottom = Dimens.CardListBottomPadding
-                ),
-                verticalArrangement = Arrangement.spacedBy(Dimens.CardListSpacing)
-            ) {
-                items(
-                    items = uiState.items,
-                    key = { it.id },
-                    contentType = { "QuakeHistoryCard" }
-                ) { item ->
-                    QuakeHistoryCard(
-                        item = item,
-                        unitSystem = uiState.unitSystem,
-                        onShareClicked = { onShareClicked(item) },
-                        onSeeMoreClicked = { onSeeMoreClicked(item) }
-                    )
+        // --- Body: pull-to-refresh over loading / error / empty / content ----
+        // The refresh gesture wraps *all four* states, not just the list: a user
+        // looking at an error or an empty feed is exactly the user most likely to
+        // pull, and sending them to the Retry button instead would be arbitrary.
+        val pullState = rememberPullToRefreshState()
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = onRefresh,
+            state = pullState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                // PullToRefreshBox does not clip, and the body below is translated by
+                // up to PullElasticDistance during a pull — without this the list
+                // would paint over the bottom navigation bar as the finger moves.
+                .clipToBounds()
+        ) {
+            // Elastic follow-through: the body tracks the finger instead of sitting
+            // still under a floating indicator. Read inside graphicsLayer so the pull
+            // invalidates only the draw phase — no recomposition per frame — and
+            // applied outside fadingEdges() so the fade travels with the content
+            // rather than staying pinned to the untranslated bounds.
+            val bodyModifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = pullState.distanceFraction * Dimens.PullElasticDistance.toPx()
                 }
 
-                // Spinner only while a page is actually in flight: a permanent
-                // footer would read as "more exists" even on the last page.
-                if (uiState.isLoadingMore) {
-                    item(key = "history-load-more", contentType = "QuakeHistoryFooter") {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = Dimens.CardListSpacing),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(Dimens.SyncRefreshIconSize),
-                                color = TextPrimary,
-                                strokeWidth = Dimens.BorderMedium
-                            )
+            when {
+                uiState.isLoading -> QuakeSkeletonList(
+                    loadingLabel = LOADING_MESSAGE,
+                    modifier = bodyModifier.padding(top = Dimens.CardListTopPadding)
+                )
+
+                uiState.isError -> QuakeErrorState(
+                    message = uiState.errorMessage ?: GENERIC_ERROR_MESSAGE,
+                    onRetry = onRetry,
+                    modifier = bodyModifier
+                )
+
+                // An empty feed under a filter is a different statement from an
+                // empty feed as such, so the card names the criteria that excluded
+                // everything instead of implying nothing ever happened.
+                uiState.items.isEmpty() -> QuakeNoDataState(
+                    filterSummary = uiState.filter.summary(uiState.unitSystem),
+                    onResetFilters = onFiltersReset,
+                    modifier = bodyModifier
+                )
+
+                else -> LazyColumn(
+                    state = listState,
+                    modifier = bodyModifier.fadingEdges(),
+                    contentPadding = PaddingValues(
+                        top = Dimens.CardListTopPadding,
+                        bottom = Dimens.CardListBottomPadding
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(Dimens.CardListSpacing)
+                ) {
+                    items(
+                        items = uiState.items,
+                        key = { it.id },
+                        contentType = { "QuakeHistoryCard" }
+                    ) { item ->
+                        QuakeHistoryCard(
+                            item = item,
+                            unitSystem = uiState.unitSystem,
+                            onShareClicked = { onShareClicked(item) },
+                            onSeeMoreClicked = { onSeeMoreClicked(item) }
+                        )
+                    }
+
+                    // Spinner only while a page is actually in flight: a permanent
+                    // footer would read as "more exists" even on the last page.
+                    if (uiState.isLoadingMore) {
+                        item(key = "history-load-more", contentType = "QuakeHistoryFooter") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = Dimens.CardListSpacing),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(Dimens.SyncRefreshIconSize),
+                                    color = TextPrimary,
+                                    strokeWidth = Dimens.BorderMedium
+                                )
+                            }
                         }
                     }
                 }
@@ -240,6 +303,13 @@ fun HistoryScreen(
  */
 private const val LOAD_MORE_THRESHOLD = 3
 
+/**
+ * What a screen reader announces while the skeleton is up. A skeleton conveys
+ * "loading" visually and nothing at all otherwise, so the copy the spinner used to
+ * show is spoken instead.
+ */
+private const val LOADING_MESSAGE = "Loading earthquake history..."
+
 /** Fallback shown when a failed load carried no message of its own. */
 private const val GENERIC_ERROR_MESSAGE =
     "Could not load earthquake history. Check your connection and try again."
@@ -250,7 +320,7 @@ private fun HistoryScreenPreview() {
     QuakeAlertTheme {
         HistoryScreen(
             uiState = HistoryUiState(items = previewItems),
-            onFilterSelected = {},
+            onModeSelected = {},
             onShareClicked = {},
             onSeeMoreClicked = {},
             onDetailDismissed = {},
@@ -268,7 +338,7 @@ private fun HistoryScreenWithDetailPreview() {
                 items = previewItems,
                 selectedEvent = previewItems.last()
             ),
-            onFilterSelected = {},
+            onModeSelected = {},
             onShareClicked = {},
             onSeeMoreClicked = {},
             onDetailDismissed = {},
@@ -283,7 +353,7 @@ private fun HistoryScreenLoadingPreview() {
     QuakeAlertTheme {
         HistoryScreen(
             uiState = HistoryUiState(isLoading = true),
-            onFilterSelected = {},
+            onModeSelected = {},
             onShareClicked = {},
             onSeeMoreClicked = {},
             onDetailDismissed = {},
@@ -298,7 +368,7 @@ private fun HistoryScreenEmptyPreview() {
     QuakeAlertTheme {
         HistoryScreen(
             uiState = HistoryUiState(),
-            onFilterSelected = {},
+            onModeSelected = {},
             onShareClicked = {},
             onSeeMoreClicked = {},
             onDetailDismissed = {},
@@ -316,7 +386,7 @@ private fun HistoryScreenErrorPreview() {
                 isError = true,
                 errorMessage = "Could not load earthquake history. Check your connection and try again."
             ),
-            onFilterSelected = {},
+            onModeSelected = {},
             onShareClicked = {},
             onSeeMoreClicked = {},
             onDetailDismissed = {},
@@ -338,7 +408,9 @@ private val previewItems = listOf(
         relativeTime = "2 months ago",
         pgaLabel = "61.5 gal",
         durationLabel = "7 sec",
-        coordinates = "-6.91750, 107.61910"
+        coordinates = "-6.91750, 107.61910",
+        latitude = -6.91750,
+        longitude = 107.61910
     ),
     QuakeHistoryItem(
         id = "2",
@@ -351,6 +423,8 @@ private val previewItems = listOf(
         relativeTime = "2 months ago",
         pgaLabel = "142.0 gal",
         durationLabel = "23 sec",
-        coordinates = "-6.81180, 107.61760"
+        coordinates = "-6.81180, 107.61760",
+        latitude = -6.81180,
+        longitude = 107.61760
     )
 )

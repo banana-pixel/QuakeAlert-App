@@ -9,14 +9,13 @@ import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.data.network.QuakeApiClient
 import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.mapper.toHistoryItems
-import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.common.QuakeFilter
+import id.web.quakealert.ui.common.QuakeFilterState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -68,29 +67,67 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Single entry point into the loading → content / error state machine, used by
-     * both the initial load and [onRetry].
+     * Re-queries page 0 from a pull-to-refresh gesture.
+     *
+     * Distinct from [load] in what it shows, not in what it fetches: the list the
+     * user pulled stays on screen under the indicator instead of being replaced by a
+     * skeleton, because a refresh that blanks the row someone was reading looks like
+     * a failure. Ignored while any load is already in flight — the gesture is easy
+     * to repeat by accident.
      */
-    private fun load() {
+    fun onRefresh() {
+        if (_uiState.value.isLoading || _uiState.value.isRefreshing) return
+        load(isRefresh = true)
+    }
+
+    /**
+     * Single entry point into the loading → content / error state machine, used by
+     * the initial load, [onRetry] and [onRefresh].
+     *
+     * @param isRefresh routes the in-flight flag to [HistoryUiState.isRefreshing]
+     *   instead of [HistoryUiState.isLoading], and keeps the current rows while the
+     *   request runs.
+     */
+    private fun load(isRefresh: Boolean = false) {
         viewModelScope.launch {
             _uiState.update {
-                it.copy(isLoading = true, isError = false, errorMessage = null)
+                it.copy(
+                    isLoading = !isRefresh,
+                    isRefreshing = isRefresh,
+                    isError = false,
+                    errorMessage = null
+                )
             }
             try {
                 val items = fetchPage(offset = 0)
                 _uiState.update {
-                    it.copy(items = items, isLoading = false, hasMore = items.size >= PAGE_SIZE)
+                    it.copy(
+                        items = items,
+                        isLoading = false,
+                        isRefreshing = false,
+                        hasMore = items.size >= PAGE_SIZE
+                    )
                 }
             } catch (cancellation: CancellationException) {
                 // Never treat scope cancellation as a load failure — rethrow so the
                 // coroutine machinery sees it and the screen keeps its last state.
                 throw cancellation
             } catch (throwable: Throwable) {
+                // A failed *refresh* keeps the rows it could not replace: the error
+                // screen is for having nothing to show, and after a pull there is
+                // still a list. Only a refresh over an empty list surfaces it.
+                val hadContent = isRefresh && _uiState.value.items.isNotEmpty()
+                if (hadContent) Log.w(TAG, "could not refresh history", throwable)
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        isError = true,
-                        errorMessage = throwable.message ?: LOAD_ERROR_MESSAGE
+                        isRefreshing = false,
+                        isError = !hadContent,
+                        errorMessage = if (hadContent) {
+                            null
+                        } else {
+                            throwable.message ?: LOAD_ERROR_MESSAGE
+                        }
                     )
                 }
             }
@@ -142,32 +179,47 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
      * [id.web.quakealert.data.network.ApiException] carries the server's own copy,
      * which is what the error screen shows.
      *
-     * The "Near" filter is applied server-side by sending the `range_km` /
-     * `latitude` / `longitude` trio, so it narrows the *query* rather than hiding
-     * rows from a page of distant events. With no stored position there is nothing
-     * to measure from, and the unfiltered feed is returned instead — the same
+     * Every criterion is applied server-side — the `range_km` / `latitude` /
+     * `longitude` trio for "Near", `min_pga` for the intensity bucket, `since` for
+     * the time window — so the filter narrows the *query* rather than hiding rows
+     * from a page that was already fetched. That is not only cheaper: filtering a
+     * 20-item page down to two locally would read as "no more data" to the screen's
+     * prefetch and stall pagination.
+     *
+     * With no stored position there is nothing to measure a radius from, so the
+     * spatial part is dropped and the rest of the filter still applies — the same
      * fail-open reasoning as [id.web.quakealert.domain.AlertGate].
      */
     private suspend fun fetchPage(offset: Int): List<QuakeHistoryItem> {
         val userLocation = apiClient.currentUserLocation()
-        val near = _uiState.value.selectedFilter == QuakeFilter.NEAR
+        val filter = _uiState.value.filter
+        val near = filter.mode == QuakeFilter.NEAR
         return apiClient.fetchEvents(
             limit = PAGE_SIZE,
             offset = offset,
-            rangeKm = if (near) SafetyPolicy.HISTORY_NEAR_RADIUS_KM else null,
-            center = userLocation.takeIf { near }
+            rangeKm = filter.eventsRadiusKm,
+            center = userLocation.takeIf { near },
+            minPgaGal = filter.minPgaGal,
+            since = filter.since()
         ).getOrThrow().toHistoryItems(userLocation)
     }
 
     /**
-     * Switches between the "All" and "Near" filter pills, re-querying from page 0.
+     * Adopts the shared filter and re-queries from page 0.
      *
-     * A reload rather than a local filter: "Near" is a server-side `ST_DWithin`
-     * query, so the pages already held were selected without it.
+     * Pushed in by [HistoryRoute] from
+     * [id.web.quakealert.ui.common.QuakeFilterViewModel] rather than owned here, so
+     * the Sensors tab answers the same question without either tab knowing about the
+     * other. A reload rather than a local re-filter: the pages already held were
+     * selected by the server under the *previous* criteria.
+     *
+     * The rows are dropped before the reload because they no longer answer the
+     * question being asked; the screen shows its skeleton for the moment it takes to
+     * fetch a page that does.
      */
-    fun onFilterSelected(filter: QuakeFilter) {
-        if (_uiState.value.selectedFilter == filter) return
-        _uiState.update { it.copy(selectedFilter = filter, items = emptyList(), hasMore = false) }
+    fun applyFilter(filter: QuakeFilterState) {
+        if (_uiState.value.filter == filter) return
+        _uiState.update { it.copy(filter = filter, items = emptyList(), hasMore = false) }
         load()
     }
 
