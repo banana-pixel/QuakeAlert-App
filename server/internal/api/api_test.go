@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -834,6 +835,12 @@ func TestListEvents_ParamInvalid(t *testing.T) {
 		{"longitude di luar rentang", "?range_km=50&latitude=-6.9&longitude=181"},
 		{"koordinat tanpa range_km", "?latitude=-6.9&longitude=107.6"},
 		{"offset melebihi batas", "?offset=50001"},
+		{"min_pga negatif", "?min_pga=-1"},
+		{"min_pga di atas maksimum", "?min_pga=2001"},
+		{"min_pga bukan angka", "?min_pga=kuat"},
+		{"since bukan RFC3339", "?since=2026-08-01"},
+		{"until bukan RFC3339", "?until=kemarin"},
+		{"rentang waktu terbalik", "?since=2026-08-10T00:00:00Z&until=2026-08-01T00:00:00Z"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1031,5 +1038,95 @@ func TestMintHS256_ArgumenInvalid(t *testing.T) {
 				t.Fatal("mau error, dapat nil")
 			}
 		})
+	}
+}
+
+// Ketiga filter baru (min_pga, since, until) tiba di store apa adanya dan tidak
+// memerlukan koordinat: pertanyaan "gempa kuat sepekan terakhir" sah tanpa radius.
+func TestListEvents_FilterIntensitasDanWaktu(t *testing.T) {
+	repo := &fakeRepo{events: sampleEvents()}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+
+	rec := do(h, httptest.NewRequest(http.MethodGet,
+		"/api/v1/events?min_pga=137.2&since=2026-08-01T00:00:00Z&until=2026-08-10T12:00:00%2B07:00", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200. body=%s", rec.Code, rec.Body.String())
+	}
+	f := repo.eventsFilt
+	if f == nil {
+		t.Fatal("filter harus terbentuk dari min_pga/since/until")
+	}
+	if f.MinPGA == nil || *f.MinPGA != 137.2 {
+		t.Fatalf("MinPGA = %v, mau 137.2", f.MinPGA)
+	}
+	if f.RangeKm != 0 {
+		t.Fatalf("RangeKm = %d, mau 0 (tanpa filter spasial)", f.RangeKm)
+	}
+	if f.Since == nil || !f.Since.Equal(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("Since = %v", f.Since)
+	}
+	// Offset +07:00 dinormalkan ke UTC sebelum sampai ke store.
+	if f.Until == nil || !f.Until.Equal(time.Date(2026, 8, 10, 5, 0, 0, 0, time.UTC)) {
+		t.Fatalf("Until = %v, mau 05:00Z", f.Until)
+	}
+	if f.Until.Location() != time.UTC {
+		t.Fatalf("Until zona = %v, mau UTC", f.Until.Location())
+	}
+
+	// range_km hanya dicerminkan bila filter spasial aktif; 0 km akan terbaca
+	// klien sebagai "tidak ada event di sekitarmu".
+	var resp eventsResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.RangeKm != nil {
+		t.Fatalf("range_km pada respons = %v, mau null", *resp.RangeKm)
+	}
+}
+
+// Paginasi tidak boleh berubah karena filter: halaman tetap penuh sebesar limit,
+// karena penyaringan terjadi di SQL, bukan setelah limit dipotong.
+func TestListEvents_FilterTidakMemotongHalaman(t *testing.T) {
+	page := make([]store.Event, 0, defaultEventsLimit)
+	for i := 0; i < defaultEventsLimit; i++ {
+		e := sampleEvents()[0]
+		e.EventID = fmt.Sprintf("evt-%02d", i)
+		page = append(page, e)
+	}
+	repo := &fakeRepo{events: page}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+
+	rec := do(h, httptest.NewRequest(http.MethodGet, "/api/v1/events?min_pga=16.6", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200. body=%s", rec.Code, rec.Body.String())
+	}
+	var resp eventsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Count != defaultEventsLimit || len(resp.Events) != defaultEventsLimit {
+		t.Fatalf("count = %d, mau halaman penuh %d", resp.Count, defaultEventsLimit)
+	}
+	if repo.eventsLimit != defaultEventsLimit {
+		t.Fatalf("limit ke store = %d, mau %d", repo.eventsLimit, defaultEventsLimit)
+	}
+}
+
+// Filter spasial dan non-spasial bisa digabung dalam satu kueri.
+func TestListEvents_FilterGabungan(t *testing.T) {
+	repo := &fakeRepo{events: sampleEvents()}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+
+	rec := do(h, httptest.NewRequest(http.MethodGet,
+		"/api/v1/events?range_km=250&latitude=-6.9&longitude=107.6&min_pga=16.6", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200. body=%s", rec.Code, rec.Body.String())
+	}
+	f := repo.eventsFilt
+	if f == nil || f.RangeKm != 250 || f.MinPGA == nil || *f.MinPGA != 16.6 {
+		t.Fatalf("filter = %+v", f)
+	}
+	var resp eventsResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.RangeKm == nil || *resp.RangeKm != 250 {
+		t.Fatalf("range_km pada respons = %v, mau 250", resp.RangeKm)
 	}
 }

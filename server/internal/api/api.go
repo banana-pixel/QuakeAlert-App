@@ -41,6 +41,10 @@ const (
 	defaultEventsLimit = store.DefaultEventsLimit
 	maxEventsLimit     = store.MaxEventsLimit
 	maxEventsRangeKm   = 2000
+	// maxEventsMinPGAGal membatasi ambang intensitas pada rentang yang mungkin
+	// dihasilkan sensor MEMS permukaan; di atas itu kueri pasti kosong dan lebih
+	// jujur ditolak daripada dijawab dengan daftar hampa.
+	maxEventsMinPGAGal = 2000.0
 	// maxEventsOffset membatasi kedalaman paginasi agar offset liar tidak
 	// memicu scan O(offset) berulang pada indeks started_at DESC.
 	maxEventsOffset = 50_000
@@ -708,22 +712,89 @@ func (s *Server) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := eventsResponse{Limit: limit, Offset: offset, Count: len(out), Events: out}
-	if filter != nil {
+	// Hanya filter spasial yang dicerminkan di envelope: min_pga/since/until tidak
+	// punya field balasan, dan mengirim range_km untuk filter non-spasial akan
+	// terbaca klien sebagai radius 0 km.
+	if filter.HasSpatial() {
 		rangeKm := filter.RangeKm
 		resp.RangeKm = &rangeKm
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// eventFilterFrom membangun filter spasial dari query string. Mengembalikan
-// (nil, nil) bila range_km tidak dikirim (tanpa filter).
+// eventFilterFrom membangun filter dari query string: radius spasial, ambang
+// intensitas (min_pga), dan rentang waktu (since/until). Mengembalikan (nil, nil)
+// bila tidak ada satu pun kriteria yang dikirim.
+//
+// Ketiga kelompok kriteria diurai berurutan dan digabung ke satu filter; error
+// pertama langsung dikembalikan sehingga handler menjawab 400 sekali, bukan
+// menerapkan sebagian filter dan diam-diam mengabaikan sisanya.
+func (s *Server) eventFilterFrom(r *http.Request) (*store.EventFilter, error) {
+	q := r.URL.Query()
+
+	filter, err := s.spatialFilterFrom(r)
+	if err != nil {
+		return nil, err
+	}
+	if filter == nil {
+		filter = &store.EventFilter{}
+	}
+
+	if v := q.Get("min_pga"); v != "" {
+		pga, perr := strconv.ParseFloat(v, 64)
+		if perr != nil || pga < 0 || pga > maxEventsMinPGAGal {
+			return nil, errors.New("min_pga harus 0..2000 (gal)")
+		}
+		filter.MinPGA = &pga
+	}
+
+	// Waktu diurai RFC3339 (sesuai kontrak OpenAPI format: date-time) lalu
+	// dinormalkan ke UTC supaya perbandingan started_at tidak bergantung pada
+	// offset zona yang dikirim klien.
+	since, err := parseEventTime(q.Get("since"), "since")
+	if err != nil {
+		return nil, err
+	}
+	until, err := parseEventTime(q.Get("until"), "until")
+	if err != nil {
+		return nil, err
+	}
+	// Rentang terbalik ditolak, bukan dikosongkan: jawaban nol hasil di sini
+	// hampir pasti salah paham klien, dan 400 memberitahunya.
+	if since != nil && until != nil && since.After(*until) {
+		return nil, errors.New("since harus lebih awal dari until")
+	}
+	filter.Since, filter.Until = since, until
+
+	if !filter.HasCriteria() {
+		return nil, nil
+	}
+	return filter, nil
+}
+
+// parseEventTime mengurai satu batas waktu RFC3339. String kosong berarti batas
+// tidak dipasang (nil), bukan waktu nol.
+func parseEventTime(raw, field string) (*time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return nil, errors.New(field + " harus waktu RFC3339, mis. 2026-08-01T00:00:00Z")
+	}
+	utc := t.UTC()
+	return &utc, nil
+}
+
+// spatialFilterFrom membangun bagian radius dari query string. Mengembalikan
+// (nil, nil) bila range_km tidak dikirim.
 //
 // Acuan koordinat: latitude+longitude eksplisit bila ada; jika tidak, lokasi
 // tersimpan user yang terautentikasi. Tanpa keduanya, range_km tidak dapat
 // diartikan dan request ditolak 400 alih-alih diam-diam mengabaikan filter —
 // mengembalikan event seluruh negeri kepada klien yang meminta radius 50 km
 // adalah kegagalan senyap yang berbahaya.
-func (s *Server) eventFilterFrom(r *http.Request) (*store.EventFilter, error) {
+func (s *Server) spatialFilterFrom(r *http.Request) (*store.EventFilter, error) {
 	q := r.URL.Query()
 	rawRange := q.Get("range_km")
 	latStr, lonStr := q.Get("latitude"), q.Get("longitude")

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -532,12 +533,39 @@ func (s *Store) FCMTokensWithin(ctx context.Context, lat, lon float64, rangeKm i
 	return out, nil
 }
 
-// EventFilter membatasi ListEvents secara spasial: hanya event yang
-// estimated_centroid-nya berada dalam RangeKm dari (Lat, Lon). nil = tanpa filter.
+// EventFilter membatasi ListEvents. nil = tanpa filter sama sekali.
+//
+// Keempat kriteria saling independen dan digabung dengan AND:
+//   - spasial: aktif hanya bila RangeKm > 0 (ST_DWithin pada estimated_centroid
+//     terhadap Lat/Lon). RangeKm == 0 berarti seluruh wilayah, sehingga filter
+//     waktu atau intensitas dapat dipakai tanpa memaksa klien mengirim koordinat.
+//   - MinPGA: ambang bawah max_pga dalam gal. Perbandingan dilakukan pada PGA,
+//     bukan mmi_scale, karena mmi_scale adalah angka Romawi (VARCHAR) sementara
+//     max_pga NUMERIC dapat dibandingkan langsung tanpa kolom turunan baru.
+//   - Since/Until: batas inklusif pada started_at.
+//
+// Semua kriteria dievaluasi di SQL, bukan setelah paginasi: menyaring hasil di
+// klien membuat halaman menjadi pendek dan membuat klien menyimpulkan data sudah
+// habis padahal server masih menyimpan kecocokan.
 type EventFilter struct {
 	Lat     float64
 	Lon     float64
 	RangeKm int
+	MinPGA  *float64
+	Since   *time.Time
+	Until   *time.Time
+}
+
+// HasCriteria melaporkan apakah filter benar-benar membatasi sesuatu. Filter
+// non-nil yang semua fieldnya kosong diperlakukan sama dengan nil.
+func (f *EventFilter) HasCriteria() bool {
+	return f != nil && (f.RangeKm > 0 || f.MinPGA != nil || f.Since != nil || f.Until != nil)
+}
+
+// HasSpatial melaporkan apakah filter radius aktif. Dipakai handler untuk
+// memutuskan apakah `range_km` ikut dikembalikan pada envelope respons.
+func (f *EventFilter) HasSpatial() bool {
+	return f != nil && f.RangeKm > 0
 }
 
 // Event adalah satu baris earthquake_events untuk endpoint GET /api/v1/events.
@@ -575,19 +603,52 @@ const eventSelect = `
 	       triggered_nodes_count, started_at, resolved_at
 	FROM earthquake_events`
 
-const (
-	listEventsQ = eventSelect + `
-		ORDER BY started_at DESC
-		LIMIT $1 OFFSET $2`
+// listEventsQuery menyusun query ListEvents beserta argumennya.
+//
+// Query dibangun dinamis karena kriteria filter opsional dan saling bebas, jadi
+// jumlah kombinasinya (spasial x intensitas x waktu) tidak layak ditulis sebagai
+// konstanta terpisah. Nilai tetap masuk sebagai placeholder $n — tidak ada nilai
+// yang pernah diinterpolasi ke dalam SQL — sehingga pgx tetap memakai prepared
+// statement dan tidak ada permukaan injeksi.
+func listEventsQuery(filter *EventFilter, limit, offset int) (string, []any) {
+	args := make([]any, 0, 7)
+	// next menitipkan satu nilai ke args dan mengembalikan placeholder-nya.
+	next := func(v any) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(len(args))
+	}
 
-	listEventsWithinQ = eventSelect + `
-		WHERE ST_DWithin(estimated_centroid, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
-		ORDER BY started_at DESC
-		LIMIT $4 OFFSET $5`
-)
+	conds := make([]string, 0, 4)
+	if filter != nil {
+		if filter.RangeKm > 0 {
+			lon, lat := next(filter.Lon), next(filter.Lat)
+			meters := next(float64(filter.RangeKm) * 1000.0)
+			conds = append(conds, fmt.Sprintf(
+				"ST_DWithin(estimated_centroid, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, %s)",
+				lon, lat, meters))
+		}
+		if filter.MinPGA != nil {
+			conds = append(conds, "max_pga >= "+next(*filter.MinPGA))
+		}
+		if filter.Since != nil {
+			conds = append(conds, "started_at >= "+next(*filter.Since))
+		}
+		if filter.Until != nil {
+			conds = append(conds, "started_at <= "+next(*filter.Until))
+		}
+	}
+
+	q := eventSelect
+	if len(conds) > 0 {
+		q += "\n\t\tWHERE " + strings.Join(conds, " AND ")
+	}
+	q += "\n\t\tORDER BY started_at DESC\n\t\tLIMIT " + next(limit) + " OFFSET " + next(offset)
+	return q, args
+}
 
 // ListEvents mengembalikan riwayat event terurut started_at DESC (terbaru dulu).
-// filter nil = seluruh wilayah; filter non-nil = ST_DWithin pada GEOGRAPHY
+// filter nil (atau tanpa kriteria) = seluruh riwayat; selain itu kriteria pada
+// [EventFilter] digabung dengan AND — radius memakai ST_DWithin pada GEOGRAPHY
 // (satuan meter → RangeKm * 1000). limit di-clamp ke [1, MaxEventsLimit] dan
 // offset ke >= 0 sebagai pertahanan berlapis di samping validasi handler.
 func (s *Store) ListEvents(ctx context.Context, limit, offset int, filter *EventFilter) ([]Event, error) {
@@ -601,16 +662,11 @@ func (s *Store) ListEvents(ctx context.Context, limit, offset int, filter *Event
 		offset = 0
 	}
 
-	var (
-		rows pgx.Rows
-		err  error
-	)
-	if filter != nil {
-		rows, err = s.pool.Query(ctx, listEventsWithinQ,
-			filter.Lon, filter.Lat, float64(filter.RangeKm)*1000.0, limit, offset)
-	} else {
-		rows, err = s.pool.Query(ctx, listEventsQ, limit, offset)
+	if !filter.HasCriteria() {
+		filter = nil
 	}
+	q, args := listEventsQuery(filter, limit, offset)
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query events: %w", err)
 	}

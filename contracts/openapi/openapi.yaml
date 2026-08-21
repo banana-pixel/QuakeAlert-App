@@ -300,6 +300,12 @@ paths:
         diperlakukan sebagai anonim.
         Filter spasial aktif hanya bila `latitude`, `longitude`, dan `range_km`
         dikirim bersamaan (ST_DWithin pada estimated_centroid).
+        Tiga filter tambahan bersifat independen dan boleh digabung:
+        `min_pga` (ambang intensitas), `since` dan `until` (rentang waktu
+        `started_at`). Semuanya dievaluasi di SQL, bukan di klien, agar
+        paginasi tetap mengembalikan halaman penuh — menyaring hasil setelah
+        `limit` akan membuat halaman pendek dan merusak deteksi akhir data
+        pada infinite scroll klien.
       operationId: listEvents
       x-client: true # dipakai klien Android (docs/CLIENT_SPEC.md)
       security:
@@ -355,6 +361,41 @@ paths:
             minimum: -180
             maximum: 180
           description: Longitude acuan filter radius.
+        - name: min_pga
+          in: query
+          required: false
+          schema:
+            type: number
+            format: double
+            minimum: 0
+            maximum: 2000
+          description: >
+            Ambang bawah intensitas dalam PGA (gal): hanya event dengan
+            `max_pga >= min_pga` dikembalikan. Ambang dikirim dalam gal — bukan
+            MMI — karena `earthquake_events.mmi_scale` adalah angka Romawi
+            (VARCHAR) sementara `max_pga` NUMERIC dapat dibandingkan langsung
+            tanpa kolom turunan baru. Klien memetakan pilihan MMI ke gal memakai
+            tabel ambang SYSTEM_SPEC Bab 5.3 yang sama dengan
+            server/internal/consensus (Intensity/MMIFromPGA), sehingga label UI
+            tetap berbicara MMI.
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: >
+            Batas bawah rentang waktu (inklusif) pada `started_at`, RFC3339.
+            Ditolak 400 bila tidak dapat diparse, atau bila lebih besar dari
+            `until`.
+        - name: until
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: >
+            Batas atas rentang waktu (inklusif) pada `started_at`, RFC3339.
       responses:
         '200':
           description: OK
