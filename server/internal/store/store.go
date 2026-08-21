@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -181,8 +182,8 @@ func (s *Store) SaveEvent(ctx context.Context, e *EarthquakeEvent) (string, erro
 		) VALUES (
 			$1,
 			ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
-			$4, $5, $6, $7,
-			to_timestamp($8::double precision / 1000.0)
+			$4, $5, $6, $7, $8,
+			to_timestamp($9::double precision / 1000.0)
 		)
 		RETURNING event_id`
 	var id string
@@ -460,6 +461,69 @@ func (s *Store) UpdateUserFCMToken(ctx context.Context, userID, token string) (t
 		return time.Time{}, fmt.Errorf("update fcm token: %w", err)
 	}
 	return updatedAt, nil
+}
+
+// maxFCMTokensPerEvent membatasi jumlah token yang dikembalikan satu query
+// dispatch. FCM HTTP v1 mengirim satu request per token, jadi batas ini menjaga
+// fan-out satu gempa tetap terikat; sisanya tetap terjangkau lewat topic
+// broadcast yang dipakai dispatch sebagai fallback.
+const maxFCMTokensPerEvent = 2000
+
+// fcmTokenMaxIdle membuang token instalasi mati: perangkat yang tidak pernah
+// menyentuh API selama ini hampir pasti sudah uninstall, dan token-nya hanya
+// menghasilkan UNREGISTERED dari FCM.
+const fcmTokenMaxIdle = 60 // hari
+
+// FCMTokensWithin mengembalikan registration token FCM milik user yang posisi
+// tersimpannya berada dalam rangeKm dari (lat, lon) — dasar delivery bertarget,
+// menggantikan broadcast nasional ke satu topic.
+//
+// Radius yang dipakai adalah radius DISPATCH, bukan radius alert milik user:
+// coverage_radius_km di tabel tidak disinkronkan oleh klien (Android menyimpan
+// pilihan itu lokal di DataStore) sehingga nilainya akan menyaring terlalu
+// ketat. Klien menerapkan gate Haversine-nya sendiri sebelum membunyikan sirene,
+// jadi lebih aman mengirim agak lebar daripada mendiamkan perangkat yang
+// seharusnya berbunyi.
+//
+// DISTINCT ON menjaga satu token dikirim sekali: satu perangkat dapat
+// meninggalkan token yang sama pada beberapa baris user setelah "Reset Profile"
+// mencetak identitas anonim baru. Urutan terdekat-dulu membuat pemotongan pada
+// maxFCMTokensPerEvent membuang yang terjauh lebih dahulu.
+func (s *Store) FCMTokensWithin(ctx context.Context, lat, lon float64, rangeKm int) ([]string, error) {
+	q := `
+		SELECT fcm_token FROM (
+			SELECT DISTINCT ON (fcm_token)
+			       fcm_token,
+			       last_location <-> ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography AS dist
+			FROM user_profiles
+			WHERE fcm_token IS NOT NULL
+			  AND fcm_token <> ''
+			  AND last_location IS NOT NULL
+			  AND last_active > NOW() - ($4 || ' days')::interval
+			  AND ST_DWithin(last_location, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography, $3)
+			ORDER BY fcm_token, dist
+		) t
+		ORDER BY dist
+		LIMIT ` + strconv.Itoa(maxFCMTokensPerEvent)
+
+	rows, err := s.pool.Query(ctx, q, lat, lon, float64(rangeKm)*1000.0, fcmTokenMaxIdle)
+	if err != nil {
+		return nil, fmt.Errorf("query fcm tokens: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var token string
+		if err := rows.Scan(&token); err != nil {
+			return nil, fmt.Errorf("scan fcm token: %w", err)
+		}
+		out = append(out, token)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate fcm tokens: %w", err)
+	}
+	return out, nil
 }
 
 // EventFilter membatasi ListEvents secara spasial: hanya event yang

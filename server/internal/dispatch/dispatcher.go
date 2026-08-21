@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/banana-pixel/quakealert/server/internal/consensus"
@@ -35,6 +36,28 @@ type eventSaver interface {
 	SaveEvent(ctx context.Context, e *store.EarthquakeEvent) (string, error)
 	ResolveEvent(ctx context.Context, eventID string) error
 }
+
+// tokenFinder mengabstraksi pencarian token FCM bertarget. Interface terpisah
+// dari eventSaver dan dideteksi lewat type assertion agar penyedia lama (dan
+// fake pada test) tetap kompatibel: yang tidak mengimplementasikannya jatuh ke
+// broadcast topic seperti sebelumnya.
+type tokenFinder interface {
+	FCMTokensWithin(ctx context.Context, lat, lon float64, rangeKm int) ([]string, error)
+}
+
+// dispatchRadiusKm adalah radius pencarian token untuk satu event.
+//
+// Sengaja lebar: klien menyaring sendiri dengan gate Haversine memakai radius
+// pilihan user (maksimum 300 km di Settings) sebelum sirene berbunyi, jadi
+// mengirim lebih luas hanya berbiaya satu notifikasi yang di-drop klien —
+// sedangkan mengirim terlalu sempit berarti perangkat yang seharusnya berbunyi
+// tetap diam.
+const dispatchRadiusKm = 350
+
+// maxFCMConcurrency membatasi request FCM paralel per event. HTTP v1 tidak
+// punya endpoint batch, jadi satu event berarti satu request per token; batas
+// ini menjaga fan-out tidak menghabiskan koneksi keluar.
+const maxFCMConcurrency = 16
 
 // Dispatcher menyatukan output Consensus Engine ke tiga kanal: persistensi
 // PostGIS (hanya CONFIRMED), WebSocket Hub, dan FCM. Dirancang non-blocking
@@ -133,22 +156,86 @@ func (d *Dispatcher) Dispatch(ctx context.Context, ev *consensus.Event) {
 
 // dispatchFCM mengirim FCM secara asinkron di goroutine terpisah dengan timeout
 // fcmTimeout (10s). Tidak pernah memblokir jalur konsensus / broadcast.
+//
+// Dua jalur yang saling eksklusif: token bertarget dalam dispatchRadiusKm dari
+// centroid bila ada, jika tidak broadcast ke GeoTopic. Eksklusif karena topic
+// tidak bisa dikecualikan per pelanggan — mengirim keduanya akan mengembalikan
+// bangun-nasional yang justru dihilangkan penargetan ini.
 func (d *Dispatcher) dispatchFCM(msg *AlertMessage) {
 	if d.fcm == nil {
 		return
 	}
-	fmsg := &FCMMessage{
-		Topic:    GeoTopic,
-		Data:     BuildAlertData(msg),
-		Priority: "HIGH",
-	}
+	data := BuildAlertData(msg)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), fcmTimeout)
 		defer cancel()
-		if err := d.fcm.Send(ctx, fmsg); err != nil {
-			d.log.Error("gagal kirim FCM", "err", err, "event_id", msg.EventID, "type", msg.Type)
+
+		if tokens := d.nearbyTokens(ctx, msg); len(tokens) > 0 {
+			d.sendToTokens(ctx, tokens, data, msg)
+			return
+		}
+		// Fallback, bukan tambahan: topic tidak bisa dikecualikan per pelanggan,
+		// jadi mengirimnya bersamaan dengan token bertarget akan membangunkan
+		// seluruh perangkat nasional lagi — persis yang penargetan ini hilangkan.
+		// Dipakai hanya bila tidak ada satu pun token dalam radius (belum ada
+		// user yang menyinkronkan posisi, atau store tidak mendukung pencarian).
+		if err := d.fcm.Send(ctx, &FCMMessage{
+			Topic:    GeoTopic,
+			Data:     data,
+			Priority: "HIGH",
+		}); err != nil {
+			d.log.Error("gagal kirim FCM topic", "err", err, "event_id", msg.EventID, "type", msg.Type)
 		}
 	}()
+}
+
+// nearbyTokens mengembalikan token dalam dispatchRadiusKm dari centroid, atau
+// nil bila store tidak mendukung pencarian itu / query gagal. Kegagalan di sini
+// bukan kegagalan dispatch: pemanggil tetap melanjutkan ke topic broadcast.
+func (d *Dispatcher) nearbyTokens(ctx context.Context, msg *AlertMessage) []string {
+	finder, ok := d.saver.(tokenFinder)
+	if !ok {
+		return nil
+	}
+	tokens, err := finder.FCMTokensWithin(ctx, msg.CentroidLat, msg.CentroidLon, dispatchRadiusKm)
+	if err != nil {
+		d.log.Error("gagal cari token FCM terdekat", "err", err, "event_id", msg.EventID)
+		return nil
+	}
+	return tokens
+}
+
+// sendToTokens mengirim satu message per token dengan paralelisme terbatas.
+// Kegagalan per token hanya dicatat: satu token mati (UNREGISTERED) tidak boleh
+// menghentikan pengiriman ke perangkat lain pada event yang sama.
+func (d *Dispatcher) sendToTokens(ctx context.Context, tokens []string, data map[string]string, msg *AlertMessage) {
+	sem := make(chan struct{}, maxFCMConcurrency)
+	var wg sync.WaitGroup
+	var failed atomic.Int64
+
+	for _, token := range tokens {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(token string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			err := d.fcm.Send(ctx, &FCMMessage{
+				Token:    token,
+				Data:     data,
+				Priority: "HIGH",
+			})
+			if err != nil {
+				failed.Add(1)
+				// Token tidak ikut dicatat: itu identifier perangkat.
+				d.log.Warn("gagal kirim FCM ke token", "err", err, "event_id", msg.EventID)
+			}
+		}(token)
+	}
+	wg.Wait()
+
+	d.log.Info("FCM bertarget terkirim",
+		"event_id", msg.EventID, "type", msg.Type,
+		"tokens", len(tokens), "gagal", failed.Load(), "radius_km", dispatchRadiusKm)
 }
 
 // trackResolution memulai state machine resolusi untuk event CONFIRMED yang baru
