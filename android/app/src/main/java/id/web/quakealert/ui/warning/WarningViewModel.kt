@@ -568,6 +568,29 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Raises the "Protection Status" overlay from the banner's info affordance.
+     *
+     * Only from the idle state, which is the only state that has a banner: during an
+     * alert the screen is the alert, and an overlay explaining the alerting rules
+     * would be covering the thing it describes.
+     */
+    fun onProtectionStatusClicked() {
+        _uiState.update { state ->
+            if (state is WarningUiState.Idle) state.copy(isProtectionStatusOpen = true) else state
+        }
+    }
+
+    /**
+     * Closes the "Protection Status" overlay. Called for every dismissal path — the
+     * close (X) button, a back press and a tap outside the card.
+     */
+    fun onProtectionStatusDismissed() {
+        _uiState.update { state ->
+            if (state is WarningUiState.Idle) state.copy(isProtectionStatusOpen = false) else state
+        }
+    }
+
     /** Placeholder hook for tapping the bottom "Emergency" call-to-action. */
     fun onEmergencyClicked() {
         // Intentionally empty until the emergency-resource flow is defined.

@@ -57,7 +57,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.R
 import id.web.quakealert.ui.app.ServerHealthViewModel
+import androidx.compose.runtime.CompositionLocalProvider
 import id.web.quakealert.ui.chat.ChatRoute
+import id.web.quakealert.ui.common.LocalQuakeToast
+import id.web.quakealert.ui.common.QuakeToastHost
+import id.web.quakealert.ui.common.rememberQuakeToastState
 import id.web.quakealert.ui.history.HistoryRoute
 import id.web.quakealert.ui.sensors.SensorsRoute
 import id.web.quakealert.ui.settings.SettingsRoute
@@ -126,6 +130,11 @@ private val MainDestinationSaver: Saver<MainDestination, String> = Saver(
  * resulting [id.web.quakealert.domain.ServerConnectionState] is handed to every
  * route, so each tab's status badge is literally the same value rather than five
  * per-screen derivations that can disagree.
+ *
+ * The floating message host is hoisted here for a third reason: a report of what an
+ * action did must not be part of the reporting screen's layout. Owned by the scaffold
+ * and provided through [LocalQuakeToast], it floats above the bottom navigation on
+ * every tab instead of reflowing a list it happens to be posted from.
  */
 @Composable
 fun MainScreen(
@@ -149,6 +158,8 @@ fun MainScreen(
     val chatListState = rememberLazyListState()
     val settingsListState = rememberLazyListState()
 
+    val toastState = rememberQuakeToastState()
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = BackgroundGradientBottom,
@@ -160,53 +171,67 @@ fun MainScreen(
             )
         }
     ) { innerPadding ->
-        // Smooth, non-blocking destination transition (Rule D). Enter fades and
-        // subtly scales in; exit fades out faster so the incoming screen leads.
-        AnimatedContent(
-            targetState = selected,
-            transitionSpec = {
-                (fadeIn(tween(200, easing = LinearOutSlowInEasing)) +
-                    scaleIn(initialScale = 0.98f, animationSpec = tween(200)))
-                    .togetherWith(fadeOut(tween(150, easing = FastOutLinearInEasing)))
-            },
-            label = "MainDestinationTransition"
-        ) { destination ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    // Reserve the bottom-bar space AND mark those insets consumed
-                    // so a descendant's imePadding() subtracts the already-applied
-                    // bottom offset instead of double-counting it (Rule A).
-                    .padding(innerPadding)
-                    .consumeWindowInsets(innerPadding)
-            ) {
-                when (destination) {
-                    MainDestination.HISTORY -> HistoryRoute(
-                        connectionState = connectionState,
-                        listState = historyListState
-                    )
+        CompositionLocalProvider(LocalQuakeToast provides toastState) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Smooth, non-blocking destination transition (Rule D). Enter fades and
+                // subtly scales in; exit fades out faster so the incoming screen leads.
+                AnimatedContent(
+                    targetState = selected,
+                    transitionSpec = {
+                        (fadeIn(tween(200, easing = LinearOutSlowInEasing)) +
+                            scaleIn(initialScale = 0.98f, animationSpec = tween(200)))
+                            .togetherWith(fadeOut(tween(150, easing = FastOutLinearInEasing)))
+                    },
+                    label = "MainDestinationTransition"
+                ) { destination ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            // Reserve the bottom-bar space AND mark those insets consumed
+                            // so a descendant's imePadding() subtracts the already-applied
+                            // bottom offset instead of double-counting it (Rule A).
+                            .padding(innerPadding)
+                            .consumeWindowInsets(innerPadding)
+                    ) {
+                        when (destination) {
+                            MainDestination.HISTORY -> HistoryRoute(
+                                connectionState = connectionState,
+                                listState = historyListState
+                            )
 
-                    MainDestination.SENSORS -> SensorsRoute(
-                        connectionState = connectionState,
-                        listState = sensorsListState
-                    )
+                            MainDestination.SENSORS -> SensorsRoute(
+                                connectionState = connectionState,
+                                listState = sensorsListState
+                            )
 
-                    MainDestination.WARNING -> WarningRoute(
-                        connectionState = connectionState,
-                        listState = warningListState
-                    )
+                            MainDestination.WARNING -> WarningRoute(
+                                connectionState = connectionState,
+                                listState = warningListState
+                            )
 
-                    MainDestination.CHAT -> ChatRoute(
-                        connectionState = connectionState,
-                        listState = chatListState
-                    )
+                            MainDestination.CHAT -> ChatRoute(
+                                connectionState = connectionState,
+                                listState = chatListState
+                            )
 
-                    MainDestination.SETTINGS -> SettingsRoute(
-                        connectionState = connectionState,
-                        listState = settingsListState
-                    )
+                            MainDestination.SETTINGS -> SettingsRoute(
+                                connectionState = connectionState,
+                                listState = settingsListState
+                            )
+                        }
+
+                    }
                 }
 
+                // Outside AnimatedContent so a tab swap neither disposes a message that is
+                // still up nor animates it with the screen underneath it.
+                QuakeToastHost(
+                    state = toastState,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(innerPadding)
+                        .padding(bottom = Dimens.ToastBottomGap)
+                )
             }
         }
     }

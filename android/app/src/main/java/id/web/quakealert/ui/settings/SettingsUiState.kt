@@ -3,7 +3,6 @@ package id.web.quakealert.ui.settings
 import androidx.compose.runtime.Immutable
 import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.UnitSystem
-import id.web.quakealert.domain.SafetyPolicy
 
 /**
  * Selectable app languages shown in the "Language" segmented control (Figma node
@@ -44,7 +43,6 @@ enum class AppLanguage(val label: String, val tag: String) {
  *   on somewhere the user is not is worse than one that admits it has no fix, and
  *   [locationPillLabel] already says so.
  * @param longitude longitude of the last synced position; see [latitude].
- * @param sensorCount stations the server reports inside the alert radius.
  * @param lastSyncLabel human-readable last-sync time ("2 min. ago"), or null for
  *   "never".
  * @param autoSyncLocation whether the app refreshes the position on its own at
@@ -82,7 +80,6 @@ data class SettingsUiState(
     val locationLabel: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val sensorCount: Int = 0,
     val lastSyncLabel: String? = null,
     val autoSyncLocation: Boolean = true,
     val notificationsEnabled: Boolean = true,
@@ -108,18 +105,9 @@ data class SettingsUiState(
     val locationPillLabel: String
         get() = locationLabel?.takeIf { it.isNotBlank() } ?: "Location not set"
 
-    /** Pre-formatted "Range : {km} km, {n} sensors" summary badge text. */
-    val rangeSummaryLabel: String
-        get() = "Range : ${unitSystem.formatDistance(SafetyPolicy.ALERT_RADIUS_KM)}, " +
-            "$sensorCount sensors"
-
     /** Pre-formatted "Last Sync : {time}" info-pill text. */
     val lastSyncPillLabel: String
         get() = "Last Sync : ${lastSyncLabel ?: "never"}"
-
-    /** The fixed alert radius in the selected unit system. */
-    val alertRadiusLabel: String
-        get() = unitSystem.formatDistance(SafetyPolicy.ALERT_RADIUS_KM)
 
     /**
      * Radius of the map preview's geofence circle as a fraction of the card's

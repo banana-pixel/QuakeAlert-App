@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
@@ -77,13 +78,19 @@ import id.web.quakealert.ui.theme.WarningDividerColor
  * is identity; rendering is this component's job, mirroring how the event detail
  * modal keys its gradient off severity.
  *
+ * The title line carries a small info affordance, which is where "will this app
+ * actually warn me?" gets answered: the rules live one tap from the screen that does
+ * the warning rather than in a settings list the user has to go looking through.
+ *
  * @param banner alert summary content for the current state.
  * @param onSeeDetails invoked when the "SEE DETAILS" capsule is tapped.
+ * @param onProtectionStatus invoked by the info affordance beside the title.
  */
 @Composable
 fun AlertBanner(
     banner: WarningBanner,
     onSeeDetails: () -> Unit,
+    onProtectionStatus: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(Dimens.AlertBannerRadius)
@@ -107,12 +114,30 @@ fun AlertBanner(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(Dimens.AlertBannerTitleGap)
         ) {
-            Text(
-                text = banner.title,
-                style = BannerTitle,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Dimens.AlertBannerInfoGap),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = banner.title,
+                    style = BannerTitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                // minimumInteractiveComponentSize rather than a padded box: the glyph
+                // is drawn at its design size and only its touch target grows to the
+                // 48dp minimum, so the banner's text block keeps its rhythm.
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_info_circle),
+                    contentDescription = "How alerts work",
+                    tint = TextPrimary,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .size(Dimens.AlertBannerInfoIconSize)
+                        .clickable(role = Role.Button, onClick = onProtectionStatus)
+                )
+            }
             when (banner) {
                 is ActiveQuakeBanner -> {
                     Text(
@@ -561,6 +586,7 @@ private fun SeismicActivityBannerPreview() {
                 activityLabel = previewActivity.bannerLabel
             ),
             onSeeDetails = {},
+            onProtectionStatus = {},
             modifier = Modifier.padding(16.dp)
         )
     }
@@ -577,6 +603,7 @@ private fun ActiveQuakeBannerPreview() {
                 intensityLabel = "Intensity : IV (moderate)"
             ),
             onSeeDetails = {},
+            onProtectionStatus = {},
             modifier = Modifier.padding(16.dp)
         )
     }

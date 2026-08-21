@@ -77,6 +77,8 @@ fun WarningRoute(
         onEmergency = viewModel::onEmergencyClicked,
         onDetailDismissed = viewModel::onDetailDismissed,
         onActivityDismissed = viewModel::onActivityDismissed,
+        onProtectionStatus = viewModel::onProtectionStatusClicked,
+        onProtectionStatusDismissed = viewModel::onProtectionStatusDismissed,
         onShareClicked = shareEvent,
         onRetry = viewModel::onRetry,
         onMuteClick = viewModel::onMuteClick,
@@ -117,7 +119,9 @@ fun WarningRoute(
  * Two sibling overlays can be raised over the idle state:
  *  - the "Recent Earthquake" event detail (Figma 124:1192) from the active banner's
  *    action, and
- *  - the "Recent Seismic Activity" card (Figma 124:1605) from the resting banner's.
+ *  - the "Recent Seismic Activity" card (Figma 124:1605) from the resting banner's,
+ *    and
+ *  - "Protection Status", from the info affordance beside the banner title.
  *
  * All state and events are hoisted to the caller ([WarningRoute] /
  * [WarningViewModel]), including [listState] — hoisted to
@@ -132,6 +136,8 @@ fun WarningScreen(
     onEmergency: () -> Unit,
     onDetailDismissed: () -> Unit,
     onActivityDismissed: () -> Unit,
+    onProtectionStatus: () -> Unit,
+    onProtectionStatusDismissed: () -> Unit,
     onShareClicked: (QuakeHistoryItem) -> Unit,
     onRetry: () -> Unit,
     onMuteClick: () -> Unit,
@@ -155,6 +161,7 @@ fun WarningScreen(
                 onSeeDetails = onSeeDetails,
                 onEmergency = onEmergency,
                 onRetry = onRetry,
+                onProtectionStatus = onProtectionStatus,
                 listState = listState
             )
 
@@ -194,6 +201,17 @@ fun WarningScreen(
             onDismiss = onActivityDismissed
         )
     }
+
+    // --- "Protection Status" overlay ------------------------------------------
+    // Raised here rather than from Settings: the question it answers ("will this
+    // warn me?") is asked on this screen, and the radius it quotes is fixed policy,
+    // so the flag carries no payload.
+    if (idle?.isProtectionStatusOpen == true) {
+        ProtectionStatusModalDialog(
+            radiusLabel = uiState.alertRadiusLabel,
+            onDismiss = onProtectionStatusDismissed
+        )
+    }
 }
 
 /**
@@ -211,6 +229,7 @@ private fun ColumnScope.IdleBody(
     onSeeDetails: () -> Unit,
     onEmergency: () -> Unit,
     onRetry: () -> Unit,
+    onProtectionStatus: () -> Unit,
     listState: LazyListState
 ) {
     // Reported at the top and nowhere else. A load that failed and a link that is
@@ -238,6 +257,7 @@ private fun ColumnScope.IdleBody(
     AlertBanner(
         banner = uiState.banner,
         onSeeDetails = onSeeDetails,
+        onProtectionStatus = onProtectionStatus,
         // The header gap belongs to whichever element is first: with the notice above
         // it, the banner only needs to clear it, not the header a second time.
         modifier = Modifier.padding(
@@ -416,6 +436,8 @@ private fun PreviewWarningScreen(
             onEmergency = {},
             onDetailDismissed = {},
             onActivityDismissed = {},
+            onProtectionStatus = {},
+            onProtectionStatusDismissed = {},
             onShareClicked = {},
             onRetry = {},
             onMuteClick = {},

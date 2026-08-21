@@ -53,9 +53,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         observePreferences()
         observeIdentity()
         refreshSystemState()
-        // Explicit, because nothing else asks any more: the count used to ride along
-        // with the radius flow, and that flow is gone.
-        refreshSensorCount()
     }
 
     /** Mirrors the persisted preferences into state as they change. */
@@ -156,7 +153,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val result = network.userLocationRepository.sync(force = true)
             _uiState.update { it.copy(isSyncing = false, statusMessage = result.toMessage()) }
-            if (result is LocationSyncResult.Updated) refreshSensorCount()
         }
     }
 
@@ -252,7 +248,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 }
             )
             _uiState.update { it.copy(isResetting = false, statusMessage = message) }
-            refreshSensorCount()
         }
     }
 
@@ -269,22 +264,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     /** Closes the About overlay — close button, back press or outside tap. */
     fun onAboutDismissed() {
         _uiState.update { it.copy(showAboutModal = false) }
-    }
-
-    /**
-     * Counts the stations the server reports inside [SafetyPolicy.ALERT_RADIUS_KM].
-     *
-     * A failure leaves the previous count rather than showing zero: "0 sensors" and
-     * "could not ask" mean very different things to someone reading this card. The
-     * server needs a stored position for this to be non-empty, which is why a
-     * successful sync re-runs it.
-     */
-    private fun refreshSensorCount() {
-        viewModelScope.launch {
-            network.apiClient.fetchSensors(rangeKm = SafetyPolicy.ALERT_RADIUS_KM)
-                .onSuccess { sensors -> _uiState.update { it.copy(sensorCount = sensors.size) } }
-                .onFailure { Log.d(TAG, "sensor count unavailable", it) }
-        }
     }
 
     private fun post(message: String) {

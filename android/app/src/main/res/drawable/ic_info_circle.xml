@@ -1,0 +1,17 @@
+<!--
+  Untitled UI "info-circle", drawn to match the stroke language of the other
+  glyphs in this set (ic_check_circle, ic_alert_triangle): a 1.5px round-capped
+  outline on a 20dp box, tinted at the call site.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="20dp"
+    android:height="20dp"
+    android:viewportWidth="20"
+    android:viewportHeight="20">
+    <path
+        android:pathData="M10,13.3333V10M10,6.6667H10.0083M18.3333,10C18.3333,14.6024 14.6024,18.3333 10,18.3333C5.3976,18.3333 1.6667,14.6024 1.6667,10C1.6667,5.3976 5.3976,1.6667 10,1.6667C14.6024,1.6667 18.3333,5.3976 18.3333,10Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

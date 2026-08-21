@@ -54,6 +54,7 @@ import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeCard
+import id.web.quakealert.ui.common.LocalQuakeToast
 import id.web.quakealert.ui.common.QuakePill
 import id.web.quakealert.ui.common.QuakeSwitch
 import id.web.quakealert.ui.common.TestAlertSoundDialog
@@ -71,7 +72,6 @@ import id.web.quakealert.ui.theme.QuakeAlertTheme
 import id.web.quakealert.ui.theme.SectionHeaderPillFill
 import id.web.quakealert.ui.theme.TextPrimary
 import id.web.quakealert.ui.theme.TextSecondary
-import kotlinx.coroutines.delay
 
 
 
@@ -145,6 +145,18 @@ fun SettingsRoute(
     // Local to the Route rather than in SettingsUiState: the modal owns its own
     // playback and there is nothing for the ViewModel to decide or persist about it,
     // so putting it in the state would only widen what a Settings test has to know.
+    // The outcome of the last action (a sync, a reroll, a reset) is handed to the
+    // app-wide host and cleared from this screen's state immediately: the ViewModel
+    // decides *what* happened, the host owns how long it is shown and where. Keeping
+    // it here is what used to reflow the list and let a message scroll out of view.
+    val toast = LocalQuakeToast.current
+    LaunchedEffect(uiState.statusMessage) {
+        uiState.statusMessage?.let { message ->
+            toast.show(message)
+            viewModel.onStatusMessageShown()
+        }
+    }
+
     var showTestAlertSound by remember { mutableStateOf(false) }
     if (showTestAlertSound) {
         TestAlertSoundDialog(onDismissRequest = { showTestAlertSound = false })
@@ -168,7 +180,6 @@ fun SettingsRoute(
         onResetProfileRequested = viewModel::onResetProfileRequested,
         onResetProfileConfirmed = viewModel::onResetProfileConfirmed,
         onResetProfileDismissed = viewModel::onResetProfileDismissed,
-        onStatusMessageShown = viewModel::onStatusMessageShown,
         onLightModeToggled = viewModel::onLightModeToggled,
         onLanguageSelected = viewModel::onLanguageSelected,
         onUnitSelected = viewModel::onUnitSelected,
@@ -227,12 +238,13 @@ private fun Context.openBatteryOptimizationSettings() {
 /**
  * Stateless Settings screen ("Settings Page (Fix)", Figma node 1:845). Sections,
  * top → bottom:
- *  1. A static [QuakeAppBar] header ("Settings" + connection badge), plus a status
- *     pill for the result of the last action.
- *  2. "Location & Coverage": the read-only
- *     [ProtectionStatusCardBody] stating the fixed safety rules, "Sync Location
- *     Now" — which now carries the [SensorMapCard] inline, confirming the position
- *     the control produces — and the "Auto Sync Location" switch. There is no radius control — see
+ *  1. A static [QuakeAppBar] header ("Settings" + connection badge). The result of
+ *     the last action is not rendered here at all: it is posted to the app-wide
+ *     [id.web.quakealert.ui.common.QuakeToastHost], which floats it above the bottom
+ *     navigation instead of pushing the list around.
+ *  2. "Location & Coverage": "Sync Location
+ *     Now", which carries the [SensorMapCard] inline so the position the control
+ *     produces is visible where it is produced, and the "Auto Sync Location" switch. There is no radius control — see
  *     [id.web.quakealert.domain.SafetyPolicy] for why that decision is not the
  *     user's to make.
  *  3. "Alert & Notification": the alert switch (which also surfaces a revoked OS
@@ -264,7 +276,6 @@ fun SettingsScreen(
     onResetProfileRequested: () -> Unit,
     onResetProfileConfirmed: () -> Unit,
     onResetProfileDismissed: () -> Unit,
-    onStatusMessageShown: () -> Unit,
     onLightModeToggled: (Boolean) -> Unit,
     onLanguageSelected: (AppLanguage) -> Unit,
     onUnitSelected: (UnitSystem) -> Unit,
@@ -295,35 +306,9 @@ fun SettingsScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(Dimens.SettingsSectionSpacing)
         ) {
-            // The outcome of the last action (a sync, a reroll, a reset). Auto-clears
-            // so a stale "Location updated" cannot outlive the action it describes.
-            uiState.statusMessage?.let { message ->
-                item(key = "status") {
-                    LaunchedEffect(message) {
-                        delay(STATUS_MESSAGE_MS)
-                        onStatusMessageShown()
-                    }
-                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        QuakePill(text = message)
-                    }
-                }
-            }
-
             // --- Location & Coverage --------------------------------------
             item(key = "header_location") {
                 CenteredSectionBadge(title = "Location & Coverage")
-            }
-
-            item(key = "card_protection") {
-                QuakeCard(
-                    title = "Protection Status",
-                    // Read-only on purpose. This card used to hold the radius
-                    // slider; what it holds now is the explanation of why there is
-                    // nothing to adjust.
-                    detail = {
-                        ProtectionStatusCardBody(radiusLabel = uiState.alertRadiusLabel)
-                    }
-                )
             }
 
             item(key = "card_location") {
@@ -340,14 +325,21 @@ fun SettingsScreen(
                         SensorMapCard(
                             overview = SensorMapOverview(
                                 locationLabel = uiState.locationPillLabel,
-                                rangeKm = SafetyPolicy.ALERT_RADIUS_KM,
-                                sensorCount = uiState.sensorCount,
+                                // No radius and no count reach this card, because it
+                                // does not show them: range and sensor coverage are
+                                // the Sensors screen's subject, and printing them
+                                // here read as though Settings owned the search
+                                // radius. What this map claims is only *where* the
+                                // last fix landed.
+                                rangeKm = null,
+                                sensorCount = 0,
                                 geofenceFraction = uiState.geofenceFraction,
                                 latitude = uiState.latitude,
                                 longitude = uiState.longitude
                             ),
                             unitSystem = uiState.unitSystem,
                             showGeofence = false,
+                            showRangeBadge = false,
                             height = Dimens.MapCardInlineHeight,
                             modifier = Modifier.padding(top = Dimens.SettingCardTitleGap)
                         )
@@ -589,9 +581,6 @@ private fun ResetProfileDialog(
     )
 }
 
-/** How long a status pill stays up before clearing itself. */
-private const val STATUS_MESSAGE_MS = 4_000L
-
 /**
  * Centered section badge ("Location & Coverage", Figma node 1:856). A hug-width
  * #2D2D2D slim stadium capsule, fixed 23dp tall with 14dp horizontal padding and
@@ -628,7 +617,6 @@ private fun SettingsScreenPreview() {
         SettingsScreen(
             uiState = SettingsUiState(
                 locationLabel = "Bandung, West Java, ID",
-                sensorCount = 2,
                 lastSyncLabel = "2 minutes ago",
                 pseudonym = "Quakezen-7B9A",
                 userId = "1f0c3a52-9e1d-4a77-8f2b-6d0a1c4e5b90"
@@ -645,7 +633,6 @@ private fun SettingsScreenPreview() {
             onResetProfileRequested = {},
             onResetProfileConfirmed = {},
             onResetProfileDismissed = {},
-            onStatusMessageShown = {},
             onLightModeToggled = {},
             onLanguageSelected = {},
             onUnitSelected = {},

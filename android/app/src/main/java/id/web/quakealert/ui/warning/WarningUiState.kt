@@ -253,6 +253,17 @@ sealed interface WarningUiState {
     fun withUnitSystem(unitSystem: UnitSystem): WarningUiState
 
     /**
+     * The fixed alert radius in the selected unit, for the "Protection Status"
+     * overlay's first rule.
+     *
+     * Derived here rather than passed in because it is not state: the radius is a
+     * constant of [id.web.quakealert.domain.SafetyPolicy], and the only thing that
+     * varies is the unit it is printed in.
+     */
+    val alertRadiusLabel: String
+        get() = unitSystem.formatDistance(SafetyPolicy.ALERT_RADIUS_KM)
+
+    /**
      * Calm / monitoring state (Figma 124:1297 / 124:1426).
      *
      * The banner/tips/section title are a single package so the sub-states stay
@@ -274,6 +285,10 @@ sealed interface WarningUiState {
      *   null when no overlay is showing.
      * @param selectedActivity the [RecentSeismicActivity] overlay raised from the
      *   resting banner's action, or null when it is closed.
+     * @param isProtectionStatusOpen whether the "Protection Status" overlay is up,
+     *   raised by the banner's info affordance. A flag rather than a payload,
+     *   unlike its two siblings: the overlay states fixed policy, so there is
+     *   nothing about the current alert for it to carry.
      */
     @Immutable
     data class Idle(
@@ -291,7 +306,8 @@ sealed interface WarningUiState {
         val tips: List<PreparednessTip> = noActiveQuakeTips(),
         override val unitSystem: UnitSystem = UnitSystem.METRIC,
         val selectedEventDetails: QuakeHistoryItem? = null,
-        val selectedActivity: RecentSeismicActivity? = null
+        val selectedActivity: RecentSeismicActivity? = null,
+        val isProtectionStatusOpen: Boolean = false
     ) : WarningUiState {
 
         override fun withUnitSystem(unitSystem: UnitSystem): Idle =

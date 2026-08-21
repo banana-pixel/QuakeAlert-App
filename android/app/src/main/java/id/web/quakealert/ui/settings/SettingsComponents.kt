@@ -7,14 +7,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -27,7 +25,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import id.web.quakealert.R
-import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.theme.AboutButtonFill
 import id.web.quakealert.ui.theme.AboutCardBorder
 import id.web.quakealert.ui.theme.AboutCardGradient
@@ -49,7 +46,6 @@ import id.web.quakealert.ui.theme.SuccessGreen
 import id.web.quakealert.ui.theme.SuccessGreenTranslucent
 import id.web.quakealert.ui.theme.TextPrimary
 import id.web.quakealert.ui.theme.TextSecondary
-import kotlin.math.roundToInt
 
 /**
  * Full-width section header pill (Figma node 1:846 / EL-c963c95e) that labels a
@@ -141,9 +137,11 @@ fun SyncRefreshButton(
  * [SegmentActiveFill] and the rest use [SegmentInactiveFill]. Every pill carries
  * the same 2px white-30% stroke and 12dp radius.
  *
- * All pills are sized to the widest option (via [IntrinsicSize.Max] + equal
- * [RowScope.weight]) so the "125 km / 250 km / 500 km" and "EN / ID" boxes are
- * uniform squares rather than hugging each label independently.
+ * The row fills its width and the pills share it equally (via [RowScope.weight]),
+ * so every control on the screen has the same geometry regardless of how long its
+ * labels are. Sizing the row to its widest label instead — which is what it used to
+ * do — made "EN / ID" collapse to two cramped boxes beside a full-width
+ * "Metric / Imperial", as though the two settings were different kinds of control.
  *
  * @param options the selectable values.
  * @param selected the currently selected value.
@@ -159,7 +157,7 @@ fun <T> QuakeSegmentedControl(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier.width(IntrinsicSize.Max),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(Dimens.SegmentRowGap),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -261,59 +259,6 @@ fun AboutCard(
 }
 
 /**
- * Read-only protection status, the card body that replaced the coverage-radius
- * slider.
- *
- * The slider was removed rather than merely disabled because the setting itself was
- * the mistake: it let someone trade away their own warning to get fewer
- * notifications, and the only person who would ever learn that was the wrong trade
- * is them, after an earthquake. Operational EEW systems make this call centrally for
- * exactly that reason.
- *
- * What is left is an explanation. Nothing here is tappable, and it does not pretend
- * to be — no switch shape, no chevron. It states the two rules in force
- * ([id.web.quakealert.domain.SafetyPolicy]) so a user who notices the slider is gone
- * can see what replaced it and that it is wider, not narrower, than what they could
- * have chosen.
- *
- * @param radiusLabel the fixed alert radius in the user's unit system.
- */
-@Composable
-fun ProtectionStatusCardBody(
-    radiusLabel: String,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardContentGap)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text = "Automatic", style = CardTitle, color = TextPrimary)
-            InfoPill(text = "Always on")
-        }
-
-        ProtectionRule(
-            title = "Alerts within $radiusLabel",
-            detail = "Any earthquake whose estimated centroid falls inside this " +
-                "distance sounds the alarm. The radius is set by the system, the " +
-                "same value the server uses to choose who to notify."
-        )
-
-        ProtectionRule(
-            title = "Severe quakes ignore distance",
-            detail = "MMI VII and above, or peak ground acceleration of " +
-                "${SafetyPolicy.OVERRIDE_PGA_GAL.roundToInt()} gal or more, alarms " +
-                "wherever you are. At that size there is no distance at which you " +
-                "did not need to know."
-        )
-    }
-}
-
-/**
  * The permissions hub's body: the three system prerequisites an alert has to clear
  * before it can reach the user, each with its live grant state and a tap that fixes
  * it (Settings "Alert & Notification" section).
@@ -324,8 +269,11 @@ fun ProtectionStatusCardBody(
  * know that. The summary line above them counts what is ready, so a partial state
  * cannot pass for a working one.
  *
- * Each row states *why* it matters, not just what it is — a permission list with no
- * consequences attached invites the user to decline the one that looks optional.
+ * Each row is a glyph, a name and its state, the same shape the onboarding
+ * [id.web.quakealert.ui.onboarding.PermissionCard] uses. The reasons each permission
+ * matters are not repeated here: onboarding already makes that case at the moment the
+ * user is deciding, and three paragraphs of consequence turned a checklist meant to
+ * be scanned in a second into the longest card on the screen.
  *
  * @param notificationGranted the OS `POST_NOTIFICATIONS` grant.
  * @param locationGranted whether a position can be read at all.
@@ -352,7 +300,6 @@ fun PermissionsHubCardBody(
         PermissionHubRow(
             iconRes = R.drawable.ic_notification_permission,
             title = "Notifications",
-            detail = "Without this the warning arrives silently, or not at all.",
             granted = notificationGranted,
             grantedLabel = "Allowed",
             onFix = onFixNotifications
@@ -360,8 +307,6 @@ fun PermissionsHubCardBody(
         PermissionHubRow(
             iconRes = R.drawable.ic_pin_location,
             title = "Precise Location",
-            detail = "Alerts are chosen by how close the quake is to you. With no " +
-                "position, every one of them is filtered out.",
             granted = locationGranted,
             grantedLabel = "Allowed",
             onFix = onFixLocation
@@ -369,8 +314,6 @@ fun PermissionsHubCardBody(
         PermissionHubRow(
             iconRes = R.drawable.ic_battery_optimization,
             title = "Background Delivery",
-            detail = "Doze can hold a push until the next maintenance window. For a " +
-                "few seconds of warning, that is the same as never.",
             granted = batteryUnrestricted,
             grantedLabel = "Unrestricted",
             onFix = onFixBattery
@@ -385,12 +328,15 @@ fun PermissionsHubCardBody(
  * that opens system Settings to show the user what they already did is noise. The
  * missing state is tinted [MmiOrange] rather than red — it is a gap the user can
  * close in one tap, not a failure.
+ *
+ * One line tall, like the onboarding card it mirrors: what the row has to say is the
+ * name and the state, and the label on the unsatisfied side says what the tap does
+ * ("Tap to allow") rather than naming the row a problem ("Fix").
  */
 @Composable
 private fun PermissionHubRow(
     @DrawableRes iconRes: Int,
     title: String,
-    detail: String,
     granted: Boolean,
     grantedLabel: String,
     onFix: () -> Unit
@@ -413,13 +359,12 @@ private fun PermissionHubRow(
             tint = if (granted) SuccessGreen else MmiOrange,
             modifier = Modifier.size(Dimens.PermissionHubGlyphSize)
         )
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)
-        ) {
-            Text(text = title, style = ChipLabel, color = TextPrimary)
-            Text(text = detail, style = CardSubtitle, color = TextSecondary)
-        }
+        Text(
+            text = title,
+            style = ChipLabel,
+            color = TextPrimary,
+            modifier = Modifier.weight(1f)
+        )
         Row(
             horizontalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap),
             verticalAlignment = Alignment.CenterVertically
@@ -433,25 +378,11 @@ private fun PermissionHubRow(
                 )
             }
             Text(
-                text = if (granted) grantedLabel else "Fix",
+                text = if (granted) grantedLabel else "Tap to allow",
                 style = ChipLabel,
                 color = if (granted) TextPrimary else MmiOrange
             )
         }
-    }
-}
-
-/**
- * One rule inside [ProtectionStatusCardBody]: a bold claim and the reason for it.
- *
- * Split out so both rules are laid out identically — the point of the card is that
- * these are two facts of equal standing, not a headline and a footnote.
- */
-@Composable
-private fun ProtectionRule(title: String, detail: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)) {
-        Text(text = title, style = ChipLabel, color = TextPrimary)
-        Text(text = detail, style = CardSubtitle, color = TextSecondary)
     }
 }
 

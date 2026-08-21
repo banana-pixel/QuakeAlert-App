@@ -253,6 +253,12 @@ object Dimens {
     /** Overlay card inner padding (Figma 18). */
     val ModalPadding = 18.dp
 
+    /**
+     * Gap between the floating message card and the bottom navigation it floats
+     * over, so the card reads as sitting above the bar rather than joined to it.
+     */
+    val ToastBottomGap = 12.dp
+
     // Circular close (X) button (Figma nodes 4:761 / 123:1006): a 24dp glyph in a
     // 10dp-padded container → 44dp footprint, 20dp radius.
     val ModalCloseSize = 44.dp
@@ -416,6 +422,13 @@ object Dimens {
      * active-alert waveform and resting globe read at the same visual size.
      */
     val AlertWaveIconSize = 64.dp
+    /**
+     * Gap and glyph size for the info affordance beside the banner title. Smaller
+     * than the title's own type size on purpose: the affordance has to be findable
+     * without competing with the headline it sits next to.
+     */
+    val AlertBannerInfoGap = 6.dp
+    val AlertBannerInfoIconSize = 16.dp
     /** "SEE DETAILS" capsule width (Figma 101) + padding (Figma 8/10). */
     val AlertActionWidth = 101.dp
     val AlertActionPaddingHorizontal = 10.dp
