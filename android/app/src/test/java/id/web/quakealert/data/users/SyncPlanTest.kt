@@ -66,6 +66,16 @@ class SyncPlanTest {
     }
 
     @Test
+    fun `an unsynced coverage radius uploads even when the device has not moved`() {
+        val plan = planSync(stored = bandung, fix = jitterFix, force = false, radiusChanged = true)
+
+        // The slider is moved at a desk, so the 1 km shortcut would otherwise hold
+        // the new radius back indefinitely — and the server aims alerts by it.
+        assertTrue(plan.upload)
+        assertTrue("still the same spot, so the label is still valid", plan.reuseStoredLabel)
+    }
+
+    @Test
     fun `the threshold is what decides, not the distance itself`() {
         // Same pair of positions either side of a threshold placed between them:
         // proves the comparison is against minMoveKm rather than a baked-in constant.

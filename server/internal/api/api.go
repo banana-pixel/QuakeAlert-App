@@ -54,6 +54,17 @@ const maxFCMTokenLen = 255
 // user_profiles.location_name (migrasi 000002).
 const maxLocationNameLen = 150
 
+// Rentang coverage_radius_km yang diterima PUT /users/location. Batas atas
+// mencerminkan slider Settings Android (AppSettingsRepository.RADIUS_RANGE =
+// 50..300); batas bawah dibuat longgar agar versi klien yang menawarkan pilihan
+// lebih sempit tidak ditolak. Nilai ini menentukan apakah dispatch membangunkan
+// perangkat untuk sebuah gempa, jadi di luar rentang lebih baik 400 yang jelas
+// daripada radius liar yang diam-diam tersimpan.
+const (
+	minCoverageRadiusKm = 1
+	maxCoverageRadiusKm = 300
+)
+
 // stationIDPattern mencerminkan ProvisionRequest.station_id pada
 // contracts/openapi/openapi.yaml (^NODE-[0-9A-F]{8}$).
 var stationIDPattern = regexp.MustCompile(`^NODE-[0-9A-F]{8}$`)
@@ -66,7 +77,7 @@ type Repo interface {
 	GetUserLocation(ctx context.Context, userID string) (*store.UserLocation, error)
 	UpdatePseudonym(ctx context.Context, userID, pseudonym string) (time.Time, error)
 	CreateUserProfile(ctx context.Context, userID, pseudonym string) (time.Time, error)
-	UpdateUserLocation(ctx context.Context, userID string, lat, lon float64, locationName string) (time.Time, error)
+	UpdateUserLocation(ctx context.Context, userID string, lat, lon float64, locationName string, coverageRadiusKm *int) (time.Time, int, error)
 	UpdateUserFCMToken(ctx context.Context, userID, token string) (time.Time, error)
 	ListEvents(ctx context.Context, limit, offset int, filter *store.EventFilter) ([]store.Event, error)
 }
@@ -498,9 +509,13 @@ func (s *Server) HandleAnonymousAuth(w http.ResponseWriter, r *http.Request) {
 // ABSEN dapat dibedakan dari nilai 0 — (0, 0) adalah koordinat yang sah (Null
 // Island), jadi zero-value JSON tidak boleh diperlakukan sebagai "tidak dikirim".
 type updateLocationRequest struct {
-	Latitude     *float64 `json:"latitude"`
-	Longitude    *float64 `json:"longitude"`
-	LocationName string   `json:"location_name"`
+	Latitude  *float64 `json:"latitude"`
+	Longitude *float64 `json:"longitude"`
+	// CoverageRadiusKm juga pointer, tetapi karena alasan yang berbeda dari
+	// koordinat: ABSEN berarti "jangan ubah radius" (klien lama tidak mengenal
+	// field ini), sedangkan 0 adalah nilai tak sah yang ditolak.
+	CoverageRadiusKm *int   `json:"coverage_radius_km"`
+	LocationName     string `json:"location_name"`
 }
 
 type updateLocationResponse struct {
@@ -508,11 +523,19 @@ type updateLocationResponse struct {
 	Latitude     float64 `json:"latitude"`
 	Longitude    float64 `json:"longitude"`
 	LocationName *string `json:"location_name"`
-	UpdatedAt    string  `json:"updated_at"` // RFC3339 UTC
+	// CoverageRadiusKm adalah radius yang BERLAKU setelah update (nilai yang
+	// baru dikirim, atau yang sudah tersimpan bila field diabaikan) sehingga
+	// klien dapat memastikan preferensinya benar-benar sampai.
+	CoverageRadiusKm int    `json:"coverage_radius_km"`
+	UpdatedAt        string `json:"updated_at"` // RFC3339 UTC
 }
 
 // HandleUpdateLocation menyimpan koordinat user ke last_location (PostGIS) yang
-// menjadi basis filter radius /sensors dan penargetan alert.
+// menjadi basis filter radius /sensors dan penargetan alert, sekaligus
+// menyinkronkan coverage_radius_km pilihan user bila dikirim — kolom itulah yang
+// dipakai dispatch untuk memutuskan perangkat mana yang perlu dibangunkan
+// (store.FCMTokensWithin), jadi tanpanya penargetan hanya bisa memakai satu
+// radius seragam untuk semua orang.
 func (s *Server) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
 	userID, ok := UserIDFromContext(r.Context())
 	if !ok {
@@ -540,8 +563,15 @@ func (s *Server) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "location_name maksimal 150 karakter")
 		return
 	}
+	if req.CoverageRadiusKm != nil &&
+		(*req.CoverageRadiusKm < minCoverageRadiusKm || *req.CoverageRadiusKm > maxCoverageRadiusKm) {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+			fmt.Sprintf("coverage_radius_km harus %d..%d", minCoverageRadiusKm, maxCoverageRadiusKm))
+		return
+	}
 
-	updatedAt, err := s.repo.UpdateUserLocation(r.Context(), userID, *req.Latitude, *req.Longitude, req.LocationName)
+	updatedAt, radiusKm, err := s.repo.UpdateUserLocation(
+		r.Context(), userID, *req.Latitude, *req.Longitude, req.LocationName, req.CoverageRadiusKm)
 	if errors.Is(err, store.ErrUserNotFound) {
 		writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "profil user tidak ditemukan")
 		return
@@ -553,10 +583,11 @@ func (s *Server) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := updateLocationResponse{
-		UserID:    userID,
-		Latitude:  *req.Latitude,
-		Longitude: *req.Longitude,
-		UpdatedAt: updatedAt.UTC().Format(time.RFC3339),
+		UserID:           userID,
+		Latitude:         *req.Latitude,
+		Longitude:        *req.Longitude,
+		CoverageRadiusKm: radiusKm,
+		UpdatedAt:        updatedAt.UTC().Format(time.RFC3339),
 	}
 	// Kosong dipersistensikan sebagai NULL (semantik PUT), jadi respons harus
 	// mencerminkan null—bukan "" — agar klien melihat state yang benar-benar tersimpan.

@@ -37,7 +37,9 @@ type eventSaver interface {
 	ResolveEvent(ctx context.Context, eventID string) error
 }
 
-// tokenFinder mengabstraksi pencarian token FCM bertarget. Interface terpisah
+// tokenFinder mengabstraksi pencarian token FCM bertarget. rangeKm adalah batas
+// atas pencarian; implementasi store menyempitkannya lagi per user dengan
+// coverage_radius_km. Interface terpisah
 // dari eventSaver dan dideteksi lewat type assertion agar penyedia lama (dan
 // fake pada test) tetap kompatibel: yang tidak mengimplementasikannya jatuh ke
 // broadcast topic seperti sebelumnya.
@@ -45,13 +47,15 @@ type tokenFinder interface {
 	FCMTokensWithin(ctx context.Context, lat, lon float64, rangeKm int) ([]string, error)
 }
 
-// dispatchRadiusKm adalah radius pencarian token untuk satu event.
+// dispatchRadiusKm adalah BATAS ATAS pencarian token untuk satu event, bukan
+// radius alert. Radius alert per perangkat adalah coverage_radius_km milik user
+// (disinkronkan klien lewat PUT /users/location) dan diterapkan di dalam
+// store.FCMTokensWithin; nilai ini hanya membatasi prefilter spasialnya.
 //
-// Sengaja lebar: klien menyaring sendiri dengan gate Haversine memakai radius
-// pilihan user (maksimum 300 km di Settings) sebelum sirene berbunyi, jadi
-// mengirim lebih luas hanya berbiaya satu notifikasi yang di-drop klien —
-// sedangkan mengirim terlalu sempit berarti perangkat yang seharusnya berbunyi
-// tetap diam.
+// Sedikit di atas maksimum yang dapat dipilih user (300 km di slider Settings)
+// agar batas ini tidak pernah menjadi yang membisukan sebuah perangkat: yang
+// memutuskan tetap pilihan user, dan gate Haversine di klien tetap menjadi
+// pemeriksa terakhir sebelum sirene berbunyi.
 const dispatchRadiusKm = 350
 
 // maxFCMConcurrency membatasi request FCM paralel per event. HTTP v1 tidak

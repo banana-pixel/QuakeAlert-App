@@ -92,6 +92,20 @@ class AppSettingsRepository(context: Context) {
         it[KEY_COVERAGE_RADIUS_KM] = km.coerceIn(RADIUS_RANGE)
     }
 
+    /**
+     * The radius the server last confirmed, or null before any sync told it one.
+     *
+     * Kept apart from [coverageRadiusKm] because the two answer different
+     * questions: that one is what the user chose, this one is what the backend
+     * knows. The gap between them is what makes a radius change reach the server at
+     * all — `PUT /users/location` is otherwise skipped whenever the device has not
+     * moved a kilometre, so a slider moved at a desk would never be uploaded.
+     */
+    val syncedCoverageRadiusKm: Flow<Int?> = read { it[KEY_SYNCED_COVERAGE_RADIUS_KM] }
+
+    /** Records the radius a `PUT /users/location` just had accepted. */
+    fun setSyncedCoverageRadiusKm(km: Int) = write { it[KEY_SYNCED_COVERAGE_RADIUS_KM] = km }
+
     /** Whether the app refreshes the stored position on start. On by default. */
     val autoSyncLocation: Flow<Boolean> = read { it[KEY_AUTO_SYNC_LOCATION] ?: true }
 
@@ -130,6 +144,9 @@ class AppSettingsRepository(context: Context) {
     /** One-shot read of the last position sync, null when never synced. */
     suspend fun readLastSyncAtMs(): Long? = lastSyncAtMs.first()
 
+    /** One-shot read of the radius the server last confirmed, null when never. */
+    suspend fun readSyncedCoverageRadiusKm(): Int? = syncedCoverageRadiusKm.first()
+
     private fun <T> read(transform: (Preferences) -> T): Flow<T> =
         dataStore.data.map(transform).distinctUntilChanged()
 
@@ -146,6 +163,7 @@ class AppSettingsRepository(context: Context) {
         private val KEY_ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         private val KEY_UNIT_SYSTEM = stringPreferencesKey("unit_system")
         private val KEY_COVERAGE_RADIUS_KM = intPreferencesKey("coverage_radius_km")
+        private val KEY_SYNCED_COVERAGE_RADIUS_KM = intPreferencesKey("synced_coverage_radius_km")
         private val KEY_AUTO_SYNC_LOCATION = booleanPreferencesKey("auto_sync_location")
         private val KEY_NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
         private val KEY_LAST_SYNC_AT_MS = longPreferencesKey("last_sync_at_ms")

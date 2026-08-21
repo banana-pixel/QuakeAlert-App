@@ -48,3 +48,20 @@ server/.gomodcache/
 # --- Deploy / data volumes lokal ---
 deploy/**/data/
 server/pgdata/
+
+# --- Deploy produksi (secret & material TLS) ---
+# .env.prod tidak tertangkap pola *.env di atas (akhirannya .prod), padahal ia
+# memuat POSTGRES_PASSWORD, MASTER_KEY_HEX, JWT_SECRET dan seluruh password MQTT.
+.env.prod
+deploy/.env.prod
+!deploy/.env.prod.example
+# Hash password MQTT: bukan plaintext, tetapi cukup untuk serangan offline.
+deploy/mosquitto/passwd
+# Sertifikat + kunci privat broker, disalin dari volume Caddy oleh
+# scripts/sync-mqtt-certs.sh. Selalu dapat dibuat ulang, jadi tidak ada alasan
+# menaruhnya di git.
+deploy/mosquitto/certs/
+# Service account FCM. Direktorinya sendiri tetap dilacak (lewat .gitkeep) agar
+# mount read-only di compose tidak dibuatkan Docker sebagai direktori milik root.
+deploy/secrets/*
+!deploy/secrets/.gitkeep

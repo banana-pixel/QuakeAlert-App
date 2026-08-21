@@ -138,12 +138,16 @@ else
 fi
 
 echo "  [2.2] PUT /api/v1/users/location"
-api PUT /api/v1/users/location '{"latitude":-6.8721,"longitude":107.5422,"location_name":"Cimahi, West Java, ID"}'
+api PUT /api/v1/users/location '{"latitude":-6.8721,"longitude":107.5422,"location_name":"Cimahi, West Java, ID","coverage_radius_km":120}'
+# coverage_radius_km diperiksa di sini karena kolom inilah yang dibaca dispatch saat
+# memilih token FCM: bila field ini tidak sampai ke DB, perangkat tetap dibangunkan
+# oleh gempa di luar radius pilihan penggunanya.
 if [ "$STATUS" = "200" ] && printf '%s' "$BODY" | jq -e '
     (.latitude == -6.8721) and (.longitude == 107.5422) and
     (.location_name == "Cimahi, West Java, ID") and
+    (.coverage_radius_km == 120) and
     (.user_id == "'"$USER_ID"'") and (.updated_at != null)' >/dev/null 2>&1; then
-  ok "200 + koordinat/location_name tersimpan & echo benar"
+  ok "200 + koordinat/location_name/coverage_radius_km tersimpan & echo benar"
 else
   bad "set location gagal (status=$STATUS, body=$BODY)"
 fi

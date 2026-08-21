@@ -8,6 +8,7 @@ import id.web.quakealert.data.network.model.RerollPseudonymResponseDto
 import id.web.quakealert.data.network.model.SensorsResponseDto
 import id.web.quakealert.data.network.model.UpdateFcmTokenRequestDto
 import id.web.quakealert.data.network.model.UpdateLocationRequestDto
+import id.web.quakealert.data.network.model.UpdateLocationResponseDto
 import id.web.quakealert.domain.EarthquakeEvent
 import id.web.quakealert.domain.SensorNode
 import id.web.quakealert.domain.UserLocation
@@ -122,26 +123,41 @@ class QuakeApiClient(
      * afterthought: omitting it clears whatever label the server held. The accepted
      * position is cached locally on success so distance read-outs survive a cold
      * start without waiting for a fresh GPS fix.
+     *
+     * @param coverageRadiusKm the alert radius to sync alongside the position. Null
+     *   leaves the server's stored radius untouched — the field does not share the
+     *   replace semantics of [locationName].
+     * @return the radius the server reports as being in effect afterwards, which
+     *   the caller can compare against what it meant to send.
      */
     suspend fun updateLocation(
         latitude: Double,
         longitude: Double,
-        locationName: String? = null
-    ): Result<Unit> = guarded {
+        locationName: String? = null,
+        coverageRadiusKm: Int? = null
+    ): Result<Int> = guarded {
         val payload = UpdateLocationRequestDto(
             latitude = latitude,
             longitude = longitude,
-            locationName = locationName?.takeIf { it.isNotBlank() }
+            locationName = locationName?.takeIf { it.isNotBlank() },
+            coverageRadiusKm = coverageRadiusKm
         )
         val request = Request.Builder()
             .url(QuakeApiConfig.url(QuakeApiConfig.PATH_USER_LOCATION))
             .put(json.encodeToString(payload).toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
-        perform(request = request, fallback = "Could not update your location")
+        val body = perform(request = request, fallback = "Could not update your location")
         sessionStore.saveUserLocation(
             UserLocation(latitude = latitude, longitude = longitude, locationName = locationName)
         )
+        // A server that answers 200 with a body this client cannot parse has still
+        // stored the position, so the sync is not failed over it: fall back to the
+        // radius that was asked for. Zero means "the server did not say".
+        runCatching { json.decodeFromString<UpdateLocationResponseDto>(body).coverageRadiusKm }
+            .getOrNull()
+            ?.takeIf { it > 0 }
+            ?: (coverageRadiusKm ?: 0)
     }
 
     /**

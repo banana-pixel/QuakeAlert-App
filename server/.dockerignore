@@ -1,0 +1,21 @@
+# Konteks build hanya perlu sumber Go. Yang penting di sini bukan ukuran konteks
+# melainkan baris-baris secret di bawah: apa pun yang masuk konteks bisa berakhir
+# di dalam layer image, dan sebuah layer yang berisi JWT_SECRET tetap berisi
+# JWT_SECRET meski file-nya dihapus di layer berikutnya.
+.env
+.env.*
+*.local
+*secrets*
+*.pem
+*.key
+firebase*.json
+service-account*.json
+
+# Artefak dan konfigurasi runtime yang tidak dipakai saat build.
+quakealert
+docker-compose*.yml
+Dockerfile
+.dockerignore
+scripts/
+**/*_test.go
+**/testdata/

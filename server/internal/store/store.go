@@ -417,30 +417,49 @@ func (s *Store) CreateUserProfile(ctx context.Context, userID, pseudonym string)
 	return createdAt, nil
 }
 
+// DefaultCoverageRadiusKm mencerminkan DEFAULT kolom
+// user_profiles.coverage_radius_km (migrasi 000001). Dipakai sebagai nilai
+// pengganti saat kolom masih NULL — baris lama yang dibuat sebelum klien
+// menyinkronkan radius.
+const DefaultCoverageRadiusKm = 50
+
 // UpdateUserLocation menyetel last_location (GEOGRAPHY(Point,4326)) user dari
 // (lat, lon) — perhatikan ST_MakePoint memakai urutan (lon, lat) — beserta label
-// lokasi opsional, lalu mengembalikan last_active yang di-set NOW().
+// lokasi opsional dan radius coverage pilihan user, lalu mengembalikan
+// last_active yang di-set NOW() bersama coverage_radius_km yang BERLAKU setelah
+// update (nilai baru bila dikirim, nilai tersimpan bila tidak).
 //
 // Semantik PUT (replace): locationName kosong disimpan sebagai NULL, jadi klien
 // yang mengirim body tanpa location_name memang MENGOSONGKAN label lama.
+//
+// coverageRadiusKm justru TIDAK ikut semantik replace itu: nil berarti
+// "jangan ubah", bukan "kosongkan". Radius adalah preferensi yang dipakai
+// dispatch untuk memutuskan apakah sebuah gempa perlu membangunkan perangkat
+// ini — mengosongkannya karena klien versi lama tidak mengirim field baru akan
+// mengubah jangkauan alert seseorang tanpa ia meminta.
 // Mengembalikan ErrUserNotFound bila user_id tidak ada.
-func (s *Store) UpdateUserLocation(ctx context.Context, userID string, lat, lon float64, locationName string) (time.Time, error) {
+func (s *Store) UpdateUserLocation(ctx context.Context, userID string, lat, lon float64, locationName string, coverageRadiusKm *int) (time.Time, int, error) {
 	const q = `
 		UPDATE user_profiles
 		SET last_location = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
 		    location_name = NULLIF($4, ''),
+		    coverage_radius_km = COALESCE($5, coverage_radius_km, $6),
 		    last_active   = NOW()
 		WHERE user_id = $1
-		RETURNING last_active`
-	var updatedAt time.Time
-	err := s.pool.QueryRow(ctx, q, userID, lon, lat, locationName).Scan(&updatedAt)
+		RETURNING last_active, coverage_radius_km`
+	var (
+		updatedAt time.Time
+		radiusKm  int
+	)
+	err := s.pool.QueryRow(ctx, q, userID, lon, lat, locationName, coverageRadiusKm, DefaultCoverageRadiusKm).
+		Scan(&updatedAt, &radiusKm)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return time.Time{}, ErrUserNotFound
+		return time.Time{}, 0, ErrUserNotFound
 	}
 	if err != nil {
-		return time.Time{}, fmt.Errorf("update user location: %w", err)
+		return time.Time{}, 0, fmt.Errorf("update user location: %w", err)
 	}
-	return updatedAt, nil
+	return updatedAt, radiusKm, nil
 }
 
 // UpdateUserFCMToken menyimpan registration token FCM perangkat user (dipakai
@@ -474,39 +493,61 @@ const maxFCMTokensPerEvent = 2000
 // menghasilkan UNREGISTERED dari FCM.
 const fcmTokenMaxIdle = 60 // hari
 
-// FCMTokensWithin mengembalikan registration token FCM milik user yang posisi
-// tersimpannya berada dalam rangeKm dari (lat, lon) — dasar delivery bertarget,
+// FCMTokensWithin mengembalikan registration token FCM milik user yang perlu
+// dibangunkan oleh sebuah gempa di (lat, lon) — dasar delivery bertarget,
 // menggantikan broadcast nasional ke satu topic.
 //
-// Radius yang dipakai adalah radius DISPATCH, bukan radius alert milik user:
-// coverage_radius_km di tabel tidak disinkronkan oleh klien (Android menyimpan
-// pilihan itu lokal di DataStore) sehingga nilainya akan menyaring terlalu
-// ketat. Klien menerapkan gate Haversine-nya sendiri sebelum membunyikan sirene,
-// jadi lebih aman mengirim agak lebar daripada mendiamkan perangkat yang
-// seharusnya berbunyi.
+// Dua radius bekerja bersamaan, dan keduanya perlu:
 //
-// DISTINCT ON menjaga satu token dikirim sekali: satu perangkat dapat
-// meninggalkan token yang sama pada beberapa baris user setelah "Reset Profile"
-// mencetak identitas anonim baru. Urutan terdekat-dulu membuat pemotongan pada
-// maxFCMTokensPerEvent membuang yang terjauh lebih dahulu.
+//   - rangeKm adalah BATAS ATAS dispatch, bukan radius alert. Ia satu-satunya
+//     yang masuk ST_DWithin sehingga indeks GiST idx_users_spatial memangkas
+//     tabel sebelum jarak per-baris dihitung.
+//   - coverage_radius_km adalah radius pilihan user (slider Settings, kini
+//     disinkronkan klien lewat PUT /users/location). Inilah yang menentukan
+//     apakah perangkat ini benar-benar ingin dibangunkan: dulu semua yang
+//     berada dalam rangeKm dikirimi notifikasi lalu di-drop oleh gate Haversine
+//     di klien, artinya sebuah gempa 340 km jauhnya tetap menyalakan layar
+//     seseorang yang memilih radius 50 km.
+//
+// Radius efektif dijepit ke [1, rangeKm]: NULL/0 dari baris lama jatuh ke
+// DefaultCoverageRadiusKm alih-alih membisukan perangkat, dan nilai di atas
+// batas dispatch tidak dapat memperlebar query melewati prefilter indeks.
+//
+// Agregasi per token (bukan DISTINCT ON) menjaga satu token dikirim sekali:
+// satu perangkat dapat meninggalkan token yang sama pada beberapa baris user
+// setelah "Reset Profile" mencetak identitas anonim baru. MIN(dist) dengan
+// MAX(radius) memilih pembacaan yang paling longgar di antara baris duplikat —
+// pada kanal life-safety, satu notifikasi berlebih lebih baik daripada satu
+// perangkat yang seharusnya berbunyi tetapi diam. Urutan terdekat-dulu membuat
+// pemotongan pada maxFCMTokensPerEvent membuang yang terjauh lebih dahulu.
 func (s *Store) FCMTokensWithin(ctx context.Context, lat, lon float64, rangeKm int) ([]string, error) {
+	const centroid = `ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography`
 	q := `
 		SELECT fcm_token FROM (
-			SELECT DISTINCT ON (fcm_token)
-			       fcm_token,
-			       last_location <-> ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography AS dist
+			SELECT fcm_token,
+			       MIN(last_location <-> ` + centroid + `) AS dist_m,
+			       MAX(
+			           LEAST(
+			               GREATEST(COALESCE(NULLIF(coverage_radius_km, 0), $5), 1),
+			               $6
+			           )
+			       ) * 1000.0 AS radius_m
 			FROM user_profiles
 			WHERE fcm_token IS NOT NULL
 			  AND fcm_token <> ''
 			  AND last_location IS NOT NULL
 			  AND last_active > NOW() - ($4 || ' days')::interval
-			  AND ST_DWithin(last_location, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography, $3)
-			ORDER BY fcm_token, dist
+			  AND ST_DWithin(last_location, ` + centroid + `, $3)
+			GROUP BY fcm_token
 		) t
-		ORDER BY dist
+		WHERE dist_m <= radius_m
+		ORDER BY dist_m
 		LIMIT ` + strconv.Itoa(maxFCMTokensPerEvent)
 
-	rows, err := s.pool.Query(ctx, q, lat, lon, float64(rangeKm)*1000.0, fcmTokenMaxIdle)
+	rows, err := s.pool.Query(ctx, q,
+		lat, lon, float64(rangeKm)*1000.0, fcmTokenMaxIdle,
+		DefaultCoverageRadiusKm, rangeKm,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("query fcm tokens: %w", err)
 	}

@@ -1,0 +1,39 @@
+# =============================================================================
+# QuakeAlert — ACL Mosquitto produksi
+#
+# Dua peran, dipisah tegas karena arah datanya berlawanan: node hanya boleh
+# MENULIS pengukuran, server hanya boleh MEMBACA-nya. Seorang penyerang yang
+# memegang kredensial node (dibagi bersama di firmware/src/secrets.h) karena itu
+# tidak bisa berlangganan sensor/# untuk memetakan seluruh jaringan, dan tidak
+# bisa mengirim perintah ke node lain.
+#
+# Topik mengikuti kontrak: sensor/<station_id>/{trigger,heartbeat,status,command}
+# (contracts/mqtt/*.schema.json).
+#
+# Default tanpa entri yang cocok adalah TOLAK — tidak ada aturan global di file
+# ini, jadi user yang tidak disebut di sini tidak bisa apa-apa.
+# =============================================================================
+
+# --- Server aplikasi ---------------------------------------------------------
+# Berlangganan seluruh cabang sensor (subscriber memakai wildcard sensor/+/…)
+# dan satu-satunya yang boleh mengirim perintah balik ke node.
+user quakealert-server
+topic read sensor/#
+topic write sensor/+/command
+
+# --- Node ESP32 --------------------------------------------------------------
+# Satu kredensial dipakai semua node (firmware tidak punya penyimpanan per-node
+# untuk itu), sehingga pembatasan di sini bersifat per-arah, bukan per-station:
+# station_id pada payload diverifikasi ulang server terhadap topiknya
+# (ingest.StationIDFromTopic) dan HMAC-nya diperiksa dengan kunci per-node, jadi
+# satu node tidak dapat berpura-pura menjadi node lain meski topiknya diizinkan.
+user quakealert-node
+topic write sensor/+/trigger
+topic write sensor/+/heartbeat
+topic write sensor/+/status
+topic read sensor/+/command
+
+# --- Monitoring (opsional) ---------------------------------------------------
+# Hanya statistik broker; tidak melihat data sensor sama sekali.
+user quakealert-monitor
+topic read $SYS/#

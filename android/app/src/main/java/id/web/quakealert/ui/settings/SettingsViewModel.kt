@@ -17,6 +17,7 @@ import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.mapper.QuakeFormat
 import id.web.quakealert.data.users.LocationSyncResult
 import id.web.quakealert.device.AlertSiren
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +48,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    /** The pending debounced radius push; cancelled by the next slider emission. */
+    private var radiusSyncJob: Job? = null
 
     init {
         observePreferences()
@@ -120,10 +124,29 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** Commits a new coverage radius from the slider. */
+    /**
+     * Commits a new coverage radius from the slider and pushes it to the server.
+     *
+     * The push is debounced and single-flight: dragging the slider fires this once
+     * per pixel, and the radius is what the server aims alerts by, so a request per
+     * emission would be both a flood and a race over which value lands last. The
+     * previous job is cancelled outright rather than allowed to finish — an
+     * in-flight PUT for a radius the user has already dragged past is only a chance
+     * to store the wrong one.
+     */
     fun onCoverageChanged(km: Int) {
         repository.setCoverageRadiusKm(km)
         _uiState.update { it.copy(coverageRadiusKm = km.coerceIn(AppSettingsRepository.RADIUS_RANGE)) }
+
+        radiusSyncJob?.cancel()
+        radiusSyncJob = viewModelScope.launch {
+            delay(RADIUS_SYNC_DEBOUNCE_MS)
+            // Silent by design: nobody moved a slider to be told about a network
+            // round trip, and syncIfStale() re-pushes an unsynced radius on the next
+            // launch if this one never reaches the server.
+            val result = network.userLocationRepository.syncCoverageRadius()
+            if (result != null) Log.d(TAG, "coverage radius push -> $result")
+        }
     }
 
     /** Toggles the "Auto Sync Location" switch. */
@@ -327,6 +350,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private companion object {
         const val TAG = "SettingsViewModel"
         const val TEST_SOUND_MS = 3_000L
+        const val RADIUS_SYNC_DEBOUNCE_MS = 750L
         const val HTTP_TOO_MANY_REQUESTS = 429
     }
 }
