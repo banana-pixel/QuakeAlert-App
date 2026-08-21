@@ -1,5 +1,7 @@
 package id.web.quakealert.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +47,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.UnitSystem
+import id.web.quakealert.device.LOCATION_PERMISSIONS
+import id.web.quakealert.device.hasLocationPermission
 import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeCard
@@ -111,6 +115,25 @@ fun SettingsRoute(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // "Sync Now" is the one place a user who declined at onboarding can recover:
+    // without a prompt here the button could only ever report "permission is
+    // needed", with nowhere in the app to grant it. A second decline is terminal
+    // for the launcher, so the ViewModel's message then points at system Settings.
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.any { it }) viewModel.onSyncLocationNow()
+        else viewModel.onLocationPermissionDenied()
+    }
+    // Remembered so a recomposition does not hand SettingsScreen a new lambda
+    // identity on every frame, the same reason `copy` below is remembered.
+    val syncLocation: () -> Unit = remember(context, locationPermissionLauncher) {
+        {
+            if (context.hasLocationPermission()) viewModel.onSyncLocationNow()
+            else locationPermissionLauncher.launch(LOCATION_PERMISSIONS)
+        }
+    }
+
     val clipboard = LocalClipboardManager.current
     val copy: (String) -> Unit = remember(clipboard) {
         { value -> clipboard.setText(AnnotatedString(value)) }
@@ -121,7 +144,7 @@ fun SettingsRoute(
         connectionState = connectionState,
         onCoverageChanged = viewModel::onCoverageChanged,
         onAutoSyncToggled = viewModel::onAutoSyncToggled,
-        onSyncLocationNow = viewModel::onSyncLocationNow,
+        onSyncLocationNow = syncLocation,
         onNotificationsToggled = viewModel::onNotificationsToggled,
         onTestAlertSound = viewModel::onTestAlertSound,
         onBatterySettings = { context.openBatteryOptimizationSettings() },

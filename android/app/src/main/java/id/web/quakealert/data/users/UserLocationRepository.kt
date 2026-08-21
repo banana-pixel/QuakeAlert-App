@@ -5,6 +5,9 @@ import android.util.Log
 import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.local.SessionStore
 import id.web.quakealert.data.network.QuakeApiClient
+import id.web.quakealert.device.Coordinates
+import id.web.quakealert.device.LocationSource
+import id.web.quakealert.device.PlaceNamer
 import id.web.quakealert.device.ReverseGeocoder
 import id.web.quakealert.device.hasLocationPermission
 import id.web.quakealert.device.locationSource
@@ -52,12 +55,21 @@ class UserLocationRepository(
     private val apiClient: QuakeApiClient,
     private val sessionStore: SessionStore,
     private val settings: AppSettingsRepository,
-    private val now: () -> Long = System::currentTimeMillis
+    private val now: () -> Long = System::currentTimeMillis,
+    /**
+     * How a position is read. A factory rather than an instance because the choice
+     * between Play Services and AOSP has to be re-made per call — Play Services can
+     * be updated or disabled while the process lives — and a parameter rather than a
+     * direct call so the sync rules below (the 1 km threshold, the label fallback,
+     * the forced round trip) can be tested without a device.
+     */
+    private val locationSources: (Context) -> LocationSource = ::locationSource,
+    placeNamer: PlaceNamer? = null
 ) {
 
     private val appContext: Context = context.applicationContext
 
-    private val geocoder = ReverseGeocoder(appContext)
+    private val geocoder: PlaceNamer = placeNamer ?: ReverseGeocoder(appContext)
 
     /**
      * Reads the position and uploads it when it has meaningfully changed.
@@ -66,19 +78,32 @@ class UserLocationRepository(
      *   where the user asked for a round trip and silence would look broken; left
      *   false by the automatic paths, which must not spend a request per launch.
      */
-    suspend fun sync(force: Boolean = false): LocationSyncResult {
+    suspend fun sync(force: Boolean = false): LocationSyncResult =
+        syncOnce(force).also { Log.i(TAG, "sync(force=$force) -> ${it.logLabel()}") }
+
+    /**
+     * The sync itself. Split from [sync] only so every one of the five outcomes is
+     * logged from one place: on an emulator or a de-Googled device the difference
+     * between "no permission", "no fix" and "the upload was rejected" is the whole
+     * diagnosis, and four of the five paths are otherwise silent.
+     */
+    private suspend fun syncOnce(force: Boolean): LocationSyncResult {
         if (!appContext.hasLocationPermission()) return LocationSyncResult.PermissionDenied
 
         // Resolved per call, not cached: Play Services can be updated or disabled
         // while the process lives.
-        val fix = locationSource(appContext).currentFix()
+        val source = locationSources(appContext)
+        Log.i(TAG, "acquiring a fix via ${source.javaClass.simpleName} (force=$force)")
+        // `force` doubles as "the user is watching": only then may a source spend a
+        // satellite lock on this fix. The automatic app-start path must not pay a
+        // 10 s GPS scan every launch in a place where the cheap providers fail.
+        val fix = source.currentFix(allowHighAccuracy = force)
             ?: return LocationSyncResult.NoFix
 
         val stored = sessionStore.readUserLocation()
-        val movedKm = stored?.let { haversineKm(it.latitude, it.longitude, fix.latitude, fix.longitude) }
-        val nearby = movedKm != null && movedKm < MIN_MOVE_KM
+        val plan = planSync(stored = stored, fix = fix, force = force)
 
-        if (!force && stored != null && nearby) {
+        if (stored != null && !plan.upload) {
             // The position on the server is still correct, so the sync did succeed —
             // record the timestamp even though no request went out.
             settings.setLastSyncAtMs(now())
@@ -88,7 +113,7 @@ class UserLocationRepository(
         // `PUT /users/location` replaces: omitting the label clears whatever the
         // server held. So a failed lookup falls back to the label already stored for
         // this same spot rather than sending null and wiping it.
-        val label = geocoder.label(fix) ?: stored?.locationName?.takeIf { nearby }
+        val label = geocoder.label(fix) ?: stored?.locationName?.takeIf { plan.reuseStoredLabel }
 
         return apiClient.updateLocation(
             latitude = fix.latitude,
@@ -126,17 +151,68 @@ class UserLocationRepository(
     /** The last position the server accepted, or null before the first sync. */
     suspend fun storedLocation(): UserLocation? = sessionStore.readUserLocation()
 
+    /**
+     * The outcome, with the coordinates removed.
+     *
+     * A position is the most sensitive thing this app holds, and `Log.i` survives
+     * into release builds and bug reports — so the diagnosis stays (which of the
+     * five outcomes, and any server-supplied failure text) while the fix itself
+     * does not. Whether a fix was obtained is already evident from the outcome.
+     */
+    private fun LocationSyncResult.logLabel(): String = when (this) {
+        is LocationSyncResult.Updated -> "Updated(position redacted)"
+        is LocationSyncResult.Unchanged -> "Unchanged(position redacted)"
+        LocationSyncResult.PermissionDenied -> "PermissionDenied"
+        LocationSyncResult.NoFix -> "NoFix"
+        is LocationSyncResult.Failed -> "Failed($message)"
+    }
+
     private companion object {
         const val TAG = "UserLocationRepo"
-
-        /**
-         * Below this the upload is skipped (docs/CLIENT_SPEC.md §4.2): the coverage
-         * radius is tens of kilometres wide, so a sub-kilometre move cannot change
-         * which alerts reach this user.
-         */
-        const val MIN_MOVE_KM = 1.0
 
         /** Six hours — a launch after a flight resyncs, a launch after lunch does not. */
         const val STALE_AFTER_MS = 6L * 60 * 60 * 1000
     }
+}
+
+/**
+ * Below this the upload is skipped (docs/CLIENT_SPEC.md §4.2): the coverage radius
+ * is tens of kilometres wide, so a sub-kilometre move cannot change which alerts
+ * reach this user.
+ */
+internal const val MIN_MOVE_KM = 1.0
+
+/** What [UserLocationRepository.sync] should do with a fix it just obtained. */
+internal data class SyncPlan(
+
+    /** Whether the fix is worth a `PUT /users/location`. */
+    val upload: Boolean,
+
+    /**
+     * Whether the stored `location_name` still describes this fix, and so may stand
+     * in for a failed reverse-geocode. False once the device has actually moved:
+     * `PUT /users/location` replaces, and labelling a new city with the old name is
+     * worse than sending none.
+     */
+    val reuseStoredLabel: Boolean
+)
+
+/**
+ * Decides whether a fix is worth uploading. Pure, and separated from [sync] for
+ * that reason: the rule is the one piece of judgement in the sync path, and every
+ * other part of that path needs a device to exercise.
+ */
+internal fun planSync(
+    stored: UserLocation?,
+    fix: Coordinates,
+    force: Boolean,
+    minMoveKm: Double = MIN_MOVE_KM
+): SyncPlan {
+    val movedKm = stored?.let {
+        haversineKm(it.latitude, it.longitude, fix.latitude, fix.longitude)
+    }
+    val nearby = movedKm != null && movedKm < minMoveKm
+    // A forced sync uploads regardless: the user pressed a button and expects a
+    // round trip. An unforced one uploads unless the server already holds this spot.
+    return SyncPlan(upload = force || stored == null || !nearby, reuseStoredLabel = nearby)
 }

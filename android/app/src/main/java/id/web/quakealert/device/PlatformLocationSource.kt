@@ -40,12 +40,17 @@ class PlatformLocationSource(context: Context) : LocationSource {
      * enough for a radius in tens of kilometres, then GPS.
      */
     @SuppressLint("MissingPermission") // Guarded by hasLocationPermission below.
-    override suspend fun currentFix(): Coordinates? {
+    override suspend fun currentFix(allowHighAccuracy: Boolean): Coordinates? {
         val manager = manager ?: return null
         if (!appContext.hasLocationPermission()) return null
         if (!LocationManagerCompat.isLocationEnabled(manager)) return lastKnown(manager)
 
-        val provider = PROVIDERS.firstOrNull { manager.isProviderEnabled(it) }
+        // GPS is offered only when a user is waiting: a satellite lock is the one
+        // request here that meaningfully costs battery, and the accuracy it buys is
+        // far finer than a radius in tens of kilometres needs. Without it the
+        // automatic path still answers from the network provider or the cache.
+        val candidates = if (allowHighAccuracy) PROVIDERS else PROVIDERS - LocationManager.GPS_PROVIDER
+        val provider = candidates.firstOrNull { manager.isProviderEnabled(it) }
             ?: return lastKnown(manager)
 
         return try {

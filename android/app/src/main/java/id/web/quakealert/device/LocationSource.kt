@@ -28,6 +28,12 @@ interface LocationSource {
      * out. Implementations never throw for those cases: a missing fix is an
      * expected outcome that callers already handle (the app falls back to the last
      * position it stored, or to no distance gating at all).
+     *
+     * @param allowHighAccuracy permits a satellite-grade attempt as a last resort.
+     *   Off by default because the accuracy is useless here — the position feeds a
+     *   coverage radius measured in tens of kilometres — and the cost is a GPS scan.
+     *   Callers set it only when a user is waiting on the result, so the background
+     *   paths cannot turn a weak-signal location into a per-launch battery drain.
      */
-    suspend fun currentFix(): Coordinates?
+    suspend fun currentFix(allowHighAccuracy: Boolean = false): Coordinates?
 }

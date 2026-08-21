@@ -162,6 +162,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
+     * The user declined the location prompt raised by "Sync Now".
+     *
+     * Points at system Settings rather than re-asking: after a decline the OS stops
+     * showing the dialog, so a second tap on the button would do nothing visible.
+     */
+    fun onLocationPermissionDenied() {
+        post("Location permission denied — enable it in system Settings to sync")
+    }
+
+    /**
      * "Test Alert Sound" — plays the real siren on the alarm stream for a few
      * seconds so the user can check audibility before an actual quake.
      *

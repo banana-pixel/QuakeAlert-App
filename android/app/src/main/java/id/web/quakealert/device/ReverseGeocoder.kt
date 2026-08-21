@@ -21,7 +21,19 @@ import kotlin.coroutines.resume
  * cards — so every failure path here returns null rather than propagating. A
  * position sync must never be lost because a geocoder backend was unreachable.
  */
-class ReverseGeocoder(context: Context) {
+/**
+ * Turns a fix into a human-readable place name.
+ *
+ * An interface so callers can be tested without the platform `Geocoder`, which
+ * needs a `Context` and a network round trip. [ReverseGeocoder] is the real one.
+ */
+interface PlaceNamer {
+
+    /** The place name for [coordinates], or null when the lookup fails. */
+    suspend fun label(coordinates: Coordinates): String?
+}
+
+class ReverseGeocoder(context: Context) : PlaceNamer {
 
     private val appContext: Context = context.applicationContext
 
@@ -33,7 +45,7 @@ class ReverseGeocoder(context: Context) {
      * number, postcode) is both longer and more precise than a coverage-radius
      * label should be.
      */
-    suspend fun label(coordinates: Coordinates): String? {
+    override suspend fun label(coordinates: Coordinates): String? {
         if (!Geocoder.isPresent()) return null
 
         val geocoder = Geocoder(appContext, Locale.getDefault())
