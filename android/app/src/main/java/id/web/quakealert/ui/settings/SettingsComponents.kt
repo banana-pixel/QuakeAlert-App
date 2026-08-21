@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
@@ -36,12 +38,14 @@ import id.web.quakealert.ui.theme.CardTitle
 import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.InfoPillFill
+import id.web.quakealert.ui.theme.MmiRed
 import id.web.quakealert.ui.theme.PillLabel
 import id.web.quakealert.ui.theme.SectionHeaderPillFill
 import id.web.quakealert.ui.theme.SegmentActiveFill
 import id.web.quakealert.ui.theme.SegmentInactiveFill
 import id.web.quakealert.ui.theme.TextPrimary
 import id.web.quakealert.ui.theme.TextSecondary
+import kotlin.math.roundToInt
 
 /**
  * Full-width section header pill (Figma node 1:846 / EL-c963c95e) that labels a
@@ -249,5 +253,144 @@ fun AboutCard(
         ) {
             Text(text = "More About Us", style = ChipLabel, color = TextPrimary)
         }
+    }
+}
+
+/**
+ * Coverage-radius slider (replaces the original three "125 / 250 / 500 km" pills).
+ *
+ * A continuous control because the value it writes is no longer decorative: it
+ * gates the siren through [id.web.quakealert.domain.AlertGate] and travels to the
+ * server as `range_km`, so the user needs to be able to say "180 km", not to pick
+ * from three designer-chosen numbers. Stepped in 10 km increments — a 1 km step
+ * would suggest a precision the coverage model does not have.
+ *
+ * @param valueKm the current radius.
+ * @param range the permitted radius bounds ([AppSettingsRepository.RADIUS_RANGE]).
+ * @param valueLabel the radius rendered in the user's unit system.
+ * @param onValueChange invoked with the snapped km value as the thumb moves.
+ */
+@Composable
+fun CoverageRadiusSlider(
+    valueKm: Int,
+    range: IntRange,
+    valueLabel: String,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val stepCount = ((range.last - range.first) / COVERAGE_STEP_KM) - 1
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = valueLabel, style = CardTitle, color = TextPrimary)
+            InfoPill(text = "${range.first}–${range.last} km")
+        }
+
+        Slider(
+            value = valueKm.toFloat(),
+            onValueChange = { onValueChange(it.snapToStep()) },
+            valueRange = range.first.toFloat()..range.last.toFloat(),
+            steps = stepCount.coerceAtLeast(0),
+            colors = SliderDefaults.colors(
+                thumbColor = TextPrimary,
+                activeTrackColor = SegmentActiveFill,
+                inactiveTrackColor = SegmentInactiveFill
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/** Snaps a raw slider position onto the 10 km grid the control advertises. */
+private fun Float.snapToStep(): Int =
+    (this / COVERAGE_STEP_KM).roundToInt() * COVERAGE_STEP_KM
+
+private const val COVERAGE_STEP_KM = 10
+
+/**
+ * Two-line read-only row for an identity value — the pseudonym or the `user_id` —
+ * with a copy affordance.
+ *
+ * The id is monospace-adjacent in intent: it is a UUID the user may have to quote
+ * in a bug report, so it is shown in full and copyable rather than truncated.
+ *
+ * @param label what the value is ("Pseudonym").
+ * @param value the value itself, or null while the identity is still bootstrapping.
+ * @param onCopy invoked with the value when the row is tapped; absent for a value
+ *   not worth copying.
+ */
+@Composable
+fun IdentityRow(
+    label: String,
+    value: String?,
+    onCopy: ((String) -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val shown = value?.takeIf { it.isNotBlank() }
+    val rowModifier = if (shown != null && onCopy != null) {
+        modifier.clickable(role = Role.Button) { onCopy(shown) }
+    } else {
+        modifier
+    }
+    Column(
+        modifier = rowModifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)
+    ) {
+        Text(text = label, style = CardSubtitle, color = TextSecondary)
+        Text(
+            // "Not signed in yet" rather than an empty line: the bootstrap is a
+            // network call, so this state is reachable on a cold start offline.
+            text = shown ?: "Not signed in yet",
+            style = CardTitle,
+            color = TextPrimary
+        )
+    }
+}
+
+/**
+ * Full-width secondary action button used by the Account & Privacy section
+ * ("Reroll Pseudonym", "Reset Profile").
+ *
+ * @param label the action.
+ * @param enabled false while the action is in flight, so a destructive request
+ *   cannot be fired twice.
+ * @param destructive tints the stroke and label red for the irreversible action,
+ *   so "Reset Profile" does not look like "Reroll Pseudonym".
+ */
+@Composable
+fun SettingsActionButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    destructive: Boolean = false
+) {
+    val shape = RoundedCornerShape(Dimens.SegmentPillRadius)
+    val stroke = if (destructive) MmiRed else BorderLight
+    val content = when {
+        !enabled -> TextSecondary
+        destructive -> MmiRed
+        else -> TextPrimary
+    }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(SegmentInactiveFill, shape)
+            .border(Dimens.BorderMedium, stroke, shape)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(
+                horizontal = Dimens.SegmentPillPaddingHorizontal,
+                vertical = Dimens.SegmentPillPaddingVertical
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = label, style = ChipLabel, color = content, textAlign = TextAlign.Center)
     }
 }

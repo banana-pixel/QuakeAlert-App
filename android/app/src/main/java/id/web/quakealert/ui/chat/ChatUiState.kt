@@ -97,11 +97,4 @@ data class ChatUiState(
     val canSend: Boolean
         get() = draft.isNotBlank()
 
-    /**
-     * Drives the shared [id.web.quakealert.ui.common.QuakeAppBar] network-status
-     * badge. Derived from the mesh itself rather than hardcoded: a channel with
-     * nobody connected is not a healthy mesh, so the badge drops out.
-     */
-    val isHealthy: Boolean
-        get() = channel.usersOnline > 0
 }

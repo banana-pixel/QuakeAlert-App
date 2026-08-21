@@ -17,6 +17,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.R
+import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeEmptyState
 import id.web.quakealert.ui.common.QuakeErrorState
@@ -40,6 +41,7 @@ import id.web.quakealert.ui.theme.QuakeAlertTheme
 @Composable
 fun SensorsRoute(
     onOpenSettings: () -> Unit,
+    connectionState: ServerConnectionState,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     viewModel: SensorsViewModel = viewModel()
@@ -48,8 +50,8 @@ fun SensorsRoute(
 
     SensorsScreen(
         uiState = uiState,
+        connectionState = connectionState,
         onFilterSelected = viewModel::onFilterSelected,
-        onCalendarClicked = viewModel::onCalendarClicked,
         onSensorClicked = viewModel::onSensorClicked,
         onOpenSettings = onOpenSettings,
         onRetry = viewModel::onRetry,
@@ -78,8 +80,8 @@ fun SensorsRoute(
 @Composable
 fun SensorsScreen(
     uiState: SensorsUiState,
+    connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
     onFilterSelected: (QuakeFilter) -> Unit,
-    onCalendarClicked: () -> Unit,
     onSensorClicked: (SensorStationItem) -> Unit,
     onOpenSettings: () -> Unit,
     onRetry: () -> Unit,
@@ -92,7 +94,7 @@ fun SensorsScreen(
             .padding(horizontal = Dimens.ScreenHorizontalPadding)
     ) {
         // --- Static header: title + map preview + filter row -----------------
-        QuakeAppBar(title = "Sensors", isHealthy = uiState.isHealthy)
+        QuakeAppBar(title = "Sensors", connectionState = connectionState)
 
         SensorMapCard(
             overview = uiState.overview,
@@ -106,7 +108,6 @@ fun SensorsScreen(
             nearRadiusKm = uiState.nearRadiusKm,
             unitSystem = uiState.unitSystem,
             onFilterSelected = onFilterSelected,
-            onCalendarClicked = onCalendarClicked,
             modifier = Modifier.padding(top = Dimens.SensorsHeaderBlockGap)
         )
 
@@ -196,7 +197,6 @@ private fun SensorsScreenPreview() {
                 )
             ),
             onFilterSelected = {},
-            onCalendarClicked = {},
             onSensorClicked = {},
             onOpenSettings = {},
             onRetry = {}
@@ -211,7 +211,6 @@ private fun SensorsScreenLoadingPreview() {
         SensorsScreen(
             uiState = SensorsUiState(isLoading = true),
             onFilterSelected = {},
-            onCalendarClicked = {},
             onSensorClicked = {},
             onOpenSettings = {},
             onRetry = {}
@@ -226,7 +225,6 @@ private fun SensorsScreenEmptyPreview() {
         SensorsScreen(
             uiState = SensorsUiState(),
             onFilterSelected = {},
-            onCalendarClicked = {},
             onSensorClicked = {},
             onOpenSettings = {},
             onRetry = {}
@@ -244,7 +242,6 @@ private fun SensorsScreenErrorPreview() {
                 errorMessage = "Could not reach the sensor network. Check your connection and try again."
             ),
             onFilterSelected = {},
-            onCalendarClicked = {},
             onSensorClicked = {},
             onOpenSettings = {},
             onRetry = {}

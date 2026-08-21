@@ -19,6 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.web.quakealert.R
+import id.web.quakealert.domain.ServerConnectionState
+import id.web.quakealert.domain.isHealthy
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.HealthyBadgeFill
@@ -26,18 +28,25 @@ import id.web.quakealert.ui.theme.NunitoFontFamily
 import id.web.quakealert.ui.theme.TextPrimary
 
 /**
- * Shared screen header used by both History (Figma node 1:705) and Sensors
- * (Figma node 1:1082): a large title on the left and an optional network-status
- * badge on the right. Extracted to [ui.common] so the two screens share a single
- * source of truth instead of duplicating the layout/token wiring.
+ * Shared screen header used by all five main tabs (Figma nodes 1:705 / 1:1082): a
+ * large title on the left and the network-status badge on the right. Extracted to
+ * [ui.common] so every screen shares a single source of truth for the layout and
+ * token wiring instead of duplicating it.
+ *
+ * The badge is driven by the global [ServerConnectionState] rather than by anything
+ * the calling screen loaded. That is the point: it reports whether the *backend* is
+ * reachable, so an empty station roll or an all-offline node fleet cannot make one
+ * tab claim the network is down while another says it is up. Per-screen health
+ * (station chips, active-sensor counts) stays inside the screens that own it.
  *
  * @param title the screen title (e.g. "History", "Sensors").
- * @param isHealthy when true, renders the green "Healthy" [HealthyBadge].
+ * @param connectionState global backend link state; the green [HealthyBadge] shows
+ *   only while it [isHealthy].
  */
 @Composable
 fun QuakeAppBar(
     title: String,
-    isHealthy: Boolean,
+    connectionState: ServerConnectionState,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -56,7 +65,7 @@ fun QuakeAppBar(
             lineHeight = 26.sp
         )
 
-        if (isHealthy) {
+        if (connectionState.isHealthy) {
             HealthyBadge()
         }
     }

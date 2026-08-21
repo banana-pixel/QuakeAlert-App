@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import id.web.quakealert.R
+import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.ui.theme.AccentBlueTranslucent
 import id.web.quakealert.ui.theme.BorderLight
 import id.web.quakealert.ui.theme.NunitoFontFamily
@@ -132,7 +133,18 @@ fun OnboardingScreen(
     val locationLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
-        locationGranted = result.values.any { it }
+        val granted = result.values.any { it }
+        locationGranted = granted
+        // The permission is only half of it: nothing else in the app acquires a fix,
+        // and without a stored position the server has no radius to filter sensors or
+        // events by. Started on the process scope because leaving onboarding must not
+        // cancel the upload.
+        if (granted) {
+            val network = QuakeNetwork.from(context)
+            network.applicationScope.launch {
+                network.userLocationRepository.sync(force = true)
+            }
+        }
     }
 
     // Re-check requirements that are resolved outside the app (Settings screens).

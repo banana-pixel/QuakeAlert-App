@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.sensors
 
 import androidx.compose.runtime.Immutable
+import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.QuakeFilter
 
@@ -82,9 +83,13 @@ data class SensorMapOverview(
  * uses the shared [QuakeFilter] enum common to History and Sensors.
  *
  * [isLoading], [isError] and [errorMessage] form the screen's state machine: the
- * station list region renders exactly one of loading / error / empty / content,
- * and the header's "Healthy" badge is derived from the same flags plus the live
- * station roll via [isHealthy] rather than being hardcoded.
+ * station list region renders exactly one of loading / error / empty / content.
+ *
+ * The header's network badge is deliberately *not* derived here: it reads the global
+ * [id.web.quakealert.domain.ServerConnectionState], so an empty roll or an
+ * all-offline fleet no longer hides a badge that the other tabs are showing. Station
+ * connectivity is expressed where the design puts it — the per-row [SensorStatus]
+ * chips and the map's active-sensor count.
  *
  * @param isLoading true while the station roll is in flight.
  * @param isError true when the last load failed; pairs with [errorMessage].
@@ -96,23 +101,16 @@ data class SensorsUiState(
     val isLoading: Boolean = false,
     val isError: Boolean = false,
     val errorMessage: String? = null,
+    // Empty rather than a sample station: the roll is genuinely unknown until
+    // `GET /sensors` answers, and a placeholder count would claim coverage the
+    // user may not have (the endpoint returns nothing without a stored position).
     val overview: SensorMapOverview = SensorMapOverview(
-        locationLabel = "Bandung, West Java, ID",
-        rangeKm = 500,
-        sensorCount = 2
+        locationLabel = "Location not set",
+        rangeKm = AppSettingsRepository.DEFAULT_RADIUS_KM,
+        sensorCount = 0
     ),
     val selectedFilter: QuakeFilter = QuakeFilter.ALL,
-    val nearRadiusKm: Int = 39,
+    val nearRadiusKm: Int = AppSettingsRepository.DEFAULT_RADIUS_KM,
     val unitSystem: UnitSystem = UnitSystem.METRIC,
     val sensors: List<SensorStationItem> = emptyList()
-) {
-
-    /**
-     * Drives the shared [id.web.quakealert.ui.common.QuakeAppBar] network-status
-     * badge. Derived rather than stored: the sensor network is only "Healthy" when
-     * the roll loaded successfully *and* at least one station is actually
-     * reporting — an all-offline network is a failure the badge must not hide.
-     */
-    val isHealthy: Boolean
-        get() = !isLoading && !isError && sensors.any { it.status == SensorStatus.ONLINE }
-}
+)

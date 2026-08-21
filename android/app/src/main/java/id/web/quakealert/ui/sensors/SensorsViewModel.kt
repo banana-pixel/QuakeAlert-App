@@ -5,21 +5,24 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.UnitSystem
+import id.web.quakealert.data.network.QuakeApiClient
+import id.web.quakealert.data.network.QuakeNetwork
+import id.web.quakealert.data.network.mapper.toStationItems
 import id.web.quakealert.ui.common.QuakeFilter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
  * Hosts the [SensorsUiState] for the Sensors screen and exposes it as a
- * [StateFlow] following unidirectional data flow. Seeded with mock data
- * mirroring the Figma design (node 1:1081) so the UI can be verified visually
- * before a real sensor-network data source is wired in.
+ * [StateFlow] following unidirectional data flow. Stations come from
+ * `GET /api/v1/sensors` via [id.web.quakealert.data.network.QuakeApiClient].
  *
  * The persisted [UnitSystem] from [AppSettingsRepository] is folded into every
  * emission so the map's range badge and the "Near" filter pill render the same
@@ -29,12 +32,17 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
 
     private val repository = AppSettingsRepository(application)
 
+    private val apiClient = QuakeNetwork.from(application).apiClient
+
     private val _uiState = MutableStateFlow(SensorsUiState(isLoading = true))
 
     val uiState: StateFlow<SensorsUiState> = combine(
         repository.unitSystem,
+        repository.coverageRadiusKm,
         _uiState
-    ) { unit, state -> state.copy(unitSystem = unit) }.stateIn(
+    ) { unit, radiusKm, state ->
+        state.copy(unitSystem = unit, nearRadiusKm = radiusKm)
+    }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = SensorsUiState(isLoading = true)
@@ -42,6 +50,21 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         load()
+        observeRadius()
+    }
+
+    /**
+     * Reloads the roll when Settings changes the coverage radius, but only while
+     * "Near" is selected — that is the only mode the radius reaches the server in.
+     *
+     * `drop(1)` skips the replayed current value, which [load] in `init` already used.
+     */
+    private fun observeRadius() {
+        viewModelScope.launch {
+            repository.coverageRadiusKm.drop(1).collect {
+                if (_uiState.value.selectedFilter == QuakeFilter.NEAR) load()
+            }
+        }
     }
 
     /**
@@ -54,8 +77,7 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
 
     /**
      * Single entry point into the loading → content / error state machine, used by
-     * both the initial load and [onRetry]. [fetchSensors] is the only seam a real
-     * REST/WS repository has to replace.
+     * both the initial load and [onRetry].
      */
     private fun load() {
         viewModelScope.launch {
@@ -64,7 +86,24 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
             }
             try {
                 val sensors = fetchSensors()
-                _uiState.update { it.copy(sensors = sensors, isLoading = false) }
+                val locationLabel = apiClient.currentUserLocation()?.locationName?.takeIf {
+                    it.isNotBlank()
+                }
+                _uiState.update { state ->
+                    state.copy(
+                        sensors = sensors,
+                        isLoading = false,
+                        // The map badge counts *reporting* stations, matching the
+                        // server's `active_sensors_count`; an offline node is in the
+                        // list but is not coverage.
+                        overview = state.overview.copy(
+                            sensorCount = sensors.count { it.status == SensorStatus.ONLINE },
+                            locationLabel = locationLabel ?: state.overview.locationLabel,
+                            rangeKm = effectiveRangeKm(),
+                            geofenceFraction = geofenceFraction(effectiveRangeKm())
+                        )
+                    )
+                }
             } catch (cancellation: CancellationException) {
                 // Never treat scope cancellation as a load failure — rethrow so the
                 // coroutine machinery sees it and the screen keeps its last state.
@@ -82,20 +121,49 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Fetches the sensor station roll. Currently returns the Figma-mirroring mock
-     * fixture; `suspend` so swapping in the REST/WS source is a body change rather
-     * than a signature change.
+     * Fetches the station roll and maps it to the display model.
+     *
+     * `getOrThrow()` re-raises the client's [Result] failure so the `try`/`catch`
+     * above stays the single place that turns a failure into UI state. Unlike the
+     * events feed this endpoint *requires* a token, so a failed bootstrap surfaces
+     * here as the same error state.
      */
-    private suspend fun fetchSensors(): List<SensorStationItem> = mockSensors()
+    private suspend fun fetchSensors(): List<SensorStationItem> =
+        apiClient.fetchSensors(rangeKm = effectiveRangeKm()).getOrThrow().toStationItems()
 
-    /** Switches between the "All" and "Near" filter pills. */
-    fun onFilterSelected(filter: QuakeFilter) {
-        _uiState.update { it.copy(selectedFilter = filter) }
+    /**
+     * The radius sent as `range_km`.
+     *
+     * "All" is not "unfiltered": the endpoint always measures from the position the
+     * server holds, so the widest honest answer is its own 500 km ceiling. "Near"
+     * narrows to the alert coverage radius, which is the same number that gates the
+     * siren — the roll then shows exactly the stations that could warn the user.
+     */
+    private suspend fun effectiveRangeKm(): Int = when (_uiState.value.selectedFilter) {
+        QuakeFilter.ALL -> QuakeApiClient.MAX_SENSOR_RANGE_KM
+        QuakeFilter.NEAR -> repository.readCoverageRadiusKm()
     }
 
-    /** Placeholder hook for the calendar/date-range picker button. */
-    fun onCalendarClicked() {
-        // Intentionally empty until a date-range picker is implemented.
+    /** Coverage circle radius as a fraction of the map card, matching Settings. */
+    private fun geofenceFraction(rangeKm: Int): Float {
+        val span = (MAP_RANGE_CEILING_KM - AppSettingsRepository.RADIUS_RANGE.first).toFloat()
+        val progress = (rangeKm - AppSettingsRepository.RADIUS_RANGE.first)
+            .coerceAtLeast(0) / span
+        return MIN_GEOFENCE_FRACTION +
+            progress.coerceIn(0f, 1f) * (MAX_GEOFENCE_FRACTION - MIN_GEOFENCE_FRACTION)
+    }
+
+    /**
+     * Switches between the "All" and "Near" filter pills, reloading the roll.
+     *
+     * The filter is applied server-side (`ST_DWithin` around the stored position),
+     * so it re-queries rather than hiding rows: a station omitted from the wide
+     * page cannot be recovered locally, and distance is not in the response.
+     */
+    fun onFilterSelected(filter: QuakeFilter) {
+        if (_uiState.value.selectedFilter == filter) return
+        _uiState.update { it.copy(selectedFilter = filter) }
+        load()
     }
 
     /**
@@ -109,93 +177,13 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private companion object {
+        /** "All" spans the endpoint ceiling, so the circle is drawn against that. */
+        const val MAP_RANGE_CEILING_KM = QuakeApiClient.MAX_SENSOR_RANGE_KM
+        const val MIN_GEOFENCE_FRACTION = 0.35f
+        const val MAX_GEOFENCE_FRACTION = 0.95f
+
         /** Fallback copy when a load failure carries no message of its own. */
         const val LOAD_ERROR_MESSAGE =
             "Could not reach the sensor network. Check your connection and try again."
-
-        private val OFFLINE_TELEMETRY = SensorTelemetry(
-            lastPing = "Last Ping : - s ago",
-            rssi = "RSSI : - dBm",
-            latency = "Latency : - ms"
-        )
-
-        fun mockSensors(): List<SensorStationItem> = listOf(
-            SensorStationItem(
-                id = "1",
-                stationId = "NODE-163A149F",
-                location = "Cimahi, West Java, ID",
-                chipLabel = "MPU 6050",
-                status = SensorStatus.ONLINE,
-                telemetry = SensorTelemetry(
-                    lastPing = "Last Ping : 33s ago",
-                    rssi = "RSSI : -61 dBm",
-                    latency = "Latency : 2 ms"
-                )
-            ),
-            SensorStationItem(
-                id = "2",
-                stationId = "NODE-53FC66GH",
-                location = "Bandung, West Java, ID",
-                chipLabel = "MPU 6050",
-                status = SensorStatus.OFFLINE,
-                telemetry = OFFLINE_TELEMETRY
-            ),
-            SensorStationItem(
-                id = "3",
-                stationId = "NODE-53FC66GH",
-                location = "Bandung, West Java, ID",
-                chipLabel = "MPU 6050",
-                status = SensorStatus.ONLINE,
-                telemetry = SensorTelemetry(
-                    lastPing = "Last Ping : 20 s ago",
-                    rssi = "RSSI : -53 dBm",
-                    latency = "Latency : 5 ms"
-                )
-            ),
-            SensorStationItem(
-                id = "4",
-                stationId = "NODE-8D2B7E4C",
-                location = "Jakarta, DKI Jakarta, ID",
-                chipLabel = "MPU 6050",
-                status = SensorStatus.ONLINE,
-                telemetry = SensorTelemetry(
-                    lastPing = "Last Ping : 12s ago",
-                    rssi = "RSSI : -48 dBm",
-                    latency = "Latency : 3 ms"
-                )
-            ),
-            SensorStationItem(
-                id = "5",
-                stationId = "NODE-9F3E2D1A",
-                location = "Surabaya, East Java, ID",
-                chipLabel = "MPU 6050",
-                status = SensorStatus.OFFLINE,
-                telemetry = OFFLINE_TELEMETRY
-            ),
-            SensorStationItem(
-                id = "6",
-                stationId = "NODE-B7295C8F",
-                location = "Yogyakarta, Special Region of Yogyakarta, ID",
-                chipLabel = "MPU 6050",
-                status = SensorStatus.ONLINE,
-                telemetry = SensorTelemetry(
-                    lastPing = "Last Ping : 7s ago",
-                    rssi = "RSSI : -55 dBm",
-                    latency = "Latency : 4 ms"
-                )
-            ),
-            SensorStationItem(
-                id = "7",
-                stationId = "NODE-1A4D3C7E",
-                location = "Medan, North Sumatra, ID",
-                chipLabel = "MPU 6050",
-                status = SensorStatus.ONLINE,
-                telemetry = SensorTelemetry(
-                    lastPing = "Last Ping : 15s ago",
-                    rssi = "RSSI : -60 dBm",
-                    latency = "Latency : 6 ms"
-                )
-            )
-        )
     }
 }

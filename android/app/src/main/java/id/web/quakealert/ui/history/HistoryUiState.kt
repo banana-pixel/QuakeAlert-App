@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.history
 
 import androidx.compose.runtime.Immutable
+import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.QuakeFilter
 
@@ -93,9 +94,9 @@ fun QuakeHistoryItem.toShareText(unitSystem: UnitSystem): String = buildString {
  * [QuakeFilter] enum common to History and Sensors.
  *
  * [isLoading], [isError] and [errorMessage] form the screen's state machine: the
- * body renders exactly one of loading / error / empty / content, and the header's
- * "Healthy" badge is derived from the same flags via [isHealthy] rather than being
- * hardcoded, so it can never claim health while the feed is failing.
+ * body renders exactly one of loading / error / empty / content. The header's
+ * network badge is not derived here — it reads the global
+ * [id.web.quakealert.domain.ServerConnectionState] so every tab agrees about it.
  *
  * @param isLoading true while the history feed is in flight.
  * @param isError true when the last load failed; pairs with [errorMessage].
@@ -104,6 +105,16 @@ fun QuakeHistoryItem.toShareText(unitSystem: UnitSystem): String = buildString {
  * @param unitSystem distance unit system (Metric / Imperial), persisted via
  *   [id.web.quakealert.data.AppSettingsRepository] and shared with the Sensors
  *   and Settings screens.
+ * @param selectedFilter which of the two feed modes is active. "Near" is a
+ *   *server-side* filter — it re-queries `/events` with the `range_km` trio rather
+ *   than hiding rows locally, so a nearby event on page 3 is not lost behind twenty
+ *   distant ones.
+ * @param nearRadiusKm the radius that filter uses, mirroring the coverage radius
+ *   from Settings so the pill label and the alert gate agree.
+ * @param isLoadingMore true while the next page is in flight; distinct from
+ *   [isLoading] so appending does not blank the list already on screen.
+ * @param hasMore whether another page might exist. The response carries no total,
+ *   so this is inferred: a short page means the end.
  * @param selectedEvent the event whose [id.web.quakealert.ui.common.QuakeEventDetailModalDialog] overlay is open,
  *   or null when no overlay is showing. Holding the item itself rather than an id
  *   keeps the overlay a pure function of the state it is handed.
@@ -115,17 +126,10 @@ data class HistoryUiState(
     val isError: Boolean = false,
     val errorMessage: String? = null,
     val selectedFilter: QuakeFilter = QuakeFilter.ALL,
-    val nearRadiusKm: Int = 39,
+    val nearRadiusKm: Int = AppSettingsRepository.DEFAULT_RADIUS_KM,
     val unitSystem: UnitSystem = UnitSystem.METRIC,
     val items: List<QuakeHistoryItem> = emptyList(),
+    val isLoadingMore: Boolean = false,
+    val hasMore: Boolean = false,
     val selectedEvent: QuakeHistoryItem? = null
-) {
-
-    /**
-     * Drives the shared [id.web.quakealert.ui.common.QuakeAppBar] network-status
-     * badge. Derived rather than stored so the badge always agrees with the body:
-     * a screen that is loading or has failed is not "Healthy".
-     */
-    val isHealthy: Boolean
-        get() = !isLoading && !isError
-}
+)

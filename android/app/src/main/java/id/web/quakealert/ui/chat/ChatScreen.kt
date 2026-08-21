@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.fadingEdges
 import id.web.quakealert.ui.theme.Dimens
@@ -32,6 +33,7 @@ import id.web.quakealert.ui.theme.QuakeAlertTheme
  */
 @Composable
 fun ChatRoute(
+    connectionState: ServerConnectionState,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     viewModel: ChatViewModel = viewModel()
@@ -40,6 +42,7 @@ fun ChatRoute(
 
     ChatScreen(
         uiState = uiState,
+        connectionState = connectionState,
         onDraftChanged = viewModel::onDraftChanged,
         onSendClicked = viewModel::onSendClicked,
         onSwitchChannelClicked = viewModel::onSwitchChannelClicked,
@@ -64,6 +67,7 @@ fun ChatRoute(
 @Composable
 fun ChatScreen(
     uiState: ChatUiState,
+    connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
     onDraftChanged: (String) -> Unit,
     onSendClicked: () -> Unit,
     onSwitchChannelClicked: () -> Unit,
@@ -77,7 +81,7 @@ fun ChatScreen(
             .padding(horizontal = Dimens.ScreenHorizontalPadding)
     ) {
         // --- Static header: title + channel card -----------------------------
-        QuakeAppBar(title = "Chat", isHealthy = uiState.isHealthy)
+        QuakeAppBar(title = "Chat", connectionState = connectionState)
 
         ChatChannelCard(
             channel = uiState.channel,

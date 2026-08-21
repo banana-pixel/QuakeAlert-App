@@ -38,7 +38,8 @@ import id.web.quakealert.ui.theme.TextPrimary
  * History (Figma node 1:711) and Sensors (Figma node 1:1105):
  *  - "All" pill
  *  - "Near - {radius}{unit}" pill (km or mi, driven by [UnitSystem])
- *  - a trailing calendar icon button
+ *  - an optional trailing calendar icon button, rendered only when
+ *    [onCalendarClicked] is supplied
  *
  * The row is stateless and generic over the shared [QuakeFilter] enum so both
  * screens can reuse it without duplicating styling or token wiring. The current
@@ -50,7 +51,7 @@ fun QuakeFilterRow(
     nearRadiusKm: Int,
     unitSystem: UnitSystem,
     onFilterSelected: (QuakeFilter) -> Unit,
-    onCalendarClicked: () -> Unit,
+    onCalendarClicked: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -68,8 +69,13 @@ fun QuakeFilterRow(
             selected = selectedFilter == QuakeFilter.NEAR,
             onClick = { onFilterSelected(QuakeFilter.NEAR) }
         )
-        Spacer(modifier = Modifier.weight(1f))
-        CalendarButton(onClick = onCalendarClicked)
+        // Omitted, not disabled, when the caller has no date filter to offer: the
+        // server exposes no date parameters, and a visible control that does
+        // nothing when tapped reads as a broken app rather than a missing feature.
+        onCalendarClicked?.let { openPicker ->
+            Spacer(modifier = Modifier.weight(1f))
+            CalendarButton(onClick = openPicker)
+        }
     }
 }
 
