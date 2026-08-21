@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import id.web.quakealert.R
 import id.web.quakealert.data.network.QuakeNetwork
+import id.web.quakealert.ui.common.TestAlertSoundDialog
 import id.web.quakealert.ui.theme.AccentBlueTranslucent
 import id.web.quakealert.ui.theme.BorderLight
 import id.web.quakealert.ui.theme.NunitoFontFamily
@@ -175,6 +176,14 @@ fun OnboardingScreen(
         openBatteryOptimizationSettings(context, settingsLauncher::launch)
     }
 
+    // Local to the screen: the modal owns its own playback, so there is nothing
+    // about it for onboarding state to hold. Hosted here rather than inside
+    // TestAlertControls so it survives the page recomposing under a swipe.
+    var showTestAlertSound by remember { mutableStateOf(false) }
+    if (showTestAlertSound) {
+        TestAlertSoundDialog(onDismissRequest = { showTestAlertSound = false })
+    }
+
     val fireTestAlert: () -> Unit = {
         val shown = TestAlertNotifier.showTestAlert(context)
         if (!shown) {
@@ -221,6 +230,7 @@ fun OnboardingScreen(
                     onRequestLocation = requestLocation,
                     onRequestBattery = requestBattery,
                     onTestAlert = fireTestAlert,
+                    onTestAlertSound = { showTestAlertSound = true },
                     modifier = pageContentModifier
                 )
             }
@@ -305,6 +315,7 @@ fun OnboardingPageItem(
     onRequestLocation: () -> Unit,
     onRequestBattery: () -> Unit,
     onTestAlert: () -> Unit,
+    onTestAlertSound: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -380,7 +391,8 @@ fun OnboardingPageItem(
                 )
 
                 OnboardingPageKind.TEST_ALERT -> TestAlertControls(
-                    onTestAlert = onTestAlert
+                    onTestAlert = onTestAlert,
+                    onTestAlertSound = onTestAlertSound
                 )
 
                 else -> Unit
