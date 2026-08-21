@@ -5,7 +5,6 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.SharedPreferencesMigration
@@ -37,8 +36,11 @@ private val Context.settingsDataStore: DataStore<Preferences> by preferencesData
 )
 
 /**
- * App-level preferences: onboarding state, units, coverage radius, and the flags
- * behind the Settings screen.
+ * App-level preferences: onboarding state, units, and the flags behind the
+ * Settings screen.
+ *
+ * The alert radius is deliberately absent: it is a safety decision the system
+ * makes, not a preference (see [id.web.quakealert.domain.SafetyPolicy]).
  *
  * Backed by Jetpack DataStore as .clinerules/20 rule 7 requires. The reactive
  * [Flow] API predates the migration and is unchanged, so call sites did not move;
@@ -75,37 +77,6 @@ class AppSettingsRepository(context: Context) {
     /** Persists the distance unit system for the History / Sensors / Settings screens. */
     fun setUnitSystem(unit: UnitSystem) = write { it[KEY_UNIT_SYSTEM] = unit.name }
 
-    /**
-     * Emits the alert coverage radius in kilometres, clamped to [RADIUS_RANGE].
-     *
-     * The one value behind three things: the Haversine gate in
-     * [id.web.quakealert.domain.AlertGate], and `range_km` on both `GET /events`
-     * and `GET /sensors`. Clamped on read as well as write so a value written by
-     * an older build can never widen the gate past what the server accepts.
-     */
-    val coverageRadiusKm: Flow<Int> = read { prefs ->
-        (prefs[KEY_COVERAGE_RADIUS_KM] ?: DEFAULT_RADIUS_KM).coerceIn(RADIUS_RANGE)
-    }
-
-    /** Persists the coverage radius, clamped to [RADIUS_RANGE]. */
-    fun setCoverageRadiusKm(km: Int) = write {
-        it[KEY_COVERAGE_RADIUS_KM] = km.coerceIn(RADIUS_RANGE)
-    }
-
-    /**
-     * The radius the server last confirmed, or null before any sync told it one.
-     *
-     * Kept apart from [coverageRadiusKm] because the two answer different
-     * questions: that one is what the user chose, this one is what the backend
-     * knows. The gap between them is what makes a radius change reach the server at
-     * all — `PUT /users/location` is otherwise skipped whenever the device has not
-     * moved a kilometre, so a slider moved at a desk would never be uploaded.
-     */
-    val syncedCoverageRadiusKm: Flow<Int?> = read { it[KEY_SYNCED_COVERAGE_RADIUS_KM] }
-
-    /** Records the radius a `PUT /users/location` just had accepted. */
-    fun setSyncedCoverageRadiusKm(km: Int) = write { it[KEY_SYNCED_COVERAGE_RADIUS_KM] = km }
-
     /** Whether the app refreshes the stored position on start. On by default. */
     val autoSyncLocation: Flow<Boolean> = read { it[KEY_AUTO_SYNC_LOCATION] ?: true }
 
@@ -135,17 +106,11 @@ class AppSettingsRepository(context: Context) {
 
     fun setLanguage(tag: String) = write { it[KEY_LANGUAGE] = tag }
 
-    /** One-shot read of the coverage radius, for callers not collecting a Flow. */
-    suspend fun readCoverageRadiusKm(): Int = coverageRadiusKm.first()
-
     /** One-shot read of the auto-sync flag. */
     suspend fun readAutoSyncLocation(): Boolean = autoSyncLocation.first()
 
     /** One-shot read of the last position sync, null when never synced. */
     suspend fun readLastSyncAtMs(): Long? = lastSyncAtMs.first()
-
-    /** One-shot read of the radius the server last confirmed, null when never. */
-    suspend fun readSyncedCoverageRadiusKm(): Int? = syncedCoverageRadiusKm.first()
 
     private fun <T> read(transform: (Preferences) -> T): Flow<T> =
         dataStore.data.map(transform).distinctUntilChanged()
@@ -155,15 +120,10 @@ class AppSettingsRepository(context: Context) {
     }
 
     companion object {
-        /** Bounds the Settings slider, and what the server will accept as `range_km`. */
-        val RADIUS_RANGE = 50..300
-        const val DEFAULT_RADIUS_KM = 150
         const val DEFAULT_LANGUAGE = "en"
 
         private val KEY_ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         private val KEY_UNIT_SYSTEM = stringPreferencesKey("unit_system")
-        private val KEY_COVERAGE_RADIUS_KM = intPreferencesKey("coverage_radius_km")
-        private val KEY_SYNCED_COVERAGE_RADIUS_KM = intPreferencesKey("synced_coverage_radius_km")
         private val KEY_AUTO_SYNC_LOCATION = booleanPreferencesKey("auto_sync_location")
         private val KEY_NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
         private val KEY_LAST_SYNC_AT_MS = longPreferencesKey("last_sync_at_ms")

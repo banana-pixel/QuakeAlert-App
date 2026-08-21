@@ -8,6 +8,7 @@ import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.data.network.QuakeApiClient
 import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.mapper.toStationItems
+import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.common.QuakeFilter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,10 +39,9 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
 
     val uiState: StateFlow<SensorsUiState> = combine(
         repository.unitSystem,
-        repository.coverageRadiusKm,
         _uiState
-    ) { unit, radiusKm, state ->
-        state.copy(unitSystem = unit, nearRadiusKm = radiusKm)
+    ) { unit, state ->
+        state.copy(unitSystem = unit)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -50,21 +50,6 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         load()
-        observeRadius()
-    }
-
-    /**
-     * Reloads the roll when Settings changes the coverage radius, but only while
-     * "Near" is selected — that is the only mode the radius reaches the server in.
-     *
-     * `drop(1)` skips the replayed current value, which [load] in `init` already used.
-     */
-    private fun observeRadius() {
-        viewModelScope.launch {
-            repository.coverageRadiusKm.drop(1).collect {
-                if (_uiState.value.selectedFilter == QuakeFilter.NEAR) load()
-            }
-        }
     }
 
     /**
@@ -136,18 +121,19 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
      *
      * "All" is not "unfiltered": the endpoint always measures from the position the
      * server holds, so the widest honest answer is its own 500 km ceiling. "Near"
-     * narrows to the alert coverage radius, which is the same number that gates the
-     * siren — the roll then shows exactly the stations that could warn the user.
+     * narrows to [SafetyPolicy.SENSORS_NEAR_RADIUS_KM], deliberately tighter than the
+     * 200 km alert radius — this list answers "what is watching my area", and a
+     * station 200 km away is not meaningfully watching it.
      */
-    private suspend fun effectiveRangeKm(): Int = when (_uiState.value.selectedFilter) {
+    private fun effectiveRangeKm(): Int = when (_uiState.value.selectedFilter) {
         QuakeFilter.ALL -> QuakeApiClient.MAX_SENSOR_RANGE_KM
-        QuakeFilter.NEAR -> repository.readCoverageRadiusKm()
+        QuakeFilter.NEAR -> SafetyPolicy.SENSORS_NEAR_RADIUS_KM
     }
 
     /** Coverage circle radius as a fraction of the map card, matching Settings. */
     private fun geofenceFraction(rangeKm: Int): Float {
-        val span = (MAP_RANGE_CEILING_KM - AppSettingsRepository.RADIUS_RANGE.first).toFloat()
-        val progress = (rangeKm - AppSettingsRepository.RADIUS_RANGE.first)
+        val span = (MAP_RANGE_CEILING_KM - SafetyPolicy.SENSORS_NEAR_RADIUS_KM).toFloat()
+        val progress = (rangeKm - SafetyPolicy.SENSORS_NEAR_RADIUS_KM)
             .coerceAtLeast(0) / span
         return MIN_GEOFENCE_FRACTION +
             progress.coerceIn(0f, 1f) * (MAX_GEOFENCE_FRACTION - MIN_GEOFENCE_FRACTION)

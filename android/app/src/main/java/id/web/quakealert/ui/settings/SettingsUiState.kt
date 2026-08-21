@@ -3,6 +3,7 @@ package id.web.quakealert.ui.settings
 import androidx.compose.runtime.Immutable
 import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.UnitSystem
+import id.web.quakealert.domain.SafetyPolicy
 
 /**
  * Selectable app languages shown in the "Language" segmented control (Figma node
@@ -28,18 +29,17 @@ enum class AppLanguage(val label: String, val tag: String) {
  * [SettingsViewModel] and consumed by the stateless [SettingsScreen] following
  * unidirectional data flow.
  *
- * Everything here except the transient flags is persisted: the radius, the
- * toggles, the unit system and the language come from
- * [AppSettingsRepository], and the identity fields from
- * [id.web.quakealert.data.local.SessionStore].
+ * Everything here except the transient flags is persisted: the toggles, the unit
+ * system and the language come from [AppSettingsRepository], and the identity
+ * fields from [id.web.quakealert.data.local.SessionStore].
+ *
+ * The alert radius is deliberately absent — it is fixed by
+ * [id.web.quakealert.domain.SafetyPolicy] and no longer a piece of state the user
+ * can change, so it is read straight from the policy where it needs displaying.
  *
  * @param locationLabel the reverse-geocoded name of the last synced position, or
  *   null when the device has never synced one.
- * @param coverageRadiusKm the alert radius in km, within
- *   [AppSettingsRepository.RADIUS_RANGE]. Not decorative: it gates the siren
- *   through [id.web.quakealert.domain.AlertGate] and becomes `range_km` on
- *   `GET /events` and `GET /sensors`.
- * @param sensorCount stations the server reports inside that radius.
+ * @param sensorCount stations the server reports inside the alert radius.
  * @param lastSyncLabel human-readable last-sync time ("2 min. ago"), or null for
  *   "never".
  * @param autoSyncLocation whether the app refreshes the position on its own at
@@ -71,7 +71,6 @@ enum class AppLanguage(val label: String, val tag: String) {
 @Immutable
 data class SettingsUiState(
     val locationLabel: String? = null,
-    val coverageRadiusKm: Int = AppSettingsRepository.DEFAULT_RADIUS_KM,
     val sensorCount: Int = 0,
     val lastSyncLabel: String? = null,
     val autoSyncLocation: Boolean = true,
@@ -99,33 +98,26 @@ data class SettingsUiState(
 
     /** Pre-formatted "Range : {km} km, {n} sensors" summary badge text. */
     val rangeSummaryLabel: String
-        get() = "Range : ${unitSystem.formatDistance(coverageRadiusKm)}, $sensorCount sensors"
+        get() = "Range : ${unitSystem.formatDistance(SafetyPolicy.ALERT_RADIUS_KM)}, " +
+            "$sensorCount sensors"
 
     /** Pre-formatted "Last Sync : {time}" info-pill text. */
     val lastSyncPillLabel: String
         get() = "Last Sync : ${lastSyncLabel ?: "never"}"
 
-    /** The radius in the selected unit system, for the slider's value label. */
-    val coverageRadiusLabel: String
-        get() = unitSystem.formatDistance(coverageRadiusKm)
+    /** The fixed alert radius in the selected unit system. */
+    val alertRadiusLabel: String
+        get() = unitSystem.formatDistance(SafetyPolicy.ALERT_RADIUS_KM)
 
     /**
      * Radius of the map preview's geofence circle as a fraction of the card's
      * shorter side.
      *
-     * Derived from the km value rather than stored per option: the slider is
-     * continuous, so the circle has to grow continuously with it. The range is
-     * deliberately narrow — a circle that shrank to a dot at 50 km would read as
-     * "no coverage" rather than "less coverage".
+     * A constant now that the radius is: the circle used to grow with the slider,
+     * and with the slider gone a fixed, generous fraction is the honest drawing —
+     * the coverage it represents no longer varies.
      */
-    val geofenceFraction: Float
-        get() {
-            val range = AppSettingsRepository.RADIUS_RANGE
-            val span = (range.last - range.first).toFloat()
-            val progress = (coverageRadiusKm - range.first).coerceAtLeast(0) / span
-            return MIN_GEOFENCE_FRACTION +
-                progress.coerceIn(0f, 1f) * (MAX_GEOFENCE_FRACTION - MIN_GEOFENCE_FRACTION)
-        }
+    val geofenceFraction: Float get() = FIXED_GEOFENCE_FRACTION
 
     /**
      * Whether alerts can actually reach the user right now: their own switch is on
@@ -135,7 +127,6 @@ data class SettingsUiState(
         get() = notificationsEnabled && notificationPermissionGranted
 
     private companion object {
-        const val MIN_GEOFENCE_FRACTION = 0.35f
-        const val MAX_GEOFENCE_FRACTION = 0.95f
+        const val FIXED_GEOFENCE_FRACTION = 0.8f
     }
 }

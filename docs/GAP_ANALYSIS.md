@@ -72,8 +72,8 @@ Selama audit spec awal ditemukan 12 kontradiksi/kesalahan yang berpotensi jadi b
 
 - **Konsensus window 8s belum tervalidasi lapangan** — perlu kalibrasi dengan data sensor nyata.
 - **Weighted centroid bukan episenter** — disclaimer sudah ada di UI; jangan hilang saat redesign.
-- **Radius dispatch server (350 km) lebih lebar dari radius alert user** — sengaja: klien yang menyaring presisi. Bila klien gagal menerapkan gate, user jauh akan ikut berbunyi.
-- **`coverage_radius_km` di `user_profiles` tidak disinkronkan klien** — kolomnya ada tapi radius sebenarnya hidup di DataStore perangkat. Penargetan server memakai radius dispatch tetap, bukan kolom ini.
+- **Radius peringatan tetap 200 km di kedua sisi** — `dispatch.AlertRadiusKm` (server) dan `SafetyPolicy.ALERT_RADIUS_KM` (klien) harus selalu sama; berbeda satu sisi berarti server dan perangkat tidak sepakat tentang siapa yang dibangunkan. Gempa MMI ≥ VII / PGA ≥ 250 gal mengabaikan jarak sepenuhnya.
+- **`coverage_radius_km` di `user_profiles` sudah tidak dipakai sama sekali** — kolomnya masih ada di migrasi 000001 (tidak dihapus agar migrasi lama tetap utuh), tetapi tidak ditulis maupun dibaca kode apa pun sejak radius menjadi tetap.
 - **Sirene 90s, lock-screen bypass, dan jalur FCM belum dijalankan di perangkat/emulator** — `AlertSiren` bergantung `MediaPlayer`/`Handler` dan test source set tidak punya Robolectric, jadi keduanya hanya bisa dibuktikan manual; walkthrough 6 langkah di rencana implementasi masih **belum dieksekusi**. Logika murni (gate Haversine, parsing payload FCM, penyusunan query) sudah ditutup unit test JVM.
 - **Migrasi Settings SharedPreferences → DataStore belum diuji otomatis** — `SharedPreferencesMigration` butuh `Context`, jadi verifikasinya instrumented/manual (force-stop lalu buka lagi), bukan unit test JVM.
 - **Firmware belum diuji di perangkat nyata** — jalur HMAC/MQTTS baru dibuktikan lewat `run_e2e_test.sh` (simulasi trigger), bukan ESP32 fisik.

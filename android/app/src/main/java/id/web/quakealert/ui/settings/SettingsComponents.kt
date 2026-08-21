@@ -16,8 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
@@ -28,6 +26,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import id.web.quakealert.R
+import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.theme.AboutButtonFill
 import id.web.quakealert.ui.theme.AboutCardBorder
 import id.web.quakealert.ui.theme.AboutCardGradient
@@ -257,61 +256,71 @@ fun AboutCard(
 }
 
 /**
- * Coverage-radius slider (replaces the original three "125 / 250 / 500 km" pills).
+ * Read-only protection status, the card body that replaced the coverage-radius
+ * slider.
  *
- * A continuous control because the value it writes is no longer decorative: it
- * gates the siren through [id.web.quakealert.domain.AlertGate] and travels to the
- * server as `range_km`, so the user needs to be able to say "180 km", not to pick
- * from three designer-chosen numbers. Stepped in 10 km increments — a 1 km step
- * would suggest a precision the coverage model does not have.
+ * The slider was removed rather than merely disabled because the setting itself was
+ * the mistake: it let someone trade away their own warning to get fewer
+ * notifications, and the only person who would ever learn that was the wrong trade
+ * is them, after an earthquake. Operational EEW systems make this call centrally for
+ * exactly that reason.
  *
- * @param valueKm the current radius.
- * @param range the permitted radius bounds ([AppSettingsRepository.RADIUS_RANGE]).
- * @param valueLabel the radius rendered in the user's unit system.
- * @param onValueChange invoked with the snapped km value as the thumb moves.
+ * What is left is an explanation. Nothing here is tappable, and it does not pretend
+ * to be — no switch shape, no chevron. It states the two rules in force
+ * ([id.web.quakealert.domain.SafetyPolicy]) so a user who notices the slider is gone
+ * can see what replaced it and that it is wider, not narrower, than what they could
+ * have chosen.
+ *
+ * @param radiusLabel the fixed alert radius in the user's unit system.
  */
 @Composable
-fun CoverageRadiusSlider(
-    valueKm: Int,
-    range: IntRange,
-    valueLabel: String,
-    onValueChange: (Int) -> Unit,
+fun ProtectionStatusCardBody(
+    radiusLabel: String,
     modifier: Modifier = Modifier
 ) {
-    val stepCount = ((range.last - range.first) / COVERAGE_STEP_KM) - 1
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)
+        verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardContentGap)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = valueLabel, style = CardTitle, color = TextPrimary)
-            InfoPill(text = "${range.first}–${range.last} km")
+            Text(text = "Automatic", style = CardTitle, color = TextPrimary)
+            InfoPill(text = "Always on")
         }
 
-        Slider(
-            value = valueKm.toFloat(),
-            onValueChange = { onValueChange(it.snapToStep()) },
-            valueRange = range.first.toFloat()..range.last.toFloat(),
-            steps = stepCount.coerceAtLeast(0),
-            colors = SliderDefaults.colors(
-                thumbColor = TextPrimary,
-                activeTrackColor = SegmentActiveFill,
-                inactiveTrackColor = SegmentInactiveFill
-            ),
-            modifier = Modifier.fillMaxWidth()
+        ProtectionRule(
+            title = "Alerts within $radiusLabel",
+            detail = "Any earthquake whose estimated centroid falls inside this " +
+                "distance sounds the alarm. The radius is set by the system, the " +
+                "same value the server uses to choose who to notify."
+        )
+
+        ProtectionRule(
+            title = "Severe quakes ignore distance",
+            detail = "MMI VII and above, or peak ground acceleration of " +
+                "${SafetyPolicy.OVERRIDE_PGA_GAL.roundToInt()} gal or more, alarms " +
+                "wherever you are. At that size there is no distance at which you " +
+                "did not need to know."
         )
     }
 }
 
-/** Snaps a raw slider position onto the 10 km grid the control advertises. */
-private fun Float.snapToStep(): Int =
-    (this / COVERAGE_STEP_KM).roundToInt() * COVERAGE_STEP_KM
-
-private const val COVERAGE_STEP_KM = 10
+/**
+ * One rule inside [ProtectionStatusCardBody]: a bold claim and the reason for it.
+ *
+ * Split out so both rules are laid out identically — the point of the card is that
+ * these are two facts of equal standing, not a headline and a footnote.
+ */
+@Composable
+private fun ProtectionRule(title: String, detail: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)) {
+        Text(text = title, style = ChipLabel, color = TextPrimary)
+        Text(text = detail, style = CardSubtitle, color = TextSecondary)
+    }
+}
 
 /**
  * Two-line read-only row for an identity value — the pseudonym or the `user_id` —

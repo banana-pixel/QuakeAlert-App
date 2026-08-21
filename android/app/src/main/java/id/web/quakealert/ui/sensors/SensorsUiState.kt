@@ -1,8 +1,8 @@
 package id.web.quakealert.ui.sensors
 
 import androidx.compose.runtime.Immutable
-import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.UnitSystem
+import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.common.QuakeFilter
 
 /**
@@ -106,11 +106,11 @@ data class SensorsUiState(
     // user may not have (the endpoint returns nothing without a stored position).
     val overview: SensorMapOverview = SensorMapOverview(
         locationLabel = "Location not set",
-        rangeKm = AppSettingsRepository.DEFAULT_RADIUS_KM,
+        rangeKm = SafetyPolicy.SENSORS_NEAR_RADIUS_KM,
         sensorCount = 0
     ),
     val selectedFilter: QuakeFilter = QuakeFilter.ALL,
-    val nearRadiusKm: Int = AppSettingsRepository.DEFAULT_RADIUS_KM,
+    val nearRadiusKm: Int = SafetyPolicy.SENSORS_NEAR_RADIUS_KM,
     val unitSystem: UnitSystem = UnitSystem.METRIC,
     val sensors: List<SensorStationItem> = emptyList()
 )

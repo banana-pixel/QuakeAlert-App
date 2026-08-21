@@ -6,11 +6,19 @@ package id.web.quakealert.domain
  */
 enum class AlertGateReason {
 
-    /** The centroid is inside the user's coverage radius. */
+    /** The centroid is inside [SafetyPolicy.ALERT_RADIUS_KM]. */
     WITHIN_RADIUS,
 
     /** The centroid is outside it — no alarm, banner only. */
     OUTSIDE_RADIUS,
+
+    /**
+     * The quake is severe enough that distance was not considered at all
+     * (`SafetyPolicy.isSevere`). Distinct from [WITHIN_RADIUS] because the user may
+     * be hundreds of kilometres away and still hear the siren; the UI should be able
+     * to explain that rather than look broken.
+     */
+    SEVERE_OVERRIDE,
 
     /**
      * The user's position is unknown, so the distance could not be computed and the
@@ -37,49 +45,69 @@ data class AlertDecision(
 }
 
 /**
- * The distance check that must run before anything wakes the user.
+ * The check that must run before anything wakes the user.
  *
  * .clinerules/20 rule 2 and docs/CLIENT_SPEC.md §7 both make this mandatory and
- * non-negotiable: the server's realtime channels are broadcast, so *every* device
- * receives *every* event, and without this gate a tremor in Bandung sounds an
- * alarm in Medan. Both alarm paths go through here — [AlertGate] is called before
- * `AlertSiren.start()` in the foreground and before `startActivity()` in the
- * push handler.
+ * non-negotiable: the server's realtime channels are broadcast, so a device can
+ * receive an event it is nowhere near, and without this gate a tremor in Bandung
+ * sounds an alarm in Medan. Both alarm paths go through here — [AlertGate] is
+ * called before `AlertSiren.start()` in the foreground and before `startActivity()`
+ * in the push handler.
  *
- * Distances use [haversineKm] with the project-fixed `R = 6371.0 km`, which is
- * what keeps this agreeing with the PostGIS radius filters on the server.
+ * Distances use [haversineKm] with the project-fixed `R = 6371.0 km`, against the
+ * fixed [SafetyPolicy.ALERT_RADIUS_KM], which is what keeps this agreeing with the
+ * PostGIS radius filter the server used to choose recipients in the first place.
  */
 object AlertGate {
 
     /**
-     * Decides whether [centroidLat] / [centroidLon] is close enough to
-     * [userLocation] to sound the alarm.
+     * Decides whether [centroidLat] / [centroidLon] should sound the alarm for a
+     * user at [userLocation], given the event's intensity.
      *
-     * **Fails open when the position is unknown.** A user who has not yet synced a
-     * position would otherwise be silently excluded from every warning, which is
-     * the one failure mode this app cannot have: a distant alarm is an annoyance, a
-     * missing one is the thing the product exists to prevent. The decision carries
-     * [AlertDecision.isDistanceUnknown] so the UI can say the distance is unknown
-     * rather than invent one.
+     * Three ways to end up alarming, in the order they are checked:
+     *
+     * 1. **Intensity override.** MMI ≥ VII or PGA ≥ 250 gal alarms unconditionally,
+     *    before the distance is even computed. The server did not filter this event
+     *    by distance either, so neither may the client.
+     * 2. **Unknown position — fails open.** A user who has not synced a position
+     *    would otherwise be silently excluded from every warning, the one failure
+     *    mode this app cannot have: a distant alarm is an annoyance, a missing one is
+     *    the thing the product exists to prevent. The decision carries
+     *    [AlertDecision.isDistanceUnknown] so the UI can say the distance is unknown
+     *    rather than invent one.
+     * 3. **Within [SafetyPolicy.ALERT_RADIUS_KM]** of the centroid.
+     *
+     * @param mmi Roman-numeral intensity from the payload; null or unrecognised
+     *   falls through to [pgaGal], which is why both are accepted.
      */
     fun decide(
         userLocation: UserLocation?,
         centroidLat: Double,
         centroidLon: Double,
-        coverageRadiusKm: Int
+        mmi: String? = null,
+        pgaGal: Double = 0.0
     ): AlertDecision {
         val distanceKm = userLocation.distanceKmTo(centroidLat, centroidLon)
-            ?: return AlertDecision(
+
+        // Checked first, and independently of the distance, so a severe quake alarms
+        // even for a user whose position was never synced.
+        if (SafetyPolicy.isSevere(mmi, pgaGal)) {
+            return AlertDecision(
+                shouldAlarm = true,
+                distanceKm = distanceKm,
+                reason = AlertGateReason.SEVERE_OVERRIDE
+            )
+        }
+
+        if (distanceKm == null) {
+            return AlertDecision(
                 shouldAlarm = true,
                 distanceKm = null,
                 reason = AlertGateReason.LOCATION_UNKNOWN
             )
+        }
 
-        // A non-positive or absurd radius means a corrupt preference, not "alert on
-        // nothing" — clamp to the same bounds the Settings slider offers.
-        val radiusKm = coverageRadiusKm.coerceIn(MIN_RADIUS_KM, MAX_RADIUS_KM)
-        val within = distanceKm <= radiusKm
-
+        val within = distanceKm <= SafetyPolicy.ALERT_RADIUS_KM
         return AlertDecision(
             shouldAlarm = within,
             distanceKm = distanceKm,
@@ -92,10 +120,7 @@ object AlertGate {
         userLocation: UserLocation?,
         centroidLat: Double,
         centroidLon: Double,
-        coverageRadiusKm: Int
-    ): Boolean = decide(userLocation, centroidLat, centroidLon, coverageRadiusKm).shouldAlarm
-
-    /** Mirrors `AppSettingsRepository.RADIUS_RANGE`, duplicated to keep domain pure. */
-    const val MIN_RADIUS_KM = 50
-    const val MAX_RADIUS_KM = 300
+        mmi: String? = null,
+        pgaGal: Double = 0.0
+    ): Boolean = decide(userLocation, centroidLat, centroidLon, mmi, pgaGal).shouldAlarm
 }

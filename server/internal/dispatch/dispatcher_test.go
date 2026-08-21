@@ -66,7 +66,7 @@ type fakeTargetedSaver struct {
 	err    error
 
 	mu    sync.Mutex
-	calls []float64 // radius km yang diminta, untuk memastikan dispatchRadiusKm dipakai
+	calls []float64 // radius km yang diminta, untuk memastikan AlertRadiusKm dipakai
 }
 
 func (f *fakeTargetedSaver) FCMTokensWithin(_ context.Context, _, _ float64, rangeKm int) ([]string, error) {
@@ -149,9 +149,11 @@ func waitFor(cond func() bool) bool {
 
 func confirmedEvent() *consensus.Event {
 	return &consensus.Event{
-		Status:         consensus.StatusConfirmed,
-		Centroid:       consensus.Centroid{Lat: -6.9, Lon: 107.6},
-		MaxPGA:         300,
+		Status:   consensus.StatusConfirmed,
+		Centroid: consensus.Centroid{Lat: -6.9, Lon: 107.6},
+		// Sengaja di bawah SeverePGAGal dan di bawah MMI VII: event ini menguji
+		// jalur bertarget, yang hanya dipakai kalau IsSevere tidak menyala.
+		MaxPGA:         120,
 		MMIScale:       "VI",
 		IntensityLabel: "strong",
 		NodeCount:      3,
@@ -306,8 +308,61 @@ func TestDispatcherFCMTargetsNearbyTokens(t *testing.T) {
 	saver.mu.Lock()
 	calls := append([]float64(nil), saver.calls...)
 	saver.mu.Unlock()
-	if len(calls) != 1 || calls[0] != float64(dispatchRadiusKm) {
-		t.Fatalf("radius pencarian = %v, ingin satu panggilan pada %d km", calls, dispatchRadiusKm)
+	if len(calls) != 1 || calls[0] != float64(AlertRadiusKm) {
+		t.Fatalf("radius pencarian = %v, ingin satu panggilan pada %d km", calls, AlertRadiusKm)
+	}
+}
+
+// Skenario override intensitas: gempa parah (MMI >= VII atau PGA >= 250 gal)
+// disiarkan ke topic TANPA filter jarak, dan pencarian token tidak pernah
+// dijalankan. Untuk kejadian sebesar ini, membangunkan orang yang berada di luar
+// 200 km adalah jawaban yang benar — dan seorang user yang posisinya belum
+// tersinkron tidak boleh terlewat hanya karena ia tak ada di indeks spasial.
+func TestDispatcherSevereBypassesDistanceFilter(t *testing.T) {
+	cases := map[string]func(*consensus.Event){
+		"MMI VII": func(ev *consensus.Event) { ev.MMIScale = "VII"; ev.MaxPGA = 100 },
+		"PGA 250": func(ev *consensus.Event) { ev.MMIScale = "V"; ev.MaxPGA = SeverePGAGal },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Token TERSEDIA: kalau jalur bertarget yang dipakai, test gagal.
+			saver := &fakeTargetedSaver{tokens: []string{"tok-a", "tok-b"}}
+			fcm := &fakeFCM{}
+			h := NewHub(testLogger(), func(*http.Request) bool { return true })
+			d := NewDispatcher(saver, h, fcm, time.Hour, testLogger())
+
+			ev := confirmedEvent()
+			mutate(ev)
+			d.Dispatch(context.Background(), ev)
+
+			if !waitFor(func() bool { return fcm.count() >= 1 }) {
+				t.Fatal("tidak ada pengiriman FCM sama sekali")
+			}
+			tokens, topics := fcm.targets()
+			if len(tokens) != 0 {
+				t.Fatalf("event parah tidak boleh dikirim per token: %v", tokens)
+			}
+			if len(topics) != 1 || topics[0] != GeoTopic {
+				t.Fatalf("topic terkirim = %v, ingin [%s]", topics, GeoTopic)
+			}
+
+			saver.mu.Lock()
+			calls := len(saver.calls)
+			saver.mu.Unlock()
+			if calls != 0 {
+				t.Fatalf("pencarian token dijalankan %d kali, ingin 0 (jarak tidak diperiksa)", calls)
+			}
+		})
+	}
+}
+
+// Radius peringatan TETAP 200 km. Test ini mengunci angkanya sebagai kontrak
+// lintas-komponen: nilai yang sama dipakai gate Haversine di klien
+// (domain/SafetyPolicy.kt), jadi mengubahnya di satu sisi saja membuat server dan
+// perangkat berbeda pendapat tentang siapa yang dibangunkan.
+func TestAlertRadiusIsFixedAt200Km(t *testing.T) {
+	if AlertRadiusKm != 200 {
+		t.Fatalf("AlertRadiusKm = %d, mau 200", AlertRadiusKm)
 	}
 }
 

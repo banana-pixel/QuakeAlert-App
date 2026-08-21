@@ -10,18 +10,21 @@ import org.junit.Test
 /**
  * The gate is the only thing standing between a nationwide broadcast and a siren
  * in the user's pocket (.clinerules/20 rule 2), so its edges are pinned here:
- * inside, outside, unknown position, and the two coordinate seams where a naive
- * distance formula goes wrong.
+ * inside, outside, the intensity override, unknown position, and the two
+ * coordinate seams where a naive distance formula goes wrong.
+ *
+ * The radius is no longer a parameter — [SafetyPolicy.ALERT_RADIUS_KM] decides,
+ * and the boundary tests below are written against it rather than a literal so
+ * they keep testing the boundary if the constant ever moves.
  */
 class AlertGateTest {
 
     @Test
-    fun `alarms when the centroid is inside the coverage radius`() {
+    fun `alarms when the centroid is inside the fixed radius`() {
         val decision = AlertGate.decide(
             userLocation = BANDUNG,
             centroidLat = JAKARTA.latitude,
-            centroidLon = JAKARTA.longitude,
-            coverageRadiusKm = 150
+            centroidLon = JAKARTA.longitude
         )
 
         assertTrue(decision.shouldAlarm)
@@ -34,12 +37,11 @@ class AlertGateTest {
     }
 
     @Test
-    fun `does not alarm when the centroid is outside the coverage radius`() {
+    fun `does not alarm when the centroid is outside the fixed radius`() {
         val decision = AlertGate.decide(
             userLocation = BANDUNG,
             centroidLat = MEDAN.latitude,
-            centroidLon = MEDAN.longitude,
-            coverageRadiusKm = 300
+            centroidLon = MEDAN.longitude
         )
 
         assertFalse(decision.shouldAlarm)
@@ -53,12 +55,11 @@ class AlertGateTest {
         val decision = AlertGate.decide(
             userLocation = null,
             centroidLat = MEDAN.latitude,
-            centroidLon = MEDAN.longitude,
-            coverageRadiusKm = 50
+            centroidLon = MEDAN.longitude
         )
 
-        // A missed warning is worse than a distant one — the tightest radius and the
-        // furthest quake must still alarm when the position is unknown.
+        // A missed warning is worse than a distant one: a user who never synced a
+        // position must not be silently excluded from every alert.
         assertTrue(decision.shouldAlarm)
         assertEquals(AlertGateReason.LOCATION_UNKNOWN, decision.reason)
         assertNull(decision.distanceKm)
@@ -71,8 +72,7 @@ class AlertGateTest {
         val decision = AlertGate.decide(
             userLocation = west,
             centroidLat = 0.5,
-            centroidLon = -179.9,
-            coverageRadiusKm = 50
+            centroidLon = -179.9
         )
 
         // 0.2° apart across the seam ≈ 22 km. A formula that subtracted the raw
@@ -87,13 +87,14 @@ class AlertGateTest {
         val decision = AlertGate.decide(
             userLocation = north,
             centroidLat = -1.0,
-            centroidLon = 120.0,
-            coverageRadiusKm = 300
+            centroidLon = 120.0
         )
 
-        // 2° of latitude ≈ 222 km; a sign error would collapse this toward zero.
+        // 2° of latitude ≈ 222 km, which also puts it just past the fixed radius. A
+        // sign error would collapse the distance toward zero and alarm instead, so
+        // the silence is part of the assertion rather than incidental to it.
         assertTrue(decision.distanceKm!! in 200.0..240.0)
-        assertTrue(decision.shouldAlarm)
+        assertFalse(decision.shouldAlarm)
     }
 
     @Test
@@ -101,11 +102,12 @@ class AlertGateTest {
         // Asserted a metre either side rather than exactly on the radius: at the exact
         // boundary the verdict rests on the last bit of a double, which is not
         // behaviour worth pinning.
+        val radius = SafetyPolicy.ALERT_RADIUS_KM.toDouble()
+
         val inside = AlertGate.decide(
             userLocation = EQUATOR_ORIGIN,
             centroidLat = 0.0,
-            centroidLon = degreesEastOfOriginFor(kilometres = 149.999),
-            coverageRadiusKm = 150
+            centroidLon = degreesEastOfOriginFor(kilometres = radius - 0.001)
         )
         assertTrue(inside.shouldAlarm)
         assertEquals(AlertGateReason.WITHIN_RADIUS, inside.reason)
@@ -113,52 +115,98 @@ class AlertGateTest {
         val outside = AlertGate.decide(
             userLocation = EQUATOR_ORIGIN,
             centroidLat = 0.0,
-            centroidLon = degreesEastOfOriginFor(kilometres = 150.001),
-            coverageRadiusKm = 150
+            centroidLon = degreesEastOfOriginFor(kilometres = radius + 0.001)
         )
         assertFalse(outside.shouldAlarm)
         assertEquals(AlertGateReason.OUTSIDE_RADIUS, outside.reason)
     }
 
     @Test
-    fun `clamps a corrupt radius to the settings bounds`() {
-        // A zero or negative stored radius means a corrupt preference, not consent to
-        // silence every alert: it must behave as the 50 km floor.
-        val nearby = AlertGate.decide(
-            userLocation = EQUATOR_ORIGIN,
-            centroidLat = 0.0,
-            centroidLon = degreesEastOfOriginFor(kilometres = 40.0),
-            coverageRadiusKm = 0
-        )
-        assertTrue(nearby.shouldAlarm)
+    fun `the radius is fixed at 200 km and not a preference`() {
+        // Pinned as a cross-repo contract: the same number is dispatch.AlertRadiusKm
+        // on the server, which chose who received this event in the first place.
+        // Changing it on one side only makes the two disagree about who gets woken.
+        assertEquals(200, SafetyPolicy.ALERT_RADIUS_KM)
+    }
 
-        val outsideFloor = AlertGate.decide(
-            userLocation = EQUATOR_ORIGIN,
-            centroidLat = 0.0,
-            centroidLon = degreesEastOfOriginFor(kilometres = 80.0),
-            coverageRadiusKm = -1
+    @Test
+    fun `a severe quake alarms far outside the radius`() {
+        val decision = AlertGate.decide(
+            userLocation = BANDUNG,
+            centroidLat = MEDAN.latitude,
+            centroidLon = MEDAN.longitude,
+            mmi = "VII"
         )
-        assertFalse(outsideFloor.shouldAlarm)
 
-        // And an absurdly large one does not become a global alarm: 500 km is past
-        // the 300 km ceiling.
-        val beyondCeiling = AlertGate.decide(
-            userLocation = EQUATOR_ORIGIN,
-            centroidLat = 0.0,
-            centroidLon = degreesEastOfOriginFor(kilometres = 500.0),
-            coverageRadiusKm = Int.MAX_VALUE
+        assertTrue(decision.shouldAlarm)
+        assertEquals(AlertGateReason.SEVERE_OVERRIDE, decision.reason)
+        // The distance is still reported — the UI says how far, it just does not
+        // decide anything.
+        assertTrue(decision.distanceKm!! > 1_000.0)
+    }
+
+    @Test
+    fun `PGA alone can trigger the override when MMI is unusable`() {
+        // MMI travels as a Roman-numeral string, so a malformed one parses to 0 and
+        // the acceleration is the only thing left to judge by.
+        val decision = AlertGate.decide(
+            userLocation = BANDUNG,
+            centroidLat = MEDAN.latitude,
+            centroidLon = MEDAN.longitude,
+            mmi = "???",
+            pgaGal = SafetyPolicy.OVERRIDE_PGA_GAL
         )
-        assertFalse(beyondCeiling.shouldAlarm)
+
+        assertTrue(decision.shouldAlarm)
+        assertEquals(AlertGateReason.SEVERE_OVERRIDE, decision.reason)
+    }
+
+    @Test
+    fun `a severe quake alarms even when the position is unknown`() {
+        // The override is checked before the distance, so it wins over the fail-open
+        // branch and the reason stays honest about why the siren went off.
+        val decision = AlertGate.decide(
+            userLocation = null,
+            centroidLat = MEDAN.latitude,
+            centroidLon = MEDAN.longitude,
+            mmi = "IX"
+        )
+
+        assertTrue(decision.shouldAlarm)
+        assertEquals(AlertGateReason.SEVERE_OVERRIDE, decision.reason)
+        assertNull(decision.distanceKm)
+    }
+
+    @Test
+    fun `an intensity below the override still obeys the radius`() {
+        // The guard against an override that swallows the gate entirely: MMI VI and
+        // 249.9 gal are each one step short, and a distant quake must stay silent.
+        val decision = AlertGate.decide(
+            userLocation = BANDUNG,
+            centroidLat = MEDAN.latitude,
+            centroidLon = MEDAN.longitude,
+            mmi = "VI",
+            pgaGal = SafetyPolicy.OVERRIDE_PGA_GAL - 0.1
+        )
+
+        assertFalse(decision.shouldAlarm)
+        assertEquals(AlertGateReason.OUTSIDE_RADIUS, decision.reason)
     }
 
     @Test
     fun `shouldAlarm agrees with decide`() {
         listOf(BANDUNG, MEDAN, null).forEach { location ->
-            val expected = AlertGate.decide(location, JAKARTA.latitude, JAKARTA.longitude, 150)
-            assertEquals(
-                expected.shouldAlarm,
-                AlertGate.shouldAlarm(location, JAKARTA.latitude, JAKARTA.longitude, 150)
-            )
+            listOf(null to 0.0, "VII" to 0.0, "V" to 400.0).forEach { (mmi, pga) ->
+                val expected = AlertGate.decide(
+                    location, JAKARTA.latitude, JAKARTA.longitude, mmi, pga
+                )
+                assertEquals(
+                    expected.shouldAlarm,
+                    AlertGate.shouldAlarm(
+                        location, JAKARTA.latitude, JAKARTA.longitude, mmi, pga
+                    )
+                )
+            }
         }
     }
 

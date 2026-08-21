@@ -39,12 +39,8 @@ type fakeRepo struct {
 	locLat     float64
 	locLon     float64
 	locName    string
-	locRadius  *int // radius yang diterima store; nil = field tidak dikirim klien
 	locSetErr  error
 	locUpdated time.Time
-	// locStoredRadius adalah coverage_radius_km yang "sudah tersimpan" dan
-	// dikembalikan store bila request tidak mengirim radius baru.
-	locStoredRadius int
 
 	// FCM
 	fcmToken  string
@@ -80,13 +76,9 @@ func (f *fakeRepo) CreateUserProfile(_ context.Context, userID, pseudonym string
 	f.profileID, f.profilePseudonym = userID, pseudonym
 	return f.profileCreatedAt, f.profileErr
 }
-func (f *fakeRepo) UpdateUserLocation(_ context.Context, userID string, lat, lon float64, name string, radiusKm *int) (time.Time, int, error) {
-	f.locUserID, f.locLat, f.locLon, f.locName, f.locRadius = userID, lat, lon, name, radiusKm
-	effective := f.locStoredRadius
-	if radiusKm != nil {
-		effective = *radiusKm
-	}
-	return f.locUpdated, effective, f.locSetErr
+func (f *fakeRepo) UpdateUserLocation(_ context.Context, userID string, lat, lon float64, name string) (time.Time, error) {
+	f.locUserID, f.locLat, f.locLon, f.locName = userID, lat, lon, name
+	return f.locUpdated, f.locSetErr
 }
 func (f *fakeRepo) UpdateUserFCMToken(_ context.Context, _, token string) (time.Time, error) {
 	f.fcmToken = token
@@ -529,36 +521,30 @@ func TestUpdateLocation_NolNolValid(t *testing.T) {
 	}
 }
 
-// coverage_radius_km yang dikirim harus benar-benar sampai ke store: kolom itu
-// yang dibaca FCMTokensWithin, jadi kalau ia berhenti di handler penargetan
-// alert kembali memakai satu radius seragam untuk semua orang.
-func TestUpdateLocation_CoverageRadiusDisinkronkan(t *testing.T) {
-	repo := &fakeRepo{locUpdated: time.Unix(1_700_000_500, 0).UTC(), locStoredRadius: 50}
+// Radius peringatan bukan lagi input klien: ia tetap 200 km
+// (dispatch.AlertRadiusKm) dengan override intensitas untuk gempa parah. Klien
+// yang masih mengirim coverage_radius_km harus mendapat 400 yang jelas, bukan
+// diam-diam diterima lalu diabaikan — kalau tidak, aplikasi lama akan terus
+// menampilkan radius pilihan yang tidak berpengaruh apa pun pada siapa yang
+// dibangunkan.
+func TestUpdateLocation_CoverageRadiusDitolak(t *testing.T) {
+	repo := &fakeRepo{locUpdated: time.Unix(1_700_000_500, 0).UTC()}
 	h := newTestServer(repo, NewMemoryRateLimiter())
 
 	rec := do(h, authedRequest(http.MethodPut, "/api/v1/users/location",
 		`{"latitude":-6.9,"longitude":107.6,"coverage_radius_km":120}`, testSecret, "u"))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, mau 200. body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, mau 400. body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.locRadius == nil || *repo.locRadius != 120 {
-		t.Fatalf("radius yang diteruskan ke store = %v, mau 120", repo.locRadius)
-	}
-
-	var resp updateLocationResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.CoverageRadiusKm != 120 {
-		t.Fatalf("coverage_radius_km pada respons = %d, mau 120", resp.CoverageRadiusKm)
+	if repo.locUserID != "" {
+		t.Fatalf("store tidak boleh dipanggil untuk field yang sudah dihapus dari kontrak")
 	}
 }
 
-// Klien versi lama tidak mengenal field ini. Absennya harus berarti "jangan
-// ubah" (nil ke store) dan respons melaporkan radius yang sudah tersimpan —
-// bukan 0, yang akan terbaca klien sebagai "tidak ada alert sama sekali".
-func TestUpdateLocation_TanpaCoverageRadius(t *testing.T) {
-	repo := &fakeRepo{locUpdated: time.Unix(1_700_000_500, 0).UTC(), locStoredRadius: 175}
+// Respons tidak boleh lagi membawa coverage_radius_km: field yang tetap ada di
+// JSON akan membuat klien percaya masih ada preferensi radius yang berlaku.
+func TestUpdateLocation_ResponsTanpaCoverageRadius(t *testing.T) {
+	repo := &fakeRepo{locUpdated: time.Unix(1_700_000_500, 0).UTC()}
 	h := newTestServer(repo, NewMemoryRateLimiter())
 
 	rec := do(h, authedRequest(http.MethodPut, "/api/v1/users/location",
@@ -566,37 +552,8 @@ func TestUpdateLocation_TanpaCoverageRadius(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, mau 200. body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.locRadius != nil {
-		t.Fatalf("radius ke store = %v, mau nil (jangan ubah)", *repo.locRadius)
-	}
-
-	var resp updateLocationResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.CoverageRadiusKm != 175 {
-		t.Fatalf("coverage_radius_km pada respons = %d, mau 175 (nilai tersimpan)", resp.CoverageRadiusKm)
-	}
-}
-
-func TestUpdateLocation_CoverageRadiusInvalid(t *testing.T) {
-	cases := map[string]string{
-		"nol":         `{"latitude":-6.9,"longitude":107.6,"coverage_radius_km":0}`,
-		"negatif":     `{"latitude":-6.9,"longitude":107.6,"coverage_radius_km":-5}`,
-		"di atas 300": `{"latitude":-6.9,"longitude":107.6,"coverage_radius_km":301}`,
-	}
-	for name, body := range cases {
-		t.Run(name, func(t *testing.T) {
-			repo := &fakeRepo{locUpdated: time.Unix(1_700_000_500, 0).UTC()}
-			h := newTestServer(repo, NewMemoryRateLimiter())
-			rec := do(h, authedRequest(http.MethodPut, "/api/v1/users/location", body, testSecret, "u"))
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("status = %d, mau 400. body=%s", rec.Code, rec.Body.String())
-			}
-			if repo.locUserID != "" {
-				t.Fatalf("store tidak boleh dipanggil untuk radius invalid")
-			}
-		})
+	if strings.Contains(rec.Body.String(), "coverage_radius_km") {
+		t.Fatalf("respons masih membawa coverage_radius_km: %s", rec.Body.String())
 	}
 }
 

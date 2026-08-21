@@ -37,26 +37,28 @@ type eventSaver interface {
 	ResolveEvent(ctx context.Context, eventID string) error
 }
 
-// tokenFinder mengabstraksi pencarian token FCM bertarget. rangeKm adalah batas
-// atas pencarian; implementasi store menyempitkannya lagi per user dengan
-// coverage_radius_km. Interface terpisah
-// dari eventSaver dan dideteksi lewat type assertion agar penyedia lama (dan
-// fake pada test) tetap kompatibel: yang tidak mengimplementasikannya jatuh ke
-// broadcast topic seperti sebelumnya.
+// tokenFinder mengabstraksi pencarian token FCM bertarget. rangeKm adalah radius
+// peringatan itu sendiri (AlertRadiusKm) — store tidak lagi menyempitkannya per
+// user. Interface terpisah dari eventSaver dan dideteksi lewat type assertion
+// agar penyedia lama (dan fake pada test) tetap kompatibel: yang tidak
+// mengimplementasikannya jatuh ke broadcast topic.
 type tokenFinder interface {
 	FCMTokensWithin(ctx context.Context, lat, lon float64, rangeKm int) ([]string, error)
 }
 
-// dispatchRadiusKm adalah BATAS ATAS pencarian token untuk satu event, bukan
-// radius alert. Radius alert per perangkat adalah coverage_radius_km milik user
-// (disinkronkan klien lewat PUT /users/location) dan diterapkan di dalam
-// store.FCMTokensWithin; nilai ini hanya membatasi prefilter spasialnya.
+// AlertRadiusKm adalah radius peringatan TETAP: 200 km dari centroid.
 //
-// Sedikit di atas maksimum yang dapat dipilih user (300 km di slider Settings)
-// agar batas ini tidak pernah menjadi yang membisukan sebuah perangkat: yang
-// memutuskan tetap pilihan user, dan gate Haversine di klien tetap menjadi
-// pemeriksa terakhir sebelum sirene berbunyi.
-const dispatchRadiusKm = 350
+// Tetap, dan bukan pilihan pengguna, karena praktik EEW menempatkan keputusan
+// ini pada sistem: seseorang yang memilih 50 km untuk mengurangi notifikasi
+// telah membuat keputusan keselamatan yang tidak ia sadari sedang dibuat, dan
+// satu-satunya yang tahu ia salah adalah orang itu sendiri — setelah gempanya.
+// 200 km mencakup jarak kerusakan gempa merusak di wilayah Indonesia sekaligus
+// tetap sempit untuk tidak melatih pengguna mengabaikan sirene.
+//
+// Nilai yang SAMA dipakai gate Haversine di klien (domain/SafetyPolicy.kt) agar
+// server dan perangkat tidak pernah berbeda pendapat tentang siapa yang
+// dibangunkan.
+const AlertRadiusKm = 200
 
 // maxFCMConcurrency membatasi request FCM paralel per event. HTTP v1 tidak
 // punya endpoint batch, jadi satu event berarti satu request per token; batas
@@ -161,18 +163,40 @@ func (d *Dispatcher) Dispatch(ctx context.Context, ev *consensus.Event) {
 // dispatchFCM mengirim FCM secara asinkron di goroutine terpisah dengan timeout
 // fcmTimeout (10s). Tidak pernah memblokir jalur konsensus / broadcast.
 //
-// Dua jalur yang saling eksklusif: token bertarget dalam dispatchRadiusKm dari
-// centroid bila ada, jika tidak broadcast ke GeoTopic. Eksklusif karena topic
-// tidak bisa dikecualikan per pelanggan — mengirim keduanya akan mengembalikan
-// bangun-nasional yang justru dihilangkan penargetan ini.
+// Tiga jalur yang saling eksklusif, dipilih dalam urutan ini:
+//  1. Event parah (IsSevere) -> GeoTopic, TANPA filter jarak. Ini satu-satunya
+//     kejadian di mana bangun-nasional adalah jawaban yang benar.
+//  2. Token dalam AlertRadiusKm dari centroid.
+//  3. GeoTopic sebagai fallback bila tidak ada satu pun token yang cocok.
+//
+// Eksklusif karena topic tidak bisa dikecualikan per pelanggan — mengirim topic
+// bersamaan dengan token bertarget akan membangunkan seluruh perangkat nasional
+// pada setiap gempa kecil, persis yang penargetan ini hilangkan.
 func (d *Dispatcher) dispatchFCM(msg *AlertMessage) {
 	if d.fcm == nil {
 		return
 	}
 	data := BuildAlertData(msg)
+	severe := IsSevere(msg.MMI, msg.PGAGal)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), fcmTimeout)
 		defer cancel()
+
+		if severe {
+			// Override intensitas: jarak tidak diperiksa sama sekali. Klien pun
+			// tidak akan menahannya — SafetyPolicy menerapkan aturan yang sama
+			// sebelum sirene, jadi keduanya sepakat tanpa perlu flag di payload.
+			d.log.Warn("event parah: FCM disiarkan tanpa filter jarak",
+				"event_id", msg.EventID, "mmi", msg.MMI, "pga_gal", msg.PGAGal)
+			if err := d.fcm.Send(ctx, &FCMMessage{
+				Topic:    GeoTopic,
+				Data:     data,
+				Priority: "HIGH",
+			}); err != nil {
+				d.log.Error("gagal kirim FCM topic (severe)", "err", err, "event_id", msg.EventID)
+			}
+			return
+		}
 
 		if tokens := d.nearbyTokens(ctx, msg); len(tokens) > 0 {
 			d.sendToTokens(ctx, tokens, data, msg)
@@ -193,7 +217,7 @@ func (d *Dispatcher) dispatchFCM(msg *AlertMessage) {
 	}()
 }
 
-// nearbyTokens mengembalikan token dalam dispatchRadiusKm dari centroid, atau
+// nearbyTokens mengembalikan token dalam AlertRadiusKm dari centroid, atau
 // nil bila store tidak mendukung pencarian itu / query gagal. Kegagalan di sini
 // bukan kegagalan dispatch: pemanggil tetap melanjutkan ke topic broadcast.
 func (d *Dispatcher) nearbyTokens(ctx context.Context, msg *AlertMessage) []string {
@@ -201,7 +225,7 @@ func (d *Dispatcher) nearbyTokens(ctx context.Context, msg *AlertMessage) []stri
 	if !ok {
 		return nil
 	}
-	tokens, err := finder.FCMTokensWithin(ctx, msg.CentroidLat, msg.CentroidLon, dispatchRadiusKm)
+	tokens, err := finder.FCMTokensWithin(ctx, msg.CentroidLat, msg.CentroidLon, AlertRadiusKm)
 	if err != nil {
 		d.log.Error("gagal cari token FCM terdekat", "err", err, "event_id", msg.EventID)
 		return nil
@@ -239,7 +263,7 @@ func (d *Dispatcher) sendToTokens(ctx context.Context, tokens []string, data map
 
 	d.log.Info("FCM bertarget terkirim",
 		"event_id", msg.EventID, "type", msg.Type,
-		"tokens", len(tokens), "gagal", failed.Load(), "radius_km", dispatchRadiusKm)
+		"tokens", len(tokens), "gagal", failed.Load(), "radius_km", AlertRadiusKm)
 }
 
 // trackResolution memulai state machine resolusi untuk event CONFIRMED yang baru

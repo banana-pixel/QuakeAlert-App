@@ -233,9 +233,10 @@ paths:
         Menyimpan koordinat user ke user_profiles.last_location
         (GEOGRAPHY(Point,4326)) sebagai basis filter radius pada /sensors dan
         penargetan alert. location_name adalah label hasil reverse-geocode di
-        sisi klien dan bersifat opsional. coverage_radius_km, bila dikirim,
-        menyinkronkan radius alert pilihan user ke server — dispatch memakainya
-        untuk memutuskan perangkat mana yang perlu dibangunkan sebuah gempa.
+        sisi klien dan bersifat opsional. Tidak ada radius yang diterima dari
+        klien: radius peringatan tetap 200 km dengan override intensitas untuk
+        gempa parah (MMI >= VII atau PGA >= 250 gal), keputusan sistem dan bukan
+        preferensi per user.
       operationId: updateUserLocation
       x-client: true # dipakai klien Android (docs/CLIENT_SPEC.md)
       security:
@@ -588,23 +589,10 @@ components:
             endpoint ini bersemantik PUT (replace), mengirim body tanpa
             location_name akan MENGOSONGKAN label yang tersimpan sebelumnya.
           example: Cimahi, West Java, ID
-        coverage_radius_km:
-          type: integer
-          minimum: 1
-          maximum: 300
-          description: >
-            Opsional. Radius alert pilihan user (slider Settings Android:
-            50..300). Server memakainya untuk memutuskan perangkat mana yang
-            dibangunkan sebuah gempa, jadi tanpa sinkronisasi ini penargetan
-            hanya bisa memakai satu radius seragam untuk semua orang.
-            BERBEDA dari location_name: field ini TIDAK ikut semantik replace —
-            mengabaikannya berarti "jangan ubah radius" (kompatibilitas klien
-            lama), bukan mengembalikannya ke default.
-          example: 150
 
     UpdateLocationResponse:
       type: object
-      required: [user_id, latitude, longitude, coverage_radius_km, updated_at]
+      required: [user_id, latitude, longitude, updated_at]
       properties:
         user_id:
           type: string
@@ -623,15 +611,6 @@ components:
           maxLength: 150
           description: null bila user belum/tidak mengirim label lokasi.
           example: Cimahi, West Java, ID
-        coverage_radius_km:
-          type: integer
-          minimum: 1
-          maximum: 300
-          description: >
-            Radius yang BERLAKU setelah update: nilai yang baru dikirim, atau
-            yang sudah tersimpan bila request tidak menyertakannya. Klien
-            memakainya untuk memastikan preferensinya benar-benar sampai.
-          example: 150
         updated_at:
           type: string
           format: date-time

@@ -17,7 +17,7 @@ import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.mapper.QuakeFormat
 import id.web.quakealert.data.users.LocationSyncResult
 import id.web.quakealert.device.AlertSiren
-import kotlinx.coroutines.Job
+import id.web.quakealert.domain.SafetyPolicy
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,9 +37,10 @@ import java.time.Instant
  * sync, the last status line) that no repository owns — one writable state holder
  * keeps both kinds in a single emission and avoids a seven-way combine.
  *
- * The coverage radius is the load-bearing setting here: it gates the siren via
- * [id.web.quakealert.domain.AlertGate] and becomes `range_km` on the events and
- * sensors queries, so changing it re-queries the station count immediately.
+ * There is no radius control any more: the alert radius is fixed by
+ * [id.web.quakealert.domain.SafetyPolicy] and identical on the server, so the only
+ * thing this screen still syncs is the position — which is what makes the station
+ * count and the targeting work at all.
  */
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -49,25 +50,19 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
-    /** The pending debounced radius push; cancelled by the next slider emission. */
-    private var radiusSyncJob: Job? = null
-
     init {
         observePreferences()
         observeIdentity()
         refreshSystemState()
+        // Explicit, because nothing else asks any more: the count used to ride along
+        // with the radius flow, and that flow is gone.
+        refreshSensorCount()
     }
 
     /** Mirrors the persisted preferences into state as they change. */
     private fun observePreferences() {
         viewModelScope.launch {
             repository.unitSystem.collect { unit -> _uiState.update { it.copy(unitSystem = unit) } }
-        }
-        viewModelScope.launch {
-            repository.coverageRadiusKm.collect { km ->
-                _uiState.update { it.copy(coverageRadiusKm = km) }
-                refreshSensorCount(km)
-            }
         }
         viewModelScope.launch {
             repository.autoSyncLocation.collect { on -> _uiState.update { it.copy(autoSyncLocation = on) } }
@@ -124,31 +119,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /**
-     * Commits a new coverage radius from the slider and pushes it to the server.
-     *
-     * The push is debounced and single-flight: dragging the slider fires this once
-     * per pixel, and the radius is what the server aims alerts by, so a request per
-     * emission would be both a flood and a race over which value lands last. The
-     * previous job is cancelled outright rather than allowed to finish — an
-     * in-flight PUT for a radius the user has already dragged past is only a chance
-     * to store the wrong one.
-     */
-    fun onCoverageChanged(km: Int) {
-        repository.setCoverageRadiusKm(km)
-        _uiState.update { it.copy(coverageRadiusKm = km.coerceIn(AppSettingsRepository.RADIUS_RANGE)) }
-
-        radiusSyncJob?.cancel()
-        radiusSyncJob = viewModelScope.launch {
-            delay(RADIUS_SYNC_DEBOUNCE_MS)
-            // Silent by design: nobody moved a slider to be told about a network
-            // round trip, and syncIfStale() re-pushes an unsynced radius on the next
-            // launch if this one never reaches the server.
-            val result = network.userLocationRepository.syncCoverageRadius()
-            if (result != null) Log.d(TAG, "coverage radius push -> $result")
-        }
-    }
-
     /** Toggles the "Auto Sync Location" switch. */
     fun onAutoSyncToggled(enabled: Boolean) {
         repository.setAutoSyncLocation(enabled)
@@ -180,7 +150,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val result = network.userLocationRepository.sync(force = true)
             _uiState.update { it.copy(isSyncing = false, statusMessage = result.toMessage()) }
-            if (result is LocationSyncResult.Updated) refreshSensorCount(_uiState.value.coverageRadiusKm)
+            if (result is LocationSyncResult.Updated) refreshSensorCount()
         }
     }
 
@@ -277,8 +247,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
      * There is no refresh endpoint: `POST /auth/anonymous` mints a *new* `user_id`
      * and pseudonym, so the server knows nothing about this device afterwards. The
      * position and the FCM token are therefore re-pushed against the new identity —
-     * skipping that would leave the user with no coverage radius on the server and
-     * no push registration, i.e. no alerts.
+     * skipping that would leave the server with no position to target and no push
+     * registration, i.e. no alerts.
      */
     fun onResetProfileConfirmed() {
         if (_uiState.value.isResetting) return
@@ -297,7 +267,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 }
             )
             _uiState.update { it.copy(isResetting = false, statusMessage = message) }
-            refreshSensorCount(_uiState.value.coverageRadiusKm)
+            refreshSensorCount()
         }
     }
 
@@ -317,16 +287,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * Counts the stations the server reports inside [radiusKm].
+     * Counts the stations the server reports inside [SafetyPolicy.ALERT_RADIUS_KM].
      *
      * A failure leaves the previous count rather than showing zero: "0 sensors" and
-     * "could not ask" mean very different things to someone deciding whether the
-     * radius is wide enough. The server needs a stored position for this to be
-     * non-empty, which is why a successful sync re-runs it.
+     * "could not ask" mean very different things to someone reading this card. The
+     * server needs a stored position for this to be non-empty, which is why a
+     * successful sync re-runs it.
      */
-    private fun refreshSensorCount(radiusKm: Int) {
+    private fun refreshSensorCount() {
         viewModelScope.launch {
-            network.apiClient.fetchSensors(rangeKm = radiusKm)
+            network.apiClient.fetchSensors(rangeKm = SafetyPolicy.ALERT_RADIUS_KM)
                 .onSuccess { sensors -> _uiState.update { it.copy(sensorCount = sensors.size) } }
                 .onFailure { Log.d(TAG, "sensor count unavailable", it) }
         }
@@ -350,7 +320,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private companion object {
         const val TAG = "SettingsViewModel"
         const val TEST_SOUND_MS = 3_000L
-        const val RADIUS_SYNC_DEBOUNCE_MS = 750L
         const val HTTP_TOO_MANY_REQUESTS = 429
     }
 }

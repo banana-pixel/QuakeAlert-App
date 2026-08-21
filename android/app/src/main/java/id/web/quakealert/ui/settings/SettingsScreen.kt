@@ -45,10 +45,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.device.LOCATION_PERMISSIONS
 import id.web.quakealert.device.hasLocationPermission
+import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeCard
@@ -142,7 +142,6 @@ fun SettingsRoute(
     SettingsScreen(
         uiState = uiState,
         connectionState = connectionState,
-        onCoverageChanged = viewModel::onCoverageChanged,
         onAutoSyncToggled = viewModel::onAutoSyncToggled,
         onSyncLocationNow = syncLocation,
         onNotificationsToggled = viewModel::onNotificationsToggled,
@@ -194,9 +193,11 @@ private fun Context.openBatteryOptimizationSettings() {
  * top → bottom:
  *  1. A static [QuakeAppBar] header ("Settings" + connection badge), plus a status
  *     pill for the result of the last action.
- *  2. "Location & Coverage": the reactive [SensorMapCard] whose geofence circle
- *     scales with the radius, the [CoverageRadiusSlider], "Sync Location Now" and
- *     the "Auto Sync Location" switch.
+ *  2. "Location & Coverage": the [SensorMapCard], the read-only
+ *     [ProtectionStatusCardBody] stating the fixed safety rules, "Sync Location
+ *     Now" and the "Auto Sync Location" switch. There is no radius control — see
+ *     [id.web.quakealert.domain.SafetyPolicy] for why that decision is not the
+ *     user's to make.
  *  3. "Alert & Notification": the alert switch (which also surfaces a revoked OS
  *     notification permission), "Test Alert Sound", and the battery-optimisation
  *     row — Doze can hold a data-only push until the next maintenance window, which
@@ -214,7 +215,6 @@ private fun Context.openBatteryOptimizationSettings() {
 fun SettingsScreen(
     uiState: SettingsUiState,
     connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
-    onCoverageChanged: (Int) -> Unit,
     onAutoSyncToggled: (Boolean) -> Unit,
     onSyncLocationNow: () -> Unit,
     onNotificationsToggled: (Boolean) -> Unit,
@@ -277,12 +277,12 @@ fun SettingsScreen(
 
             item(key = "map_coverage") {
                 // Same linked map as the Sensors screen, minus the settings
-                // shortcut (Settings passes no onSettingsShortcut). The coverage
-                // radius drives the shared geofence circle via the overview.
+                // shortcut (Settings passes no onSettingsShortcut). The circle is
+                // the fixed alert radius, so it no longer moves with a control.
                 SensorMapCard(
                     overview = SensorMapOverview(
                         locationLabel = uiState.locationPillLabel,
-                        rangeKm = uiState.coverageRadiusKm,
+                        rangeKm = SafetyPolicy.ALERT_RADIUS_KM,
                         sensorCount = uiState.sensorCount,
                         geofenceFraction = uiState.geofenceFraction
                     ),
@@ -290,19 +290,14 @@ fun SettingsScreen(
                 )
             }
 
-            item(key = "card_coverage") {
+            item(key = "card_protection") {
                 QuakeCard(
-                    title = "Coverage Range",
-                    // The radius is the one setting with teeth: it decides whether
-                    // the siren fires, so the card says so rather than leaving the
-                    // slider looking like a display preference.
+                    title = "Protection Status",
+                    // Read-only on purpose. This card used to hold the radius
+                    // slider; what it holds now is the explanation of why there is
+                    // nothing to adjust.
                     detail = {
-                        CoverageRadiusSlider(
-                            valueKm = uiState.coverageRadiusKm,
-                            range = AppSettingsRepository.RADIUS_RANGE,
-                            valueLabel = "Alert me within ${uiState.coverageRadiusLabel}",
-                            onValueChange = onCoverageChanged
-                        )
+                        ProtectionStatusCardBody(radiusLabel = uiState.alertRadiusLabel)
                     }
                 )
             }
@@ -584,7 +579,6 @@ private fun SettingsScreenPreview() {
                 pseudonym = "Quakezen-7B9A",
                 userId = "1f0c3a52-9e1d-4a77-8f2b-6d0a1c4e5b90"
             ),
-            onCoverageChanged = {},
             onAutoSyncToggled = {},
             onSyncLocationNow = {},
             onNotificationsToggled = {},

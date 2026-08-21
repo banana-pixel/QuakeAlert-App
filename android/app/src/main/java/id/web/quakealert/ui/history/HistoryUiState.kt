@@ -3,6 +3,7 @@ package id.web.quakealert.ui.history
 import androidx.compose.runtime.Immutable
 import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.UnitSystem
+import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.common.QuakeFilter
 
 /**
@@ -109,8 +110,10 @@ fun QuakeHistoryItem.toShareText(unitSystem: UnitSystem): String = buildString {
  *   *server-side* filter — it re-queries `/events` with the `range_km` trio rather
  *   than hiding rows locally, so a nearby event on page 3 is not lost behind twenty
  *   distant ones.
- * @param nearRadiusKm the radius that filter uses, mirroring the coverage radius
- *   from Settings so the pill label and the alert gate agree.
+ * @param nearRadiusKm the radius that filter uses. Fixed at
+ *   [SafetyPolicy.HISTORY_NEAR_RADIUS_KM] — wider than the 200 km alert radius on
+ *   purpose: looking back at what happened is not a life-safety path, and the
+ *   regional picture is what someone browsing history is after.
  * @param isLoadingMore true while the next page is in flight; distinct from
  *   [isLoading] so appending does not blank the list already on screen.
  * @param hasMore whether another page might exist. The response carries no total,
@@ -126,7 +129,7 @@ data class HistoryUiState(
     val isError: Boolean = false,
     val errorMessage: String? = null,
     val selectedFilter: QuakeFilter = QuakeFilter.ALL,
-    val nearRadiusKm: Int = AppSettingsRepository.DEFAULT_RADIUS_KM,
+    val nearRadiusKm: Int = SafetyPolicy.HISTORY_NEAR_RADIUS_KM,
     val unitSystem: UnitSystem = UnitSystem.METRIC,
     val items: List<QuakeHistoryItem> = emptyList(),
     val isLoadingMore: Boolean = false,

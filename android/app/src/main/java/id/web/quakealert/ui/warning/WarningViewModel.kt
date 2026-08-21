@@ -198,7 +198,8 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
             userLocation = userLocation,
             centroidLat = latest.latitude,
             centroidLon = latest.longitude,
-            coverageRadiusKm = repository.readCoverageRadiusKm()
+            mmi = latest.mmi,
+            pgaGal = latest.pgaGal
         )
         if (!decision.shouldAlarm) {
             return LoadOutcome.DistantEmergency(
@@ -279,7 +280,8 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
             userLocation = userLocation,
             centroidLat = message.centroidLat,
             centroidLon = message.centroidLon,
-            coverageRadiusKm = repository.readCoverageRadiusKm()
+            mmi = message.mmi,
+            pgaGal = message.pgaGal
         )
 
         if (!decision.shouldAlarm) {

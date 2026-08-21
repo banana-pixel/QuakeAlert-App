@@ -101,13 +101,7 @@ class UserLocationRepository(
             ?: return LocationSyncResult.NoFix
 
         val stored = sessionStore.readUserLocation()
-        val radiusKm = settings.readCoverageRadiusKm()
-        val plan = planSync(
-            stored = stored,
-            fix = fix,
-            force = force,
-            radiusChanged = radiusKm != settings.readSyncedCoverageRadiusKm()
-        )
+        val plan = planSync(stored = stored, fix = fix, force = force)
 
         if (stored != null && !plan.upload) {
             // The position on the server is still correct, so the sync did succeed —
@@ -121,68 +115,29 @@ class UserLocationRepository(
         // this same spot rather than sending null and wiping it.
         val label = geocoder.label(fix) ?: stored?.locationName?.takeIf { plan.reuseStoredLabel }
 
-        return upload(
-            latitude = fix.latitude,
-            longitude = fix.longitude,
-            label = label,
-            radiusKm = radiusKm
-        )
+        return upload(latitude = fix.latitude, longitude = fix.longitude, label = label)
     }
 
     /**
-     * Pushes the coverage radius on its own, reusing the position the server
-     * already holds.
+     * The one `PUT /users/location` in this class.
      *
-     * Separate from [sync] because a slider is not a move: acquiring a fix to
-     * report a preference change would spend a GPS scan (and, on the forced path, a
-     * satellite lock) for a value that has nothing to do with where the device is.
-     *
-     * @return null when there is nothing to do — the server already has this
-     *   radius, or it has no position yet, in which case the first real [sync]
-     *   carries the radius with it.
-     */
-    suspend fun syncCoverageRadius(): LocationSyncResult? {
-        val radiusKm = settings.readCoverageRadiusKm()
-        if (radiusKm == settings.readSyncedCoverageRadiusKm()) return null
-        val stored = sessionStore.readUserLocation() ?: return null
-
-        Log.i(TAG, "pushing coverage radius change ($radiusKm km)")
-        return upload(
-            latitude = stored.latitude,
-            longitude = stored.longitude,
-            label = stored.locationName,
-            radiusKm = radiusKm
-        ).also { Log.i(TAG, "syncCoverageRadius -> ${it.logLabel()}") }
-    }
-
-    /**
-     * The one `PUT /users/location` in this class, shared by the positional sync and
-     * the radius-only push so both record the same three pieces of local state on
-     * success: the accepted position (cached by [QuakeApiClient] itself), the sync
-     * timestamp, and the radius the server confirmed.
-     *
-     * The radius recorded is the one the *server* reports as being in effect, not
-     * the one that was sent. Those differ if the server ever clamps or rejects a
-     * value, and recording the request would then leave the client believing a
-     * radius is synced when it is not — silently, and for as long as the user leaves
-     * the slider alone.
+     * The position is all that travels. The alert radius is fixed by
+     * [id.web.quakealert.domain.SafetyPolicy] and identical on the server, so there
+     * is no preference left to reconcile — which is why the only thing recorded
+     * locally on success is the sync timestamp (the accepted position is cached by
+     * [QuakeApiClient] itself).
      */
     private suspend fun upload(
         latitude: Double,
         longitude: Double,
-        label: String?,
-        radiusKm: Int
+        label: String?
     ): LocationSyncResult = apiClient.updateLocation(
         latitude = latitude,
         longitude = longitude,
-        locationName = label,
-        coverageRadiusKm = radiusKm
+        locationName = label
     ).fold(
-        onSuccess = { effectiveRadiusKm ->
+        onSuccess = {
             settings.setLastSyncAtMs(now())
-            settings.setSyncedCoverageRadiusKm(
-                effectiveRadiusKm.takeIf { it > 0 } ?: radiusKm
-            )
             LocationSyncResult.Updated(UserLocation(latitude, longitude, label))
         },
         onFailure = { error ->
@@ -199,13 +154,7 @@ class UserLocationRepository(
         if (!settings.readAutoSyncLocation()) return null
         val lastSync = settings.readLastSyncAtMs()
         val stale = lastSync == null || now() - lastSync >= STALE_AFTER_MS
-        if (!stale && sessionStore.readUserLocation() != null) {
-            // Not stale, but a radius change may still be waiting: the push from
-            // Settings can be lost to a dropped connection or a process death, and
-            // an unsynced radius means the server is aiming this device's alerts by
-            // the wrong distance until something reports in.
-            return syncCoverageRadius()
-        }
+        if (!stale && sessionStore.readUserLocation() != null) return null
         return sync()
     }
 
@@ -237,9 +186,8 @@ class UserLocationRepository(
 }
 
 /**
- * Below this the upload is skipped (docs/CLIENT_SPEC.md §4.2): the coverage radius
- * is tens of kilometres wide, so a sub-kilometre move cannot change which alerts
- * reach this user.
+ * Below this the upload is skipped (docs/CLIENT_SPEC.md §4.2): the alert radius is
+ * 200 km wide, so a sub-kilometre move cannot change which alerts reach this user.
  */
 internal const val MIN_MOVE_KM = 1.0
 
@@ -267,7 +215,6 @@ internal fun planSync(
     stored: UserLocation?,
     fix: Coordinates,
     force: Boolean,
-    radiusChanged: Boolean = false,
     minMoveKm: Double = MIN_MOVE_KM
 ): SyncPlan {
     val movedKm = stored?.let {
@@ -275,12 +222,6 @@ internal fun planSync(
     }
     val nearby = movedKm != null && movedKm < minMoveKm
     // A forced sync uploads regardless: the user pressed a button and expects a
-    // round trip. An unforced one uploads unless the server already holds this spot
-    // *and* already knows the radius — an unsynced radius is a reason to upload on
-    // its own, since the position alone no longer carries everything the server
-    // needs to aim this device's alerts.
-    return SyncPlan(
-        upload = force || stored == null || !nearby || radiusChanged,
-        reuseStoredLabel = nearby
-    )
+    // round trip. An unforced one uploads unless the server already holds this spot.
+    return SyncPlan(upload = force || stored == null || !nearby, reuseStoredLabel = nearby)
 }

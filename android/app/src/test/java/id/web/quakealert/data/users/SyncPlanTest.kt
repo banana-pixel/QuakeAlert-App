@@ -13,6 +13,10 @@ import org.junit.Test
  * is visible when wrong: uploading too eagerly spends a request per launch, and
  * uploading too rarely leaves the server holding a position the user has left,
  * which silently mis-aims every alert gate and radius filter downstream.
+ *
+ * The coordinates are the whole payload now: the alert radius is fixed by
+ * [id.web.quakealert.domain.SafetyPolicy], so there is no longer a second reason
+ * to upload.
  */
 class SyncPlanTest {
 
@@ -63,16 +67,6 @@ class SyncPlanTest {
         assertTrue(plan.upload)
         // Still the same spot, so the stored label remains valid as a geocode fallback.
         assertTrue(plan.reuseStoredLabel)
-    }
-
-    @Test
-    fun `an unsynced coverage radius uploads even when the device has not moved`() {
-        val plan = planSync(stored = bandung, fix = jitterFix, force = false, radiusChanged = true)
-
-        // The slider is moved at a desk, so the 1 km shortcut would otherwise hold
-        // the new radius back indefinitely — and the server aims alerts by it.
-        assertTrue(plan.upload)
-        assertTrue("still the same spot, so the label is still valid", plan.reuseStoredLabel)
     }
 
     @Test

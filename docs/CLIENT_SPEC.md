@@ -178,7 +178,9 @@ Payload inti (contoh):
 
 ### 5.3 Aturan life-safety untuk alert masuk (Android)
 
-1. **Jangan percayai lokasi server saja** — jalankan **Haversine gating** lokal sebelum alarm: hitung `d(centroid, lokasi user)` dan hanya aktifkan alarm jika `d ≤ coverage_radius_km` (R = 6371.0 km).
+1. **Jangan percayai lokasi server saja** — jalankan **Haversine gating** lokal sebelum alarm: hitung `d(centroid, lokasi user)` dan hanya aktifkan alarm jika `d ≤ 200 km` (`SafetyPolicy.ALERT_RADIUS_KM`, R = 6371.0 km). Radiusnya **tetap**, bukan pilihan pengguna, dan nilainya sama dengan `dispatch.AlertRadiusKm` di server.
+   - **Override intensitas:** gempa dengan **MMI ≥ VII atau PGA ≥ 250 gal** membunyikan alarm **tanpa memeriksa jarak**. Server pun menyiarkannya ke topic tanpa filter jarak, jadi kedua sisi sepakat tanpa flag di payload.
+   - Posisi tidak diketahui = **fail open** (alarm tetap berbunyi): satu notifikasi berlebih lebih baik daripada satu perangkat yang dibungkam.
 2. **FCM data-only** (`FirebaseMessagingService`) + `EmergencyMessagingService` agar dipanggil saat app di background/killed.
 3. Prioritaskan kanal yang tersedia: FCM (background) ↔ WS (foreground); dedup via `event_id`.
 

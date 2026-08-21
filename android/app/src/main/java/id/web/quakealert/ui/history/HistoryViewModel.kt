@@ -9,6 +9,7 @@ import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.data.network.QuakeApiClient
 import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.mapper.toHistoryItems
+import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.common.QuakeFilter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,10 +46,9 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
 
     val uiState: StateFlow<HistoryUiState> = combine(
         repository.unitSystem,
-        repository.coverageRadiusKm,
         _uiState
-    ) { unit, radiusKm, state ->
-        state.copy(unitSystem = unit, nearRadiusKm = radiusKm)
+    ) { unit, state ->
+        state.copy(unitSystem = unit)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -57,22 +57,6 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         load()
-        observeRadius()
-    }
-
-    /**
-     * Re-runs the feed when the coverage radius changes in Settings — but only while
-     * the "Near" filter is active, since that is the only mode the radius alters.
-     *
-     * `drop(1)` skips the value the flow replays on collection: [load] in `init` has
-     * already fetched with it.
-     */
-    private fun observeRadius() {
-        viewModelScope.launch {
-            repository.coverageRadiusKm.drop(1).collect {
-                if (_uiState.value.selectedFilter == QuakeFilter.NEAR) load()
-            }
-        }
     }
 
     /**
@@ -170,7 +154,7 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
         return apiClient.fetchEvents(
             limit = PAGE_SIZE,
             offset = offset,
-            rangeKm = if (near) repository.readCoverageRadiusKm() else null,
+            rangeKm = if (near) SafetyPolicy.HISTORY_NEAR_RADIUS_KM else null,
             center = userLocation.takeIf { near }
         ).getOrThrow().toHistoryItems(userLocation)
     }

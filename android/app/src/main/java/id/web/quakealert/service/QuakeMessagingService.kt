@@ -93,7 +93,8 @@ class QuakeMessagingService : FirebaseMessagingService() {
                 userLocation = network.sessionStore.readUserLocation(),
                 centroidLat = message.centroidLat,
                 centroidLon = message.centroidLon,
-                coverageRadiusKm = settings.readCoverageRadiusKm()
+                mmi = message.mmi,
+                pgaGal = message.pgaGal
             )
 
             if (!decision.shouldAlarm) {
