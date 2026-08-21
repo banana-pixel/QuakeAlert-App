@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.warning
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.web.quakealert.data.AppSettingsRepository
@@ -21,6 +22,7 @@ import id.web.quakealert.domain.UserLocation
 import id.web.quakealert.domain.WsAlertMessage
 import id.web.quakealert.domain.distanceKmTo
 import id.web.quakealert.service.WarningNotifier
+import id.web.quakealert.ui.common.errorCopy
 import id.web.quakealert.ui.history.QuakeHistoryItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -143,7 +145,7 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             _uiState.update { state ->
                 if (state is WarningUiState.Idle) {
-                    state.copy(isLoading = true, isError = false, errorMessage = null)
+                    state.copy(isLoading = true, isError = false, errorCopy = null)
                 } else {
                     state
                 }
@@ -181,12 +183,17 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
                 // coroutine machinery sees it and the screen keeps its last state.
                 throw cancellation
             } catch (throwable: Throwable) {
+                // Logged rather than shown: the raw cause never reaches the screen,
+                // so this is the only place it survives for a bug report.
+                Log.w(TAG, "could not load the alert feed", throwable)
                 _uiState.update { state ->
                     if (state is WarningUiState.Idle) {
                         state.copy(
                             isLoading = false,
                             isError = true,
-                            errorMessage = throwable.message ?: LOAD_ERROR_MESSAGE
+                            // No filter reaches this feed, so a rejected request has
+                            // nothing here for the user to relax.
+                            errorCopy = errorCopy(throwable)
                         )
                     } else {
                         state
@@ -387,7 +394,7 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
                         tips = snapshot.tips,
                         isLoading = false,
                         isError = false,
-                        errorMessage = null
+                        errorCopy = null
                     )
                 } else {
                     state
@@ -632,9 +639,7 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
     )
 
     private companion object {
-        /** Fallback copy when a load failure carries no message of its own. */
-        const val LOAD_ERROR_MESSAGE =
-            "Could not reach the alert network. Check your connection and try again."
+        const val TAG = "WarningViewModel"
 
         /** Copy for the idle banner variants, matching the design (Figma 124:1297 / 124:1426). */
         const val TITLE_ACTIVE = "Recent Earthquake Alert"

@@ -5,6 +5,7 @@ import androidx.compose.runtime.Immutable
 import id.web.quakealert.R
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.domain.SafetyPolicy
+import id.web.quakealert.ui.common.ErrorCopy
 import id.web.quakealert.ui.history.QuakeHistoryItem
 
 /**
@@ -270,12 +271,13 @@ sealed interface WarningUiState {
      * coherent: a recent quake pairs the crimson banner with aftershock tips, and
      * a quiet network pairs the possibility banner with preparedness tips.
      *
-     * [isLoading], [isError] and [errorMessage] form the body's state machine: the
+     * [isLoading], [isError] and [errorCopy] form the body's state machine: the
      * tips region renders exactly one of loading / error / empty / content.
      *
      * @param isLoading true while the alert feed is in flight.
-     * @param isError true when the last load failed; pairs with [errorMessage].
-     * @param errorMessage failure copy shown by
+     * @param isError true when the last load failed; pairs with [errorCopy].
+     * @param errorCopy classified failure copy from
+     *   [id.web.quakealert.ui.common.errorCopy], rendered by
      *   [id.web.quakealert.ui.common.QuakeErrorState], or null when there is no error.
      * @param banner the summary [WarningBanner] variant.
      * @param sectionTitle headline above the tip list, driven by the banner state.
@@ -294,7 +296,7 @@ sealed interface WarningUiState {
     data class Idle(
         val isLoading: Boolean = false,
         val isError: Boolean = false,
-        val errorMessage: String? = null,
+        val errorCopy: ErrorCopy? = null,
         val banner: WarningBanner = SeismicActivityBanner(
             title = "No Recent Earthquake",
             // The pre-load read, and deliberately not a number: until the query

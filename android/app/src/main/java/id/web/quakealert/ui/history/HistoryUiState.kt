@@ -3,6 +3,7 @@ package id.web.quakealert.ui.history
 import androidx.compose.runtime.Immutable
 import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.UnitSystem
+import id.web.quakealert.ui.common.ErrorCopy
 import id.web.quakealert.ui.common.QuakeFilterState
 
 /**
@@ -100,14 +101,15 @@ fun QuakeHistoryItem.toShareText(unitSystem: UnitSystem): String = buildString {
  * consumed by the stateless [HistoryScreen]. The filter is the shared
  * [QuakeFilterState] common to History and Sensors.
  *
- * [isLoading], [isError] and [errorMessage] form the screen's state machine: the
+ * [isLoading], [isError] and [errorCopy] form the screen's state machine: the
  * body renders exactly one of loading / error / empty / content. The header's
  * network badge is not derived here — it reads the global
  * [id.web.quakealert.domain.ServerConnectionState] so every tab agrees about it.
  *
  * @param isLoading true while the history feed is in flight.
- * @param isError true when the last load failed; pairs with [errorMessage].
- * @param errorMessage failure copy shown by
+ * @param isError true when the last load failed; pairs with [errorCopy].
+ * @param errorCopy classified failure copy from
+ *   [id.web.quakealert.ui.common.errorCopy], rendered by
  *   [id.web.quakealert.ui.common.QuakeErrorState], or null when there is no error.
  * @param unitSystem distance unit system (Metric / Imperial), persisted via
  *   [id.web.quakealert.data.AppSettingsRepository] and shared with the Sensors
@@ -135,7 +137,7 @@ data class HistoryUiState(
 
     val isLoading: Boolean = false,
     val isError: Boolean = false,
-    val errorMessage: String? = null,
+    val errorCopy: ErrorCopy? = null,
     val filter: QuakeFilterState = QuakeFilterState(),
     val unitSystem: UnitSystem = UnitSystem.METRIC,
     val items: List<QuakeHistoryItem> = emptyList(),

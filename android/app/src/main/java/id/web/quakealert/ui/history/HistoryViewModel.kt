@@ -9,8 +9,10 @@ import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.data.network.QuakeApiClient
 import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.mapper.toHistoryItems
+import id.web.quakealert.ui.common.FilterSection
 import id.web.quakealert.ui.common.QuakeFilter
 import id.web.quakealert.ui.common.QuakeFilterState
+import id.web.quakealert.ui.common.errorCopy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -95,7 +97,7 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
                     isLoading = !isRefresh,
                     isRefreshing = isRefresh,
                     isError = false,
-                    errorMessage = null
+                    errorCopy = null
                 )
             }
             try {
@@ -117,16 +119,19 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
                 // screen is for having nothing to show, and after a pull there is
                 // still a list. Only a refresh over an empty list surfaces it.
                 val hadContent = isRefresh && _uiState.value.items.isNotEmpty()
-                if (hadContent) Log.w(TAG, "could not refresh history", throwable)
+                // Logged whether or not it is shown: the raw cause never reaches the
+                // screen, so this is the only place it survives for a bug report.
+                Log.w(TAG, "could not load history", throwable)
+                val narrowed = _uiState.value.filter.isNarrowed(FilterSection.HISTORY)
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         isRefreshing = false,
                         isError = !hadContent,
-                        errorMessage = if (hadContent) {
+                        errorCopy = if (hadContent) {
                             null
                         } else {
-                            throwable.message ?: LOAD_ERROR_MESSAGE
+                            errorCopy(throwable, isNarrowed = narrowed)
                         }
                     )
                 }
@@ -241,10 +246,6 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
 
     private companion object {
         const val TAG = "HistoryViewModel"
-
-        /** Fallback copy when a load failure carries no message of its own. */
-        const val LOAD_ERROR_MESSAGE =
-            "Could not load earthquake history. Check your connection and try again."
 
         /**
          * Page size for the feed. The contract caps `limit` at 100; 20 is the

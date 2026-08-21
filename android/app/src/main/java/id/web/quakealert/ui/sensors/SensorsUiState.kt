@@ -2,6 +2,7 @@ package id.web.quakealert.ui.sensors
 
 import androidx.compose.runtime.Immutable
 import id.web.quakealert.data.UnitSystem
+import id.web.quakealert.ui.common.ErrorCopy
 import id.web.quakealert.ui.common.QuakeFilterState
 
 /**
@@ -115,7 +116,7 @@ data class SensorMapOverview(
  * [SensorsViewModel] and consumed by the stateless [SensorsScreen]. The filter
  * uses the shared [QuakeFilterState] common to History and Sensors.
  *
- * [isLoading], [isError] and [errorMessage] form the screen's state machine: the
+ * [isLoading], [isError] and [errorCopy] form the screen's state machine: the
  * station list region renders exactly one of loading / error / empty / content.
  *
  * The header's network badge is deliberately *not* derived here: it reads the global
@@ -129,8 +130,9 @@ data class SensorMapOverview(
  * @param isRefreshing true while a pull-to-refresh is in flight. Its own flag
  *   rather than a reuse of [isLoading]: the roll the user pulled stays on screen
  *   under the indicator instead of being replaced.
- * @param isError true when the last load failed; pairs with [errorMessage].
- * @param errorMessage failure copy shown by
+ * @param isError true when the last load failed; pairs with [errorCopy].
+ * @param errorCopy classified failure copy from
+ *   [id.web.quakealert.ui.common.errorCopy], rendered by
  *   [id.web.quakealert.ui.common.QuakeErrorState], or null when there is no error.
  */
 @Immutable
@@ -138,7 +140,7 @@ data class SensorsUiState(
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val isError: Boolean = false,
-    val errorMessage: String? = null,
+    val errorCopy: ErrorCopy? = null,
     // Empty rather than a sample station: the roll is genuinely unknown until
     // `GET /sensors` answers, and a placeholder count would claim coverage the
     // user may not have (the endpoint returns nothing without a stored position).

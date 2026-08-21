@@ -35,8 +35,15 @@ sealed interface LocationSyncResult {
     /** Permission is granted but no provider produced a fix in time. */
     data object NoFix : LocationSyncResult
 
-    /** The upload itself failed; [message] is already user-facing. */
-    data class Failed(val message: String) : LocationSyncResult
+    /**
+     * The upload itself failed, carrying the raw [cause] rather than a sentence.
+     *
+     * Copy is not this layer's job, and the string it used to carry was the server's
+     * own operator text: `error.message` reaches the user in Indonesian, or as a
+     * socket state. The UI layer classifies it instead, via
+     * [id.web.quakealert.ui.common.errorCopy].
+     */
+    data class Failed(val cause: Throwable) : LocationSyncResult
 }
 
 /**
@@ -142,7 +149,7 @@ class UserLocationRepository(
         },
         onFailure = { error ->
             Log.w(TAG, "location sync failed", error)
-            LocationSyncResult.Failed(error.message ?: "Could not update your location")
+            LocationSyncResult.Failed(error)
         }
     )
 
@@ -166,7 +173,7 @@ class UserLocationRepository(
      *
      * A position is the most sensitive thing this app holds, and `Log.i` survives
      * into release builds and bug reports — so the diagnosis stays (which of the
-     * five outcomes, and any server-supplied failure text) while the fix itself
+     * five outcomes, and the failure's own type) while the fix itself
      * does not. Whether a fix was obtained is already evident from the outcome.
      */
     private fun LocationSyncResult.logLabel(): String = when (this) {
@@ -174,7 +181,7 @@ class UserLocationRepository(
         is LocationSyncResult.Unchanged -> "Unchanged(position redacted)"
         LocationSyncResult.PermissionDenied -> "PermissionDenied"
         LocationSyncResult.NoFix -> "NoFix"
-        is LocationSyncResult.Failed -> "Failed($message)"
+        is LocationSyncResult.Failed -> "Failed(${cause.javaClass.simpleName})"
     }
 
     private companion object {

@@ -32,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.ui.common.QuakeAppBar
+import id.web.quakealert.ui.common.GenericErrorCopy
 import id.web.quakealert.ui.common.QuakeErrorState
 import id.web.quakealert.ui.common.QuakeEventDetailModalDialog
 import id.web.quakealert.ui.common.QuakeFilter
@@ -229,9 +230,13 @@ fun HistoryScreen(
                 )
 
                 uiState.isError -> QuakeErrorState(
-                    message = uiState.errorMessage ?: GENERIC_ERROR_MESSAGE,
+                    copy = uiState.errorCopy ?: GenericErrorCopy,
                     onRetry = onRetry,
-                    modifier = bodyModifier
+                    modifier = bodyModifier,
+                    // Offered only for a rejected query, and only by the copy: a
+                    // filter the server refused is the one failure the user can
+                    // resolve themselves.
+                    onResetFilters = onFiltersReset
                 )
 
                 // An empty feed under a filter is a different statement from an
@@ -316,10 +321,6 @@ private const val LOAD_MORE_THRESHOLD = 3
  */
 private const val LOADING_MESSAGE = "Loading earthquake history..."
 
-/** Fallback shown when a failed load carried no message of its own. */
-private const val GENERIC_ERROR_MESSAGE =
-    "Could not load earthquake history. Check your connection and try again."
-
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
 private fun HistoryScreenPreview() {
@@ -390,7 +391,7 @@ private fun HistoryScreenErrorPreview() {
         HistoryScreen(
             uiState = HistoryUiState(
                 isError = true,
-                errorMessage = "Could not load earthquake history. Check your connection and try again."
+                errorCopy = GenericErrorCopy
             ),
             onModeSelected = {},
             onShareClicked = {},

@@ -18,6 +18,7 @@ import id.web.quakealert.data.network.mapper.QuakeFormat
 import id.web.quakealert.data.users.LocationSyncResult
 import id.web.quakealert.device.hasLocationPermission
 import id.web.quakealert.domain.SafetyPolicy
+import id.web.quakealert.ui.common.errorCopy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -202,9 +203,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 onSuccess = { pseudonym -> "You are now $pseudonym" },
                 onFailure = { error ->
                     if ((error as? ApiException)?.httpCode == HTTP_TOO_MANY_REQUESTS) {
-                        "You can change your pseudonym once a minute — try again shortly"
+                        "You can change your pseudonym once a minute. Try again shortly."
                     } else {
-                        error.message ?: "Could not change your pseudonym"
+                        failureMessage("Could not change your pseudonym", error)
                     }
                 }
             )
@@ -244,12 +245,24 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 onSuccess = { "New anonymous profile created" },
                 onFailure = { error ->
                     Log.w(TAG, "profile reset failed", error)
-                    error.message ?: "Could not create a new profile"
+                    failureMessage("Could not create a new profile", error)
                 }
             )
             _uiState.update { it.copy(isResetting = false, statusMessage = message) }
         }
     }
+
+    /**
+     * Floating-message copy for a failed action: what the user asked for, then why it
+     * did not happen, from the shared [errorCopy] classification.
+     *
+     * Two short clauses rather than the mapper's full card copy, because this is a
+     * message floating over a screen the user is still using. What it replaces was
+     * never copy at all: `error.message` is the server's operator text, in
+     * Indonesian, or a socket state from OkHttp.
+     */
+    private fun failureMessage(action: String, error: Throwable): String =
+        "$action: ${errorCopy(error).title.replaceFirstChar { it.lowercase() }}"
 
     /** Clears the status pill once the user has had a chance to read it. */
     fun onStatusMessageShown() {
@@ -278,7 +291,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         is LocationSyncResult.Unchanged -> "Location unchanged — you have not moved"
         LocationSyncResult.PermissionDenied -> "Location permission is needed to sync"
         LocationSyncResult.NoFix -> "Could not get a location fix — try again outdoors"
-        is LocationSyncResult.Failed -> message
+        is LocationSyncResult.Failed -> failureMessage("Could not update your location", cause)
     }
 
     private companion object {

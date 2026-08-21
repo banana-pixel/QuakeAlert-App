@@ -10,7 +10,9 @@ import id.web.quakealert.data.network.QuakeApiClient
 import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.mapper.toStationItems
 import id.web.quakealert.domain.SafetyPolicy
+import id.web.quakealert.ui.common.FilterSection
 import id.web.quakealert.ui.common.QuakeFilterState
+import id.web.quakealert.ui.common.errorCopy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -112,7 +114,7 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                     isLoading = !isRefresh,
                     isRefreshing = isRefresh,
                     isError = false,
-                    errorMessage = null
+                    errorCopy = null
                 )
             }
             try {
@@ -155,16 +157,19 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                 // screen is for having nothing to show, and after a pull there is
                 // still a list. Only a refresh over an empty roll surfaces it.
                 val hadContent = isRefresh && _uiState.value.sensors.isNotEmpty()
-                if (hadContent) Log.w(TAG, "could not refresh the sensor roll", throwable)
+                // Logged whether or not it is shown: the raw cause never reaches the
+                // screen, so this is the only place it survives for a bug report.
+                Log.w(TAG, "could not load the sensor roll", throwable)
+                val narrowed = _uiState.value.filter.isNarrowed(FilterSection.SENSORS)
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         isRefreshing = false,
                         isError = !hadContent,
-                        errorMessage = if (hadContent) {
+                        errorCopy = if (hadContent) {
                             null
                         } else {
-                            throwable.message ?: LOAD_ERROR_MESSAGE
+                            errorCopy(throwable, isNarrowed = narrowed)
                         }
                     )
                 }
@@ -249,9 +254,5 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
         const val MAP_RANGE_CEILING_KM = QuakeApiClient.MAX_SENSOR_RANGE_KM
         const val MIN_GEOFENCE_FRACTION = 0.35f
         const val MAX_GEOFENCE_FRACTION = 0.95f
-
-        /** Fallback copy when a load failure carries no message of its own. */
-        const val LOAD_ERROR_MESSAGE =
-            "Could not reach the sensor network. Check your connection and try again."
     }
 }

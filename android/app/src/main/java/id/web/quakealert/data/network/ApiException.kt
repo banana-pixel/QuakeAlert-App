@@ -8,9 +8,10 @@ import java.io.IOException
  * when one was present.
  *
  * Extends [IOException] so it travels the same path as transport failures through
- * the existing ViewModel `try`/`catch` state machines, and its [message] is the
- * server's own copy — the History and Sensors screens surface `throwable.message`
- * directly in their error state.
+ * the existing ViewModel `try`/`catch` state machines. Its [message] is the server's
+ * own copy and is for logs only: it is operator text, written in Indonesian, so the
+ * UI classifies the failure by kind through
+ * [id.web.quakealert.ui.common.errorCopy] instead of printing it.
  *
  * @param code machine code from the body (INVALID_ARGUMENT, UNAUTHENTICATED,
  *   RATE_LIMITED, INTERNAL, …), or null when the body was empty or unparseable.

@@ -150,26 +150,43 @@ fun QuakeEmptyState(
  * and a severe quake look like the same class of event. The triangle alone is
  * enough to tell a failure from an empty result.
  *
- * @param message the failure copy (a ViewModel's `errorMessage`, or a generic
- *   fallback the caller supplies).
- * @param onRetry invoked by "Retry"; wire this to the owning ViewModel's retry
- *   hook so the state machine re-enters its loading branch.
+ * The title, the sentence and the offer all come from [copy], so what the card says
+ * is decided once by [errorCopy] rather than per screen: the same dropped connection
+ * cannot read as "You are offline" on one tab and as a raw socket message on another.
+ *
+ * @param copy the classified failure, from [errorCopy].
+ * @param onRetry invoked by "Retry"; wire this to the owning ViewModel's retry hook
+ *   so the state machine re-enters its loading branch. Not offered for a failure
+ *   retrying cannot fix.
+ * @param onResetFilters clears the filter, offered when the server rejected the
+ *   query and a filter is what made it unacceptable. Without it that failure simply
+ *   states itself, which is the honest outcome.
  */
 @Composable
 fun QuakeErrorState(
-    message: String,
+    copy: ErrorCopy,
     onRetry: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onResetFilters: (() -> Unit)? = null
 ) {
     StateBlock(
         icon = R.drawable.ic_alert_triangle_state,
         iconTint = TextPrimary,
-        message = "Something Went Wrong",
-        subtitle = message,
-        modifier = modifier
-    ) {
-        StateAction(label = "Retry", onClick = onRetry)
-    }
+        message = copy.title,
+        subtitle = copy.message,
+        modifier = modifier,
+        action = when (copy.action) {
+            ErrorAction.RETRY -> {
+                { StateAction(label = "Retry", onClick = onRetry) }
+            }
+
+            ErrorAction.RESET_FILTERS -> onResetFilters?.let { reset ->
+                { StateAction(label = "Reset Filters", onClick = reset) }
+            }
+
+            ErrorAction.NONE -> null
+        }
+    )
 }
 
 /**
@@ -417,7 +434,7 @@ private fun QuakeNoCoverageStatePreview() {
 private fun QuakeErrorStatePreview() {
     QuakeAlertTheme {
         QuakeErrorState(
-            message = "Could not reach the QuakeAlert network. Check your connection and try again.",
+            copy = errorCopy(java.net.UnknownHostException("preview")),
             onRetry = {}
         )
     }

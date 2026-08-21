@@ -25,6 +25,7 @@ import id.web.quakealert.R
 import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeEmptyState
+import id.web.quakealert.ui.common.GenericErrorCopy
 import id.web.quakealert.ui.common.QuakeErrorState
 import id.web.quakealert.ui.common.QuakeEventDetailModalDialog
 import id.web.quakealert.ui.common.QuakeLoadingState
@@ -242,7 +243,7 @@ private fun ColumnScope.IdleBody(
         // Suppressed during the first load, where the spinner is already saying
         // "we are asking" and a notice would only pre-announce a failure.
         uiState.isLoading -> null
-        uiState.isError -> uiState.errorMessage ?: GENERIC_ERROR_MESSAGE
+        uiState.isError -> (uiState.errorCopy ?: GenericErrorCopy).message
         connectionState == ServerConnectionState.DISCONNECTED -> OFFLINE_MESSAGE
         else -> null
     }
@@ -310,7 +311,7 @@ private fun ColumnScope.IdleBody(
         // full-body cards belong: the error variant when the failure is why the list
         // is empty, the empty variant when the list simply came back empty.
         uiState.isError -> QuakeErrorState(
-            message = uiState.errorMessage ?: GENERIC_ERROR_MESSAGE,
+            copy = uiState.errorCopy ?: GenericErrorCopy,
             onRetry = onRetry,
             modifier = bodyModifier
         )
@@ -328,10 +329,6 @@ private fun ColumnScope.IdleBody(
         modifier = Modifier.padding(bottom = Dimens.WarningListBottomPadding)
     )
 }
-
-/** Fallback shown when a failed load carried no message of its own. */
-private const val GENERIC_ERROR_MESSAGE =
-    "Could not reach the alert network. Check your connection and try again."
 
 /**
  * Shown while the backend link is down but nothing has failed outright. Names what
@@ -391,7 +388,7 @@ private fun WarningScreenErrorPreview() {
     PreviewWarningScreen(
         WarningUiState.Idle(
             isError = true,
-            errorMessage = "Could not reach the alert network. Check your connection and try again."
+            errorCopy = GenericErrorCopy
         )
     )
 }

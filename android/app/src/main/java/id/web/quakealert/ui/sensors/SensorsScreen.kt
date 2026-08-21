@@ -24,6 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.ui.common.QuakeAppBar
+import id.web.quakealert.ui.common.GenericErrorCopy
 import id.web.quakealert.ui.common.QuakeErrorState
 import id.web.quakealert.ui.common.QuakeFilter
 import id.web.quakealert.ui.common.FilterSection
@@ -182,9 +183,13 @@ fun SensorsScreen(
                 )
 
                 uiState.isError -> QuakeErrorState(
-                    message = uiState.errorMessage ?: GENERIC_ERROR_MESSAGE,
+                    copy = uiState.errorCopy ?: GenericErrorCopy,
                     onRetry = onRetry,
-                    modifier = bodyModifier
+                    modifier = bodyModifier,
+                    // Offered only for a rejected query, and only by the copy: a
+                    // filter the server refused is the one failure the user can
+                    // resolve themselves.
+                    onResetFilters = onFiltersReset
                 )
 
                 // An empty *slice* of a non-empty roll is a different fact from an
@@ -240,10 +245,6 @@ fun SensorsScreen(
  * show is spoken instead.
  */
 private const val LOADING_MESSAGE = "Scanning the sensor network..."
-
-/** Fallback shown when a failed load carried no message of its own. */
-private const val GENERIC_ERROR_MESSAGE =
-    "Could not reach the sensor network. Check your connection and try again."
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
@@ -318,7 +319,7 @@ private fun SensorsScreenErrorPreview() {
         SensorsScreen(
             uiState = SensorsUiState(
                 isError = true,
-                errorMessage = "Could not reach the sensor network. Check your connection and try again."
+                errorCopy = GenericErrorCopy
             ),
             onModeSelected = {},
             onSensorClicked = {},
