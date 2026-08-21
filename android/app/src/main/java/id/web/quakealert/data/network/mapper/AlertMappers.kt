@@ -67,7 +67,9 @@ fun WsAlertMessage.toHistoryItem(
         relativeTime = QuakeFormat.relativeTime(occurredAt, now),
         pgaLabel = QuakeFormat.pga(pgaGal),
         durationLabel = QuakeFormat.UNAVAILABLE,
-        coordinates = QuakeFormat.coordinates(centroidLat, centroidLon)
+        coordinates = QuakeFormat.coordinates(centroidLat, centroidLon),
+        latitude = centroidLat,
+        longitude = centroidLon
     )
 }
 

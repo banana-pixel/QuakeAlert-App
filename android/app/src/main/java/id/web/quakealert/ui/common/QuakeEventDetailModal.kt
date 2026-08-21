@@ -51,7 +51,6 @@ import id.web.quakealert.ui.theme.EventDetailPulseInnerAlpha
 import id.web.quakealert.ui.theme.EventDetailPulseMidAlpha
 import id.web.quakealert.ui.theme.EventDetailPulseOuterAlpha
 import id.web.quakealert.ui.theme.EventDetailShareFill
-import id.web.quakealert.ui.theme.MapPlaceholder
 import id.web.quakealert.ui.theme.MetricLabel
 import id.web.quakealert.ui.theme.MetricPanelFill
 import id.web.quakealert.ui.theme.MetricValue
@@ -162,7 +161,14 @@ fun QuakeEventDetailModal(
             badgeContainer = badgeContainer
         )
 
-        EventDetailMap(accent = accent)
+        EventDetailMap(
+            accent = accent,
+            focus = MapFocus(
+                latitude = event.latitude,
+                longitude = event.longitude,
+                zoom = MapFocus.ZOOM_EVENT
+            )
+        )
 
         SeismicMetricsRow(event = event)
 
@@ -267,29 +273,38 @@ private val PulseRings = listOf(
  * Map thumbnail (Figma node 123:1028): a 120dp-tall rounded card carrying the
  * shared white-10% stroke.
  *
- * Figma ships a rendered map raster here. Pending the map SDK — the same deferral
- * [id.web.quakealert.ui.sensors.SensorMapCard] makes — the grey [MapPlaceholder]
- * surface stands in at the exact geometry, and the epicentre is drawn over it as
- * three concentric pulse rings in the event's own MMI accent plus a solid centroid
- * dot. Drawn in a single `drawBehind` pass rather than as nested composables so
- * the whole focus costs one draw node.
+ * Figma ships a rendered map raster here; [QuakeMap] supplies the real basemap,
+ * pointed at the event's own centroid. The epicentre is still drawn on top as three
+ * concentric pulse rings in the event's MMI accent plus a solid centroid dot, in a
+ * single `drawBehind` pass rather than as nested composables so the whole focus
+ * costs one draw node.
+ *
+ * The rings sit at the card's centre, which is the centroid because [QuakeMap]
+ * locks the camera there — see its constraint 2. That also means the focus survives
+ * a card opened with no network: the rings and the distance read stay, only the
+ * terrain behind them is missing.
  */
 @Composable
-private fun EventDetailMap(accent: Color, modifier: Modifier = Modifier) {
+private fun EventDetailMap(
+    accent: Color,
+    focus: MapFocus,
+    modifier: Modifier = Modifier
+) {
     val shape = remember { RoundedCornerShape(Dimens.RadiusCard) }
 
-    Box(
+    QuakeMap(
+        focus = focus,
+        attributionAlignment = Alignment.BottomStart,
         modifier = modifier
             .fillMaxWidth()
             .height(Dimens.EventDetailMapHeight)
             .clip(shape)
-            .background(MapPlaceholder, shape)
             .border(Dimens.BorderThin, CardBorder, shape)
-            .padding(Dimens.EventDetailMapPadding)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(Dimens.EventDetailMapPadding)
                 .drawBehind {
                     val center = Offset(x = size.width / 2f, y = size.height / 2f)
                     val maxRadius = minOf(size.width, size.height) / 2f
@@ -507,7 +522,9 @@ private val PreviewEvent = QuakeHistoryItem(
     relativeTime = "2 months ago",
     pgaLabel = "61.5 gal",
     durationLabel = "7 sec",
-    coordinates = "41.40338, 2.17403"
+    coordinates = "41.40338, 2.17403",
+    latitude = 41.40338,
+    longitude = 2.17403
 )
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)

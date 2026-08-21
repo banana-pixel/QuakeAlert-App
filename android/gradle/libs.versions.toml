@@ -15,6 +15,7 @@ playServicesLocation = "21.3.0"
 kotlinxCoroutines = "1.10.2"
 firebaseBom = "33.7.0"
 googleServices = "4.4.2"
+maplibre = "13.5.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -51,6 +52,11 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 # entry point degrades to WebSocket-only when it does not (docs/FIREBASE_SETUP.md).
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
+
+# Basemap rendering. MapLibre Native is the fork of the last open-source Mapbox GL
+# release: vector tiles, no access token, no per-view billing, so the app can ship a
+# map without a commercial key in the APK.
+maplibre-android-sdk = { group = "org.maplibre.gl", name = "android-sdk", version.ref = "maplibre" }
 
 
 [plugins]

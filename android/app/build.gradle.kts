@@ -88,6 +88,9 @@ dependencies {
     implementation(libs.firebase.messaging)
     implementation(libs.kotlinx.coroutines.play.services)
 
+    // Basemap for the Warning, Sensors and Event Detail map cards.
+    implementation(libs.maplibre.android.sdk)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)

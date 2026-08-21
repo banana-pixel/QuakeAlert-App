@@ -4,7 +4,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -24,22 +22,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import id.web.quakealert.R
 import id.web.quakealert.data.UnitSystem
+import id.web.quakealert.ui.common.MapFocus
+import id.web.quakealert.ui.common.QuakeMap
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.GeofenceFill
 import id.web.quakealert.ui.theme.GeofenceStroke
 import id.web.quakealert.ui.theme.MapLocationPillFill
-import id.web.quakealert.ui.theme.MapPlaceholder
 import id.web.quakealert.ui.theme.MapRangeBadgeFill
-import id.web.quakealert.ui.theme.MapSettingsShortcutBorder
-import id.web.quakealert.ui.theme.MapSettingsShortcutFill
 import id.web.quakealert.ui.theme.TextPrimary
 
 
@@ -51,26 +48,35 @@ import id.web.quakealert.ui.theme.TextPrimary
  *  - a bottom-left "Range : ... , N sensors" summary badge,
  *  - a reactive coverage geofence circle whose radius scales with
  *    [SensorMapOverview.geofenceFraction] (0f..1f of the card's minimum side),
- *  - an optional bottom-right circular settings shortcut.
+ *  - and nothing else. The bottom-right settings shortcut is gone: the Settings
+ *    screen now carries this same map inside its "Sync Location Now" card, so a
+ *    button whose only job was to send the user there was pointing at a screen that
+ *    shows the very card it sat on.
  *
- * The only difference between the two screens is the settings shortcut: the
- * Sensors screen passes [onSettingsShortcut] to reveal it, while Settings leaves
- * it null (there is no settings button on the Settings map). The geofence radius
- * change is animated for a smooth transition between coverage steps.
+ * The geofence radius change is animated for a smooth transition between coverage
+ * steps.
  *
- * The real map SDK is deferred; the grey [MapPlaceholder] surface stands in for
- * the rendered map while preserving exact layout and overlay positioning.
+ * The basemap itself comes from [QuakeMap], centred on the device position carried
+ * by [overview]; every overlay above stays plain Compose so it keeps the design
+ * system's tokens. When no position has ever been synced there is nothing to centre
+ * on, so the card falls back to [QuakeMap]'s dark ground and the location pill's
+ * own "not set" copy carries the news.
  *
- * @param onSettingsShortcut when non-null renders the bottom-right settings
- *   shortcut (Sensors screen). Settings passes null to hide it.
  * @param unitSystem drives the "Range : ..." summary badge unit ("km" / "mi").
+ * @param showGeofence paints the coverage circle. False inside the Settings
+ *   "Sync Location Now" card, where the map is a 130dp confirmation of *where* the
+ *   fix landed and the circle — drawn from the card's shorter side — would fill it
+ *   edge to edge and say nothing about coverage.
+ * @param height the card's height. Defaults to the Sensors screen's full preview;
+ *   the inline Settings map passes [Dimens.MapCardInlineHeight].
  */
 @Composable
 fun SensorMapCard(
     overview: SensorMapOverview,
     modifier: Modifier = Modifier,
     unitSystem: UnitSystem = UnitSystem.METRIC,
-    onSettingsShortcut: (() -> Unit)? = null
+    showGeofence: Boolean = true,
+    height: Dp = Dimens.MapCardHeight
 ) {
     val cardShape = remember { RoundedCornerShape(Dimens.RadiusCard) }
     val animatedFraction by animateFloatAsState(
@@ -78,18 +84,31 @@ fun SensorMapCard(
         animationSpec = tween(durationMillis = 300),
         label = "GeofenceFraction"
     )
+    val focus = remember(overview.latitude, overview.longitude) {
+        val latitude = overview.latitude
+        val longitude = overview.longitude
+        if (latitude != null && longitude != null) {
+            MapFocus(latitude = latitude, longitude = longitude, zoom = MapFocus.ZOOM_COVERAGE)
+        } else {
+            null
+        }
+    }
 
-    Box(
+    QuakeMap(
+        focus = focus,
+        // Bottom-end belongs to the settings shortcut on the Sensors screen, and
+        // bottom-start to the range badge on both, so the credit takes the one
+        // corner no overlay claims.
+        attributionAlignment = Alignment.TopEnd,
         modifier = modifier
             .fillMaxWidth()
-            .height(Dimens.MapCardHeight)
+            .height(height)
             .clip(cardShape)
-            .background(MapPlaceholder, cardShape)
             .border(Dimens.BorderThin, CardBorder, cardShape)
             .padding(Dimens.MapCardPadding)
     ) {
-        // Reactive geofence coverage circle (shared by Sensors + Settings).
-        Box(
+        // Reactive geofence coverage circle.
+        if (showGeofence) Box(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
@@ -121,13 +140,6 @@ fun SensorMapCard(
             modifier = Modifier.align(Alignment.BottomStart)
         )
 
-        // Bottom-right: settings shortcut (Sensors screen only).
-        if (onSettingsShortcut != null) {
-            SettingsShortcut(
-                onClick = onSettingsShortcut,
-                modifier = Modifier.align(Alignment.BottomEnd)
-            )
-        }
     }
 }
 
@@ -180,27 +192,5 @@ private fun RangeBadge(label: String, modifier: Modifier = Modifier) {
         // Shared ChipLabel: centered metrics keep the summary text vertically
         // centered within the fixed-height badge.
         Text(text = label, style = ChipLabel)
-    }
-}
-
-/** Circular settings shortcut button (Figma node 1:1101). */
-
-@Composable
-private fun SettingsShortcut(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .size(Dimens.MapSettingsShortcutSize)
-            .clip(CircleShape)
-            .background(MapSettingsShortcutFill, CircleShape)
-            .border(Dimens.BorderThin, MapSettingsShortcutBorder, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            painter = painterResource(id = R.drawable.ic_settings_sliders),
-            contentDescription = "Open sensor settings",
-            tint = Color.Black,
-            modifier = Modifier.size(Dimens.MapSettingsShortcutIconSize)
-        )
     }
 }

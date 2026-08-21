@@ -71,7 +71,9 @@ fun EarthquakeEvent.toHistoryItem(
     relativeTime = QuakeFormat.relativeTime(createdAt, now),
     pgaLabel = QuakeFormat.pga(pgaGal),
     durationLabel = QuakeFormat.UNAVAILABLE,
-    coordinates = QuakeFormat.coordinates(latitude, longitude)
+    coordinates = QuakeFormat.coordinates(latitude, longitude),
+    latitude = latitude,
+    longitude = longitude
 )
 
 fun List<EarthquakeEvent>.toHistoryItems(
