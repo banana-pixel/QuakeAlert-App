@@ -50,12 +50,15 @@ import id.web.quakealert.ui.theme.TextPrimary
  * The row is stateless: the current [filter] and callbacks are hoisted to the
  * caller, which on both screens is the shared [QuakeFilterViewModel].
  *
+ * @param sections the criteria this screen applies, so the trailing button badges
+ *   only what is actually narrowing *this* list; see [FilterSection].
  * @param unitSystem still required — the sheet's radius options are rendered in
  *   the user's unit, and this row hands it down.
  */
 @Composable
 fun QuakeFilterRow(
     filter: QuakeFilterState,
+    sections: Set<FilterSection>,
     unitSystem: UnitSystem,
     onModeSelected: (QuakeFilter) -> Unit,
     onFilterSheetClicked: (() -> Unit)? = null,
@@ -82,7 +85,7 @@ fun QuakeFilterRow(
         onFilterSheetClicked?.let { openSheet ->
             Spacer(modifier = Modifier.weight(1f))
             FilterSheetButton(
-                activeCriteriaCount = filter.activeCriteriaCount,
+                activeCriteriaCount = filter.activeCriteriaCount(sections),
                 onClick = openSheet
             )
         }

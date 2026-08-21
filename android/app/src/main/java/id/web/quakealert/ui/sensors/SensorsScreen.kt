@@ -26,10 +26,13 @@ import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeErrorState
 import id.web.quakealert.ui.common.QuakeFilter
+import id.web.quakealert.ui.common.FilterSection
 import id.web.quakealert.ui.common.QuakeFilterDialog
 import id.web.quakealert.ui.common.QuakeFilterRow
 import id.web.quakealert.ui.common.QuakeFilterViewModel
 import id.web.quakealert.ui.common.QuakeNoCoverageState
+import id.web.quakealert.ui.common.QuakeNoStationsMatchState
+import id.web.quakealert.ui.common.QuakeStationStatus
 import id.web.quakealert.ui.common.QuakeSkeletonList
 import id.web.quakealert.ui.common.fadingEdges
 import id.web.quakealert.ui.theme.Dimens
@@ -66,6 +69,7 @@ fun SensorsRoute(
         onModeSelected = filterViewModel::onModeSelected,
         onFilterSheetClicked = filterViewModel::onSheetOpened,
         onWidenRadius = filterViewModel::onRadiusWidened,
+        onFiltersReset = filterViewModel::onFiltersReset,
         onSensorClicked = viewModel::onSensorClicked,
         onRetry = viewModel::onRetry,
         onRefresh = viewModel::onRefresh,
@@ -76,6 +80,7 @@ fun SensorsRoute(
     if (isSheetOpen) {
         QuakeFilterDialog(
             filter = filter,
+            sections = FilterSection.SENSORS,
             unitSystem = uiState.unitSystem,
             onDismiss = filterViewModel::onSheetDismissed,
             onApply = filterViewModel::onCriteriaApplied,
@@ -95,7 +100,8 @@ fun SensorsRoute(
  *  2. A weighted body filling the remaining space between the filter row and the
  *     bottom navigation bar, inside a [PullToRefreshBox] and rendering exactly one
  *     of [QuakeSkeletonList],
- *     [QuakeErrorState], [QuakeNoCoverageState] or the station [LazyColumn] — which
+ *     [QuakeErrorState], [QuakeNoStationsMatchState], [QuakeNoCoverageState] or
+ *     the station [LazyColumn] — which
  *     carries the shared soft [fadingEdges] so cards dissolve in/out at the scroll
  *     bounds. The header stays outside the branch so the map and filters hold
  *     their place as the state changes.
@@ -115,6 +121,7 @@ fun SensorsScreen(
     onRetry: () -> Unit,
     onFilterSheetClicked: (() -> Unit)? = null,
     onWidenRadius: () -> Unit = {},
+    onFiltersReset: () -> Unit = {},
     onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState()
@@ -135,6 +142,7 @@ fun SensorsScreen(
 
         QuakeFilterRow(
             filter = uiState.filter,
+            sections = FilterSection.SENSORS,
             unitSystem = uiState.unitSystem,
             onModeSelected = onModeSelected,
             onFilterSheetClicked = onFilterSheetClicked,
@@ -178,6 +186,17 @@ fun SensorsScreen(
                     onRetry = onRetry,
                     modifier = bodyModifier
                 )
+
+                // An empty *slice* of a non-empty roll is a different fact from an
+                // empty roll: the stations exist and the status criterion hid them,
+                // so widening the radius would be the wrong offer.
+                uiState.sensors.isEmpty() &&
+                    uiState.filter.stationStatus != QuakeStationStatus.ALL ->
+                    QuakeNoStationsMatchState(
+                        status = uiState.filter.stationStatus,
+                        onResetFilters = onFiltersReset,
+                        modifier = bodyModifier
+                    )
 
                 // Worth the separate copy: the browse radius reaches far beyond
                 // the network, so an empty roll usually means "we do not watch

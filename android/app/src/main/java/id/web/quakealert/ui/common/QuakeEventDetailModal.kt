@@ -295,11 +295,13 @@ private fun EventDetailMap(
     QuakeMap(
         focus = focus,
         attributionAlignment = Alignment.BottomStart,
+        // Clipped but not outlined: the rounded corners already bound the map
+        // against the modal behind it, and a hairline on top of the tiles reads as
+        // a frame drawn around the map rather than as the map's own edge.
         modifier = modifier
             .fillMaxWidth()
             .height(Dimens.EventDetailMapHeight)
             .clip(shape)
-            .border(Dimens.BorderThin, CardBorder, shape)
     ) {
         Box(
             modifier = Modifier

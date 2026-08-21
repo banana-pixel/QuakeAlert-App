@@ -45,7 +45,8 @@ import id.web.quakealert.ui.theme.TextPrimary
  * Settings "Location & Coverage" section (Figma node 1:858). Both screens render
  * the *same* linked map, so overlays are driven from the shared [overview]:
  *  - a top-left location pill ([MapLocationPillFill] + pin glyph),
- *  - a bottom-left "Range : ... , N sensors" summary badge,
+ *  - a bottom-left "Range : ... , N sensors" summary badge (Sensors only, see
+ *    [showRangeBadge]),
  *  - a reactive coverage geofence circle whose radius scales with
  *    [SensorMapOverview.geofenceFraction] (0f..1f of the card's minimum side),
  *  - and nothing else. The bottom-right settings shortcut is gone: the Settings
@@ -63,6 +64,10 @@ import id.web.quakealert.ui.theme.TextPrimary
  * own "not set" copy carries the news.
  *
  * @param unitSystem drives the "Range : ..." summary badge unit ("km" / "mi").
+ * @param showRangeBadge paints the "Range : ... , N sensors" badge. False in the
+ *   Settings "Sync Location Now" card: range and sensor counts are the Sensors
+ *   screen's subject, and repeating them on a card whose only claim is *where the
+ *   last fix landed* invited the reading that Settings owns the search radius too.
  * @param showGeofence paints the coverage circle. False inside the Settings
  *   "Sync Location Now" card, where the map is a 130dp confirmation of *where* the
  *   fix landed and the circle — drawn from the card's shorter side — would fill it
@@ -76,6 +81,7 @@ fun SensorMapCard(
     modifier: Modifier = Modifier,
     unitSystem: UnitSystem = UnitSystem.METRIC,
     showGeofence: Boolean = true,
+    showRangeBadge: Boolean = true,
     height: Dp = Dimens.MapCardHeight
 ) {
     val cardShape = remember { RoundedCornerShape(Dimens.RadiusCard) }
@@ -100,12 +106,15 @@ fun SensorMapCard(
         // bottom-start to the range badge on both, so the credit takes the one
         // corner no overlay claims.
         attributionAlignment = Alignment.TopEnd,
+        // No inset and no outline on the map itself: the basemap fills the clipped
+        // bounds. Insetting here shrank the GL surface inside the clip, so the
+        // card's own ground showed through as a ring around the tiles, and the
+        // hairline drew a second edge on top of it. The 12dp breathing room the
+        // overlays need is theirs alone, applied to each of them below.
         modifier = modifier
             .fillMaxWidth()
             .height(height)
             .clip(cardShape)
-            .border(Dimens.BorderThin, CardBorder, cardShape)
-            .padding(Dimens.MapCardPadding)
     ) {
         // Reactive geofence coverage circle.
         if (showGeofence) Box(
@@ -131,13 +140,17 @@ fun SensorMapCard(
         // Top-left: user location pill.
         LocationPill(
             label = overview.locationLabel,
-            modifier = Modifier.align(Alignment.TopStart)
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(Dimens.MapCardPadding)
         )
 
         // Bottom-left: range/sensor-count summary badge.
-        RangeBadge(
+        if (showRangeBadge) RangeBadge(
             label = overview.summaryLabel(unitSystem),
-            modifier = Modifier.align(Alignment.BottomStart)
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(Dimens.MapCardPadding)
         )
 
     }

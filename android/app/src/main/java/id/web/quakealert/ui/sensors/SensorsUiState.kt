@@ -2,7 +2,6 @@ package id.web.quakealert.ui.sensors
 
 import androidx.compose.runtime.Immutable
 import id.web.quakealert.data.UnitSystem
-import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.common.QuakeFilterState
 
 /**
@@ -55,7 +54,11 @@ data class SensorStationItem(
  * screen's bottom-right settings shortcut, which Settings hides.
  *
  * @param locationLabel user-centred location pill (e.g. "Bandung, West Java, ID").
- * @param rangeKm covered radius in kilometres.
+ * @param rangeKm the radius the user actually chose, in kilometres, or null when
+ *   no radius is narrowing the query. Null is not a missing value to fill in with a
+ *   default: printing the endpoint's own 500 km ceiling as "Range : 500 km" claims
+ *   the user picked a radius they never picked, and reads as a limit on what they
+ *   are being shown. [rangeLabel] says "All areas" instead.
  * @param sensorCount number of sensors within range.
  * @param geofenceFraction radius of the reactive coverage circle as a fraction
  *   (0f..1f) of the card's minimum side, so the visualised radius scales with the
@@ -69,18 +72,41 @@ data class SensorStationItem(
 @Immutable
 data class SensorMapOverview(
     val locationLabel: String,
-    val rangeKm: Int,
+    val rangeKm: Int?,
     val sensorCount: Int,
     val geofenceFraction: Float = 0.9f,
     val latitude: Double? = null,
     val longitude: Double? = null
 ) {
     /**
-     * Pre-formatted "Range : {km} km, {n} sensors" summary badge text in the
-     * given unit system ("Range : 500 km, 2 sensors" / "Range : 311 mi, 2 sensors").
+     * The radius half of the badge, in the user's unit: "Range : 250 km" when a
+     * radius is set, "All areas" when none is.
+     *
+     * The single place the app turns a radius into words, so every surface that
+     * mentions one says it the same way: the word "Range", a colon, a number and a
+     * unit, and no number at all when there is nothing to report.
+     */
+    fun rangeLabel(unitSystem: UnitSystem): String =
+        rangeKm?.let { "Range : ${unitSystem.formatDistance(it)}" } ?: ALL_AREAS_LABEL
+
+    /** The station-count half of the badge, pluralised. */
+    val countLabel: String
+        get() = if (sensorCount == 1) "1 sensor" else "$sensorCount sensors"
+
+    /**
+     * Both halves as the map badge renders them, e.g. "Range : 250 km · 4 sensors".
+     *
+     * Kept as two properties joined here rather than one format string: the radius
+     * and the count answer different questions, and the comma that used to join them
+     * read as though the count were scoped by nothing in particular.
      */
     fun summaryLabel(unitSystem: UnitSystem): String =
-        "Range : ${unitSystem.formatDistance(rangeKm)}, $sensorCount sensors"
+        "${rangeLabel(unitSystem)} · $countLabel"
+
+    private companion object {
+        /** Said instead of a radius when the query is not narrowed by one. */
+        const val ALL_AREAS_LABEL = "All areas"
+    }
 }
 
 
@@ -118,7 +144,9 @@ data class SensorsUiState(
     // user may not have (the endpoint returns nothing without a stored position).
     val overview: SensorMapOverview = SensorMapOverview(
         locationLabel = "Location not set",
-        rangeKm = SafetyPolicy.SENSORS_NEAR_RADIUS_KM,
+        // Null, not the default "Near" radius: the filter opens in "All", so a
+        // number here would badge a radius the user has not chosen.
+        rangeKm = null,
         sensorCount = 0
     ),
     val filter: QuakeFilterState = QuakeFilterState(),

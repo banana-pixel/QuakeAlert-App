@@ -450,11 +450,12 @@ fun RecentSeismicActivityCard(
             // Top-start: this card draws no overlays of its own, and the top edge
             // sits furthest from the stats panel below.
             attributionAlignment = Alignment.TopStart,
+            // Clipped, not outlined, for the same reason as the event detail map:
+            // the tiles are the card's edge.
             modifier = Modifier
                 .fillMaxWidth()
                 .height(Dimens.EventDetailMapHeight)
                 .clip(shape)
-                .border(Dimens.BorderThin, CardBorder, shape)
         )
 
         Column(

@@ -15,6 +15,59 @@ import java.time.Instant
 enum class QuakeFilter { ALL, NEAR }
 
 /**
+ * Which criteria a screen's filter sheet offers.
+ *
+ * The sheet is one component with two configurations rather than two sheets: the
+ * location scope is genuinely shared by both tabs, while the rest is not. A station
+ * has no intensity and no time of occurrence, and an earthquake has no uptime, so a
+ * tab that showed all four would be offering controls that cannot change its own
+ * answer — which reads as a broken filter rather than an inapplicable one.
+ */
+enum class FilterSection {
+    INTENSITY,
+    DISTANCE,
+    TIME,
+    STATION_STATUS;
+
+    companion object {
+        /** What History filters on: shaking, distance and when it happened. */
+        val HISTORY: Set<FilterSection> = setOf(INTENSITY, DISTANCE, TIME)
+
+        /** What Sensors filters on: where the station is and whether it reports. */
+        val SENSORS: Set<FilterSection> = setOf(DISTANCE, STATION_STATUS)
+    }
+}
+
+/**
+ * Station connectivity criterion offered on the Sensors tab.
+ *
+ * Applied client-side over the `/sensors` response, which already carries each
+ * station's status, so narrowing it costs no request. Distinct from
+ * [id.web.quakealert.ui.sensors.SensorStatus], which is one station's actual state
+ * rather than a question being asked about the roll.
+ *
+ * @property label sheet copy for the option pill.
+ * @property emptyRollSubtitle what an empty result under this criterion actually
+ *   means, for the Sensors empty card. Held here rather than composed at the call
+ *   site because "no stations match" is ambiguous in a way the real reason is not:
+ *   asking for reporting stations and getting none is an outage, not a gap in
+ *   coverage, and the two need different words. Empty for [ALL], which cannot
+ *   exclude anything.
+ */
+enum class QuakeStationStatus(val label: String, val emptyRollSubtitle: String) {
+    ALL("All stations", ""),
+    ONLINE("Online only", "Every station in this area is currently offline."),
+    OFFLINE("Offline only", "Every station in this area is currently reporting.");
+
+    /** Whether a station in the given state belongs in the filtered roll. */
+    fun accepts(isOnline: Boolean): Boolean = when (this) {
+        ALL -> true
+        ONLINE -> isOnline
+        OFFLINE -> !isOnline
+    }
+}
+
+/**
  * Shaking-intensity buckets offered by the filter sheet (Figma node 1:709).
  *
  * Labelled in MMI because that is what the app shows everywhere else, but sent to
@@ -88,7 +141,13 @@ enum class QuakeTimeWindow(val label: String, val days: Int?) {
 
 /**
  * The complete state of the shared filter: the [QuakeFilterRow] pill plus the
- * three criteria chosen in the filter sheet.
+ * criteria chosen in the filter sheet.
+ *
+ * One state for both tabs, but each tab reads only the [FilterSection]s it can act
+ * on, so History never applies a station-status choice and Sensors never applies an
+ * intensity floor. Holding the unused half rather than clearing it is what lets the
+ * user set a narrow History filter, look something up on Sensors and come back to
+ * the filter they left.
  *
  * Held for the session only (see `QuakeFilterViewModel`) and never persisted:
  * someone who narrowed the list to severe quakes last week and opens the app
@@ -101,7 +160,8 @@ data class QuakeFilterState(
     val mode: QuakeFilter = QuakeFilter.ALL,
     val intensity: QuakeIntensity = QuakeIntensity.ALL,
     val radius: QuakeSearchRadius = DEFAULT_RADIUS,
-    val timeWindow: QuakeTimeWindow = QuakeTimeWindow.ALL
+    val timeWindow: QuakeTimeWindow = QuakeTimeWindow.ALL,
+    val stationStatus: QuakeStationStatus = QuakeStationStatus.ALL
 ) {
     /** PGA floor in gal for `/events?min_pga=`, or null when unfiltered. */
     val minPgaGal: Double?
@@ -128,41 +188,59 @@ data class QuakeFilterState(
         get() = mode == QuakeFilter.NEAR && radius.km > QuakeApiClient.MAX_SENSOR_RANGE_KM
 
     /**
-     * True when any criterion is narrowing the query. Drives whether an empty
-     * result offers a way out: with nothing narrowing it, "Reset Filters" would do
-     * nothing, and the emptiness is simply the answer.
+     * The criteria in [sections] that are currently narrowing the query, as the
+     * booleans behind every count and summary below.
+     *
+     * Scoped by section on purpose: the state is shared across both tabs, so an
+     * intensity floor set on History is still held while the user is on Sensors,
+     * where it changes nothing. Counting it there would badge the Sensors filter
+     * button over a criterion that tab does not apply.
      */
-    val isNarrowed: Boolean
-        get() = mode == QuakeFilter.NEAR ||
-            intensity != QuakeIntensity.ALL ||
-            timeWindow != QuakeTimeWindow.ALL
+    private fun activeCriteria(sections: Set<FilterSection>): List<Boolean> = listOf(
+        FilterSection.INTENSITY in sections && intensity != QuakeIntensity.ALL,
+        FilterSection.DISTANCE in sections && mode == QuakeFilter.NEAR,
+        FilterSection.TIME in sections && timeWindow != QuakeTimeWindow.ALL,
+        FilterSection.STATION_STATUS in sections && stationStatus != QuakeStationStatus.ALL
+    )
 
-    /** Number of sheet criteria active, for the filter button's badge. */
-    val activeCriteriaCount: Int
-        get() = listOf(
-            intensity != QuakeIntensity.ALL,
-            mode == QuakeFilter.NEAR,
-            timeWindow != QuakeTimeWindow.ALL
-        ).count { it }
+    /**
+     * True when a criterion the given screen applies is narrowing the query. Drives
+     * whether an empty result offers a way out: with nothing narrowing it, "Reset
+     * Filters" would do nothing, and the emptiness is simply the answer.
+     */
+    fun isNarrowed(sections: Set<FilterSection>): Boolean =
+        activeCriteria(sections).any { it }
+
+    /** Number of criteria active on this screen, for the filter button's badge. */
+    fun activeCriteriaCount(sections: Set<FilterSection>): Int =
+        activeCriteria(sections).count { it }
+
+    /** Whether a station in the given state survives the station-status criterion. */
+    fun acceptsStation(isOnline: Boolean): Boolean = stationStatus.accepts(isOnline)
 
     /**
      * Human sentence naming what is currently excluded, e.g. "at MMI VI+ within
      * 250 km in the past 7 days". Used by the no-data card so the user reads why
      * the list is empty instead of concluding there were no earthquakes.
      *
-     * Returns null when nothing is narrowing the query.
+     * Returns null when nothing the screen applies is narrowing the query.
      */
-    fun summary(unitSystem: UnitSystem): String? {
-        if (!isNarrowed) return null
+    fun summary(unitSystem: UnitSystem, sections: Set<FilterSection>): String? {
+        if (!isNarrowed(sections)) return null
         val parts = buildList {
-            if (intensity != QuakeIntensity.ALL) {
+            if (FilterSection.INTENSITY in sections && intensity != QuakeIntensity.ALL) {
                 add("at MMI ${intensity.roman}+")
             }
-            if (mode == QuakeFilter.NEAR) {
+            if (FilterSection.DISTANCE in sections && mode == QuakeFilter.NEAR) {
                 add("within ${radius.label(unitSystem)}")
             }
-            if (timeWindow != QuakeTimeWindow.ALL) {
+            if (FilterSection.TIME in sections && timeWindow != QuakeTimeWindow.ALL) {
                 add("in the ${timeWindow.label.lowercase()}")
+            }
+            if (FilterSection.STATION_STATUS in sections &&
+                stationStatus != QuakeStationStatus.ALL
+            ) {
+                add(stationStatus.label.lowercase())
             }
         }
         return parts.joinToString(" ")

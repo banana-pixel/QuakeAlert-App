@@ -35,6 +35,7 @@ import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeErrorState
 import id.web.quakealert.ui.common.QuakeEventDetailModalDialog
 import id.web.quakealert.ui.common.QuakeFilter
+import id.web.quakealert.ui.common.FilterSection
 import id.web.quakealert.ui.common.QuakeFilterDialog
 import id.web.quakealert.ui.common.QuakeFilterRow
 import id.web.quakealert.ui.common.QuakeFilterViewModel
@@ -109,6 +110,7 @@ fun HistoryRoute(
     if (isSheetOpen) {
         QuakeFilterDialog(
             filter = filter,
+            sections = FilterSection.HISTORY,
             unitSystem = uiState.unitSystem,
             onDismiss = filterViewModel::onSheetDismissed,
             onApply = filterViewModel::onCriteriaApplied,
@@ -170,6 +172,7 @@ fun HistoryScreen(
 
         QuakeFilterRow(
             filter = uiState.filter,
+            sections = FilterSection.HISTORY,
             unitSystem = uiState.unitSystem,
             onModeSelected = onModeSelected,
             onFilterSheetClicked = onFilterSheetClicked,
@@ -235,7 +238,10 @@ fun HistoryScreen(
                 // empty feed as such, so the card names the criteria that excluded
                 // everything instead of implying nothing ever happened.
                 uiState.items.isEmpty() -> QuakeNoDataState(
-                    filterSummary = uiState.filter.summary(uiState.unitSystem),
+                    filterSummary = uiState.filter.summary(
+                        unitSystem = uiState.unitSystem,
+                        sections = FilterSection.HISTORY
+                    ),
                     onResetFilters = onFiltersReset,
                     modifier = bodyModifier
                 )

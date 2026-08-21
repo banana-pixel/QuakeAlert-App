@@ -21,6 +21,19 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
+ * The slice of [roll] that survives the station-status criterion.
+ *
+ * An extension rather than a method on [QuakeFilterState] because the display model
+ * lives in this package: `ui.common` must not learn about `ui.sensors` types just to
+ * answer a question about them. [QuakeFilterState.acceptsStation] is the criterion;
+ * this is only where it meets the list.
+ */
+private fun QuakeFilterState.narrow(
+    roll: List<SensorStationItem>
+): List<SensorStationItem> =
+    roll.filter { acceptsStation(it.status == SensorStatus.ONLINE) }
+
+/**
  * Hosts the [SensorsUiState] for the Sensors screen and exposes it as a
  * [StateFlow] following unidirectional data flow. Stations come from
  * `GET /api/v1/sensors` via [id.web.quakealert.data.network.QuakeApiClient].
@@ -36,6 +49,17 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
     private val apiClient = QuakeNetwork.from(application).apiClient
 
     private val _uiState = MutableStateFlow(SensorsUiState(isLoading = true))
+
+    /**
+     * The roll exactly as `/sensors` returned it, before the station-status
+     * criterion narrows it.
+     *
+     * Kept because that criterion is answered locally: the response already carries
+     * each station's status, so switching between "Online only" and "All stations"
+     * must not cost a request, and the map's coverage count must keep counting the
+     * whole roll rather than the slice on screen.
+     */
+    private var roll: List<SensorStationItem> = emptyList()
 
     val uiState: StateFlow<SensorsUiState> = combine(
         repository.unitSystem,
@@ -92,21 +116,27 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                 )
             }
             try {
-                val sensors = fetchSensors()
+                roll = fetchSensors()
                 val userLocation = apiClient.currentUserLocation()
                 val locationLabel = userLocation?.locationName?.takeIf { it.isNotBlank() }
                 _uiState.update { state ->
                     state.copy(
-                        sensors = sensors,
+                        sensors = state.filter.narrow(roll),
                         isLoading = false,
                         isRefreshing = false,
-                        // The map badge counts *reporting* stations, matching the
-                        // server's `active_sensors_count`; an offline node is in the
-                        // list but is not coverage.
+                        // The map badge counts *reporting* stations in the whole
+                        // roll, matching the server's `active_sensors_count`: an
+                        // offline node is in the list but is not coverage, and a
+                        // status filter hides rows without changing what is out
+                        // there.
                         overview = state.overview.copy(
-                            sensorCount = sensors.count { it.status == SensorStatus.ONLINE },
+                            sensorCount = roll.count { it.status == SensorStatus.ONLINE },
                             locationLabel = locationLabel ?: state.overview.locationLabel,
-                            rangeKm = effectiveRangeKm(),
+                            // The radius the *user* chose, which is null in "All":
+                            // the request still measures from the stored position,
+                            // but the badge must not print the endpoint ceiling as
+                            // though it were a choice.
+                            rangeKm = _uiState.value.filter.sensorsRadiusKm,
                             geofenceFraction = geofenceFraction(effectiveRangeKm()),
                             // Left at the previous value when the position is
                             // unknown, so a transient null does not blank a basemap
@@ -176,24 +206,30 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Adopts the shared filter and reloads the roll.
+     * Adopts the shared filter, re-narrowing the roll and re-querying it when the
+     * radius changed.
      *
      * Pushed in by [SensorsRoute] from
      * [id.web.quakealert.ui.common.QuakeFilterViewModel], the same instance the
      * History tab reads, so switching tabs never changes the question being asked.
      *
-     * Only the radius reaches `/sensors` — a station has no intensity and no time of
-     * occurrence, so the intensity and time criteria are simply not applicable here
-     * rather than silently ignored.
+     * Only the radius reaches `/sensors`, and the sheet offers this tab nothing else
+     * that could: a station has no intensity and no time of occurrence, so those
+     * criteria are not shown here rather than silently ignored.
      *
-     * The filter is applied server-side (`ST_DWithin` around the stored position),
+     * The radius is applied server-side (`ST_DWithin` around the stored position),
      * so it re-queries rather than hiding rows: a station omitted from the wide page
-     * cannot be recovered locally, and distance is not in the response.
+     * cannot be recovered locally, and distance is not in the response. Station
+     * status is the opposite case and is applied locally.
      */
     fun applyFilter(filter: QuakeFilterState) {
-        if (_uiState.value.filter == filter) return
-        _uiState.update { it.copy(filter = filter) }
-        load()
+        val current = _uiState.value.filter
+        if (current == filter) return
+        _uiState.update { it.copy(filter = filter, sensors = filter.narrow(roll)) }
+        // Only the radius is answered by the server. A station-status change is a
+        // question about the roll already in hand, so re-querying for it would blank
+        // the list and spend a request to reach the same rows.
+        if (filter.sensorsRadiusKm != current.sensorsRadiusKm) load()
     }
 
     /**

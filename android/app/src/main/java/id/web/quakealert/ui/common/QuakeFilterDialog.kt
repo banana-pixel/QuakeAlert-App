@@ -50,26 +50,37 @@ import id.web.quakealert.ui.theme.SectionTitle
  * the row; the sheet itself has no design, so it borrows the overlay chrome of
  * [QuakeEventDetailModalDialog] rather than inventing a second modal language).
  *
- * Three criteria, all applied server-side by `/events`:
- *  - **shaking intensity**, labelled in MMI and sent as a PGA floor in gal;
- *  - **search radius**, which is a browse radius and nothing else;
- *  - **time range**, sent as `since`.
+ * Which criteria appear is the caller's choice, passed as [sections]:
+ *  - **shaking intensity**, labelled in MMI and sent to `/events` as a PGA floor
+ *    in gal (History);
+ *  - **search radius**, a browse radius and nothing else (both tabs);
+ *  - **time range**, sent as `since` (History);
+ *  - **station status**, applied over the `/sensors` response (Sensors).
+ *
+ * Sensors is not offered intensity or time, and History is not offered station
+ * status. A station has no shaking and no time of occurrence, so a sheet that
+ * showed them there would be handing the user controls that cannot change the roll
+ * in front of them.
  *
  * Choices are held locally and committed on "Apply". Editing the shared filter
- * live would re-query both tabs on every tap — three requests to reach one answer,
- * and a list flickering behind a sheet the user has not finished reading.
+ * live would re-query both tabs on every tap — several requests to reach one
+ * answer, and a list flickering behind a sheet the user has not finished reading.
  *
  * @param filter the criteria currently in force, used to seed the draft.
+ * @param sections which criteria this screen can act on; use
+ *   [FilterSection.HISTORY] or [FilterSection.SENSORS].
  * @param unitSystem renders the radius options in the user's unit.
- * @param onApply commits the draft; wire to [QuakeFilterViewModel.onCriteriaApplied].
+ * @param onApply commits the drafted state; wire to
+ *   [QuakeFilterViewModel.onCriteriaApplied].
  * @param onReset clears every criterion and closes the sheet.
  */
 @Composable
 fun QuakeFilterDialog(
     filter: QuakeFilterState,
+    sections: Set<FilterSection>,
     unitSystem: UnitSystem,
     onDismiss: () -> Unit,
-    onApply: (QuakeIntensity, QuakeSearchRadius, QuakeTimeWindow) -> Unit,
+    onApply: (QuakeFilterState) -> Unit,
     onReset: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -78,9 +89,10 @@ fun QuakeFilterDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         val shape = remember { RoundedCornerShape(Dimens.RadiusCard) }
-        var intensity by remember(filter) { mutableStateOf(filter.intensity) }
-        var radius by remember(filter) { mutableStateOf(filter.radius) }
-        var timeWindow by remember(filter) { mutableStateOf(filter.timeWindow) }
+        // One draft of the whole state rather than a variable per criterion: the
+        // sections are conditional, and a per-criterion draft would need a branch
+        // for every combination to assemble the result.
+        var draft by remember(filter) { mutableStateOf(filter) }
 
         Column(
             modifier = modifier
@@ -95,18 +107,18 @@ fun QuakeFilterDialog(
         ) {
             QuakeModalHeader(onDismiss = onDismiss, title = "Filter")
 
-            FilterSection(title = "Shaking Intensity") {
+            if (FilterSection.INTENSITY in sections) FilterGroup(title = "Shaking Intensity") {
                 QuakeIntensity.entries.forEach { option ->
                     FilterOptionRow(
                         label = option.label,
                         description = option.description,
-                        selected = option == intensity,
-                        onClick = { intensity = option }
+                        selected = option == draft.intensity,
+                        onClick = { draft = draft.copy(intensity = option) }
                     )
                 }
             }
 
-            FilterSection(
+            if (FilterSection.DISTANCE in sections) FilterGroup(
                 title = "Search Radius",
                 // Said plainly and permanently, because the two radii are easy to
                 // conflate and only one of them is a safety guarantee.
@@ -115,10 +127,10 @@ fun QuakeFilterDialog(
             ) {
                 OptionPillRow(
                     labels = QuakeSearchRadius.entries.map { it.label(unitSystem) },
-                    selectedIndex = QuakeSearchRadius.entries.indexOf(radius),
-                    onSelect = { radius = QuakeSearchRadius.entries[it] }
+                    selectedIndex = QuakeSearchRadius.entries.indexOf(draft.radius),
+                    onSelect = { draft = draft.copy(radius = QuakeSearchRadius.entries[it]) }
                 )
-                if (radius.km > QuakeApiClient.MAX_SENSOR_RANGE_KM) {
+                if (draft.radius.km > QuakeApiClient.MAX_SENSOR_RANGE_KM) {
                     // Shown rather than applied silently: `/sensors` rejects anything
                     // above 500 km, so the Sensors tab would otherwise answer a
                     // different question than the one on screen.
@@ -131,11 +143,26 @@ fun QuakeFilterDialog(
                 }
             }
 
-            FilterSection(title = "Time Range") {
+            if (FilterSection.TIME in sections) FilterGroup(title = "Time Range") {
                 OptionPillRow(
                     labels = QuakeTimeWindow.entries.map { it.label },
-                    selectedIndex = QuakeTimeWindow.entries.indexOf(timeWindow),
-                    onSelect = { timeWindow = QuakeTimeWindow.entries[it] }
+                    selectedIndex = QuakeTimeWindow.entries.indexOf(draft.timeWindow),
+                    onSelect = { draft = draft.copy(timeWindow = QuakeTimeWindow.entries[it]) }
+                )
+            }
+
+            if (FilterSection.STATION_STATUS in sections) FilterGroup(
+                title = "Station Status",
+                // An offline station is not noise to be hidden by default: it is a
+                // gap in the very coverage this tab reports, and the roll says so.
+                note = "Offline stations stay in the list unless you narrow it here."
+            ) {
+                OptionPillRow(
+                    labels = QuakeStationStatus.entries.map { it.label },
+                    selectedIndex = QuakeStationStatus.entries.indexOf(draft.stationStatus),
+                    onSelect = {
+                        draft = draft.copy(stationStatus = QuakeStationStatus.entries[it])
+                    }
                 )
             }
 
@@ -150,7 +177,7 @@ fun QuakeFilterDialog(
                 )
                 FilterDialogAction(
                     label = "Apply",
-                    onClick = { onApply(intensity, radius, timeWindow) },
+                    onClick = { onApply(draft) },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -163,7 +190,7 @@ fun QuakeFilterDialog(
  * heading.
  */
 @Composable
-private fun FilterSection(
+private fun FilterGroup(
     title: String,
     modifier: Modifier = Modifier,
     note: String? = null,
@@ -296,7 +323,7 @@ private fun QuakeFilterDialogPreview() {
         // preview cannot host.
         Column(modifier = Modifier.padding(Dimens.ModalPadding)) {
             Text(text = "Filter", style = SectionTitle)
-            FilterSection(title = "Shaking Intensity") {
+            FilterGroup(title = "Shaking Intensity") {
                 QuakeIntensity.entries.forEach {
                     FilterOptionRow(
                         label = it.label,
@@ -306,7 +333,7 @@ private fun QuakeFilterDialogPreview() {
                     )
                 }
             }
-            FilterSection(title = "Search Radius") {
+            FilterGroup(title = "Search Radius") {
                 OptionPillRow(
                     labels = QuakeSearchRadius.entries.map { it.label(UnitSystem.METRIC) },
                     selectedIndex = 1,

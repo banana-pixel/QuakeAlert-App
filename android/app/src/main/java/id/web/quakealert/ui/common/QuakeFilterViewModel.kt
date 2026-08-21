@@ -49,20 +49,19 @@ class QuakeFilterViewModel : ViewModel() {
         _filter.update { if (it.mode == mode) it else it.copy(mode = mode) }
     }
 
-    /** Applies the sheet's criteria wholesale when the user confirms it. */
-    fun onCriteriaApplied(
-        intensity: QuakeIntensity,
-        radius: QuakeSearchRadius,
-        timeWindow: QuakeTimeWindow
-    ) {
-        _filter.update {
-            it.copy(
-                intensity = intensity,
-                radius = radius,
-                timeWindow = timeWindow,
+    /**
+     * Applies the sheet's drafted criteria wholesale when the user confirms it.
+     *
+     * The whole state rather than a criterion list: the sheet shows a different set
+     * of criteria per tab, and the ones it did not show come back untouched from the
+     * draft it was seeded with.
+     */
+    fun onCriteriaApplied(draft: QuakeFilterState) {
+        _filter.update { current ->
+            draft.copy(
                 // Choosing a radius is only meaningful around a centre, so picking a
                 // different one implies "Near"; leaving it alone keeps the pill as-is.
-                mode = if (radius != it.radius) QuakeFilter.NEAR else it.mode
+                mode = if (draft.radius != current.radius) QuakeFilter.NEAR else draft.mode
             )
         }
         _isSheetOpen.value = false

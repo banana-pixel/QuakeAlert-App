@@ -536,12 +536,16 @@ object Dimens {
     // (Figma node 148:1066). A card rather than bare centred copy: the same shape
     // then carries "we could not ask" and "the answer is nothing", so the two read
     // as one language instead of one looking like a broken screen.
-    /** Designed 346x322; width is capped, height is a floor so long copy can grow. */
-    val StateCardMaxWidth = 346.dp
-    val StateCardMinHeight = 322.dp
-    val StateCardPadding = 25.dp
-    /** Standalone 50dp glyph — no icon circle in this design. */
-    val StateCardGlyphSize = 50.dp
+    // Drawn 346x322 in Figma and held one step smaller here. At the designed size
+    // the card pushes against the filter row it sits under and fills the viewport,
+    // which makes an explanation of why there is no content look like content. The
+    // proportions are kept; only the scale changes. Width is capped and height is a
+    // floor, so long copy grows the card instead of clipping.
+    val StateCardMaxWidth = 300.dp
+    val StateCardMinHeight = 220.dp
+    val StateCardPadding = 18.dp
+    /** Standalone glyph, no icon circle in this design (Figma 148:1070 is 50x50). */
+    val StateCardGlyphSize = 36.dp
     /** Width of the title column (Figma 148:1067) so titles break like the design. */
     val StateCardTitleWidth = 228.dp
     /** Radius of the soft white wash standing in for the message frame's glow. */

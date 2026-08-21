@@ -77,7 +77,7 @@ class QuakeFilterStateTest {
 
     @Test
     fun `summary names every active criterion and is null when nothing narrows`() {
-        assertNull(QuakeFilterState().summary(UnitSystem.METRIC))
+        assertNull(QuakeFilterState().summary(UnitSystem.METRIC, FilterSection.HISTORY))
 
         val narrowed = QuakeFilterState(
             mode = QuakeFilter.NEAR,
@@ -87,12 +87,72 @@ class QuakeFilterStateTest {
         )
         assertEquals(
             "at MMI VI+ within 250 km in the past 7 days",
-            narrowed.summary(UnitSystem.METRIC)
+            narrowed.summary(UnitSystem.METRIC, FilterSection.HISTORY)
         )
-        assertEquals(3, narrowed.activeCriteriaCount)
+        assertEquals(3, narrowed.activeCriteriaCount(FilterSection.HISTORY))
         // The unit follows the user's choice, so the no-data card cannot contradict
         // the distances printed on the cards behind it.
-        assertTrue(narrowed.summary(UnitSystem.IMPERIAL)!!.contains("mi"))
+        assertTrue(
+            narrowed.summary(UnitSystem.IMPERIAL, FilterSection.HISTORY)!!.contains("mi")
+        )
+    }
+
+    /**
+     * The point of sharing one state across both tabs: a criterion a screen cannot
+     * apply must not be counted, summarised, or offered as a reason its list is
+     * empty. The state below is narrowed on all four criteria at once, so each
+     * screen's answer is exactly the subset it acts on.
+     */
+    @Test
+    fun `each screen counts and summarises only the criteria it applies`() {
+        val everything = QuakeFilterState(
+            mode = QuakeFilter.NEAR,
+            intensity = QuakeIntensity.MODERATE,
+            radius = QuakeSearchRadius.KM_250,
+            timeWindow = QuakeTimeWindow.WEEK,
+            stationStatus = QuakeStationStatus.ONLINE
+        )
+
+        assertEquals(3, everything.activeCriteriaCount(FilterSection.HISTORY))
+        assertEquals(2, everything.activeCriteriaCount(FilterSection.SENSORS))
+        assertEquals(
+            "at MMI VI+ within 250 km in the past 7 days",
+            everything.summary(UnitSystem.METRIC, FilterSection.HISTORY)
+        )
+        assertEquals(
+            "within 250 km online only",
+            everything.summary(UnitSystem.METRIC, FilterSection.SENSORS)
+        )
+    }
+
+    @Test
+    fun `a criterion the screen ignores never makes its list look narrowed`() {
+        // An intensity floor set on History is still held while the user is on
+        // Sensors, where it changes nothing: badging it there would offer a way out
+        // of a filter that is not the reason the roll is empty.
+        val intensityOnly = QuakeFilterState(intensity = QuakeIntensity.SEVERE)
+        assertTrue(intensityOnly.isNarrowed(FilterSection.HISTORY))
+        assertFalse(intensityOnly.isNarrowed(FilterSection.SENSORS))
+
+        val statusOnly = QuakeFilterState(stationStatus = QuakeStationStatus.OFFLINE)
+        assertTrue(statusOnly.isNarrowed(FilterSection.SENSORS))
+        assertFalse(statusOnly.isNarrowed(FilterSection.HISTORY))
+    }
+
+    @Test
+    fun `station status partitions the roll into disjoint halves`() {
+        assertTrue(QuakeStationStatus.ALL.accepts(isOnline = true))
+        assertTrue(QuakeStationStatus.ALL.accepts(isOnline = false))
+
+        // ONLINE and OFFLINE must never both accept or both reject the same station,
+        // or the two options would overlap and the roll would double-count.
+        listOf(true, false).forEach { isOnline ->
+            assertEquals(
+                "isOnline=$isOnline",
+                QuakeStationStatus.ONLINE.accepts(isOnline),
+                !QuakeStationStatus.OFFLINE.accepts(isOnline)
+            )
+        }
     }
 
     @Test

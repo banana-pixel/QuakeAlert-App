@@ -34,7 +34,6 @@ import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.CardSubtitle
 import id.web.quakealert.ui.theme.ChipLabel
 import id.web.quakealert.ui.theme.Dimens
-import id.web.quakealert.ui.theme.MmiRed
 import id.web.quakealert.ui.theme.QuakeAlertTheme
 import id.web.quakealert.ui.theme.SectionTitle
 import id.web.quakealert.ui.theme.StateCardActionBorder
@@ -111,8 +110,8 @@ fun QuakeLoadingState(
  * "Retry" — but it may offer a way to widen the question, which is what
  * [QuakeNoDataState] and [QuakeNoCoverageState] do.
  *
- * @param icon 50dp glyph; pass the drawable of the screen's own navigation tab so
- *   the card reads as belonging to it.
+ * @param icon glyph drawn at [Dimens.StateCardGlyphSize]; pass the drawable of the
+ *   screen's own navigation tab so the card reads as belonging to it.
  * @param message bold headline naming what is missing.
  * @param subtitle line explaining why, or what to do next.
  * @param actionLabel label of the trailing capsule; omit (with [onAction]) for a
@@ -143,8 +142,13 @@ fun QuakeEmptyState(
 
 /**
  * Failure placeholder: the alert triangle over the failure copy with a "Retry"
- * action. The glyph is tinted the severe MMI red so a failure is distinguishable
- * from an empty result before either line is read.
+ * action.
+ *
+ * The glyph is the design's own 50x50 alert-triangle (Figma 148:1070) in white,
+ * not the severity red of the MMI bands. Red is how this app says "this shaking
+ * was strong"; spending it on a failed request would make a dropped connection
+ * and a severe quake look like the same class of event. The triangle alone is
+ * enough to tell a failure from an empty result.
  *
  * @param message the failure copy (a ViewModel's `errorMessage`, or a generic
  *   fallback the caller supplies).
@@ -158,8 +162,8 @@ fun QuakeErrorState(
     modifier: Modifier = Modifier
 ) {
     StateBlock(
-        icon = R.drawable.ic_alert_triangle,
-        iconTint = MmiRed,
+        icon = R.drawable.ic_alert_triangle_state,
+        iconTint = TextPrimary,
         message = "Something Went Wrong",
         subtitle = message,
         modifier = modifier
@@ -227,16 +231,49 @@ fun QuakeNoCoverageState(
 }
 
 /**
- * Shared card behind every non-loading state (Figma node 148:1066): a 50dp glyph,
- * a bold title, an explanation on a soft glow, and an optional full-width action,
+ * "No Stations Match" — the roll came back with stations in it, but the
+ * station-status criterion excluded all of them.
+ *
+ * Separate from [QuakeNoCoverageState] because the two are opposite diagnoses:
+ * offering "Widen Search Radius" here would send the user further afield when the
+ * stations they asked about are right where they are looking, and calling a
+ * network-wide outage "no coverage" hides an outage.
+ *
+ * @param status the criterion that emptied the roll; supplies both the reason and
+ *   the reading, via [QuakeStationStatus.emptyRollSubtitle].
+ * @param onResetFilters clears the filter back to the whole roll.
+ */
+@Composable
+fun QuakeNoStationsMatchState(
+    status: QuakeStationStatus,
+    onResetFilters: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    QuakeEmptyState(
+        icon = R.drawable.ic_nav_sensors,
+        message = "No Stations Match",
+        modifier = modifier,
+        subtitle = status.emptyRollSubtitle,
+        actionLabel = "Reset Filters",
+        onAction = onResetFilters
+    )
+}
+
+/**
+ * Shared card behind every non-loading state (Figma node 148:1066): the glyph, a
+ * bold title, an explanation on a soft glow, and an optional full-width action,
  * spaced apart inside a black card with a white-10% hairline.
  *
  * Private so the public states above stay the only entry points: the chrome is
  * defined once here, which is what keeps a network failure and an empty result
  * reading as the same visual language instead of drifting into two designs.
  *
- * The card is sized 346x322 in the design; the width is a cap and the height a
- * floor, so the longest copy grows the card rather than clipping.
+ * Held one step tighter than the 346x322 the design draws (see
+ * [Dimens.StateCardMaxWidth]): at full size the card crowds the filter row above
+ * it on History and Sensors, and a placeholder that fills the viewport reads as
+ * the screen's content rather than as a note about why there is none. The width
+ * is a cap and the height a floor, so the longest copy still grows the card
+ * rather than clipping.
  */
 @Composable
 private fun StateBlock(
