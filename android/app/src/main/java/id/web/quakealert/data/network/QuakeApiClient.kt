@@ -21,6 +21,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 
 /**
  * The REST half of the backend contract: confirmed events, sensor health, and the
@@ -74,18 +76,40 @@ class QuakeApiClient(
      * @param limit page size, clamped to the contract's 1..100 so a UI-supplied
      *   value cannot turn into a 400.
      * @param offset pagination offset, clamped to the documented 0..50 000.
+     * The intensity and time filters are evaluated in SQL by the server, not here:
+     * narrowing a page after `limit` has been applied leaves a short page, which the
+     * infinite scroll reads as "no more data" while the server still holds matches.
+     *
      * @param rangeKm optional radius around [center], clamped to 1..2000. Ignored
      *   without a [center].
      * @param center the position to measure from; ignored without a [rangeKm].
+     * @param minPgaGal optional intensity floor in gal. Sent as `min_pga` rather than
+     *   an MMI numeral because `mmi_scale` is a Roman-numeral string server-side and
+     *   only `max_pga` can be compared numerically; use
+     *   [id.web.quakealert.domain.SafetyPolicy.minPgaForMmi] to turn the MMI a user
+     *   picked into this threshold.
+     * @param since optional inclusive lower bound on the event time.
+     * @param until optional inclusive upper bound on the event time.
      */
     suspend fun fetchEvents(
         limit: Int = DEFAULT_LIMIT,
         offset: Int = 0,
         rangeKm: Int? = null,
-        center: UserLocation? = null
+        center: UserLocation? = null,
+        minPgaGal: Double? = null,
+        since: Instant? = null,
+        until: Instant? = null
     ): Result<List<EarthquakeEvent>> =
         guarded {
-            val url = eventsUrl(limit = limit, offset = offset, rangeKm = rangeKm, center = center)
+            val url = eventsUrl(
+                limit = limit,
+                offset = offset,
+                rangeKm = rangeKm,
+                center = center,
+                minPgaGal = minPgaGal,
+                since = since,
+                until = until
+            )
 
             val body = perform(
                 request = getRequest(url),
@@ -258,6 +282,15 @@ class QuakeApiClient(
         /** `/sensors` caps `range_km` at 500 (server/internal/api/api.go). */
         const val MAX_SENSOR_RANGE_KM = 500
 
+        /** `min_pga` ceiling on `/events`; above it the server answers 400. */
+        const val MAX_MIN_PGA_GAL = 2_000.0
+
+        /**
+         * `since`/`until` are RFC3339 in the contract. [DateTimeFormatter.ISO_INSTANT]
+         * always emits UTC with a `Z`, so no device time zone leaks into the query.
+         */
+        private val RFC3339: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
+
         /** The reroll endpoint takes no body, but OkHttp requires one for a POST. */
         private val EMPTY_BODY = ByteArray(0).toRequestBody(JSON_MEDIA_TYPE)
 
@@ -274,7 +307,10 @@ class QuakeApiClient(
             limit: Int = DEFAULT_LIMIT,
             offset: Int = 0,
             rangeKm: Int? = null,
-            center: UserLocation? = null
+            center: UserLocation? = null,
+            minPgaGal: Double? = null,
+            since: Instant? = null,
+            until: Instant? = null
         ): HttpUrl =
             QuakeApiConfig.url(QuakeApiConfig.PATH_EVENTS).toHttpUrl().newBuilder()
                 .addQueryParameter("limit", limit.coerceIn(MIN_LIMIT, MAX_LIMIT).toString())
@@ -289,6 +325,22 @@ class QuakeApiClient(
                         )
                         addQueryParameter("latitude", center.latitude.toString())
                         addQueryParameter("longitude", center.longitude.toString())
+                    }
+
+                    // Unset criteria are omitted rather than sent as a neutral value:
+                    // `min_pga=0` would be a filter the server has to evaluate, and a
+                    // zero-width time range would be a 400.
+                    minPgaGal?.let {
+                        addQueryParameter(
+                            "min_pga",
+                            it.coerceIn(0.0, MAX_MIN_PGA_GAL).toString()
+                        )
+                    }
+                    // Swapped bounds are a 400 on the server; drop the pair here so a
+                    // filter-sheet slip shows an unfiltered page rather than an error.
+                    if (since == null || until == null || !since.isAfter(until)) {
+                        since?.let { addQueryParameter("since", RFC3339.format(it)) }
+                        until?.let { addQueryParameter("until", RFC3339.format(it)) }
                     }
                 }
                 .build()

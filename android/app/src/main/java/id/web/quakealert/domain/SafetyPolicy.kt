@@ -1,5 +1,8 @@
 package id.web.quakealert.domain
 
+import kotlin.math.log10
+import kotlin.math.pow
+
 /**
  * The distance and intensity rules that decide who gets woken up.
  *
@@ -95,4 +98,49 @@ object SafetyPolicy {
         "XII" -> 12
         else -> 0
     }
+
+    /**
+     * The MMI the server would print for a given peak ground acceleration.
+     *
+     * A mirror of `consensus.MMIFromPGA` in the Go server (SYSTEM_SPEC Bab 5.3),
+     * carrying the same regression and the same rounding as [romanToMmi]'s numerals.
+     * It is duplicated here for one reason: the browse filter has to ask "which
+     * events would be *labelled* MMI VI or above", and only the function that
+     * produces the label can answer that. Compare against the band table in
+     * `consensus.Intensity` instead and the list contradicts its own chips — an
+     * event stamped VI would be filtered out of an "MMI VI+" query.
+     *
+     * Must equal the server's formula, under the same discipline as
+     * [ALERT_RADIUS_KM]. Returns a fractional MMI; round it to get the numeral.
+     */
+    fun mmiFromPga(pgaGal: Double): Double =
+        if (pgaGal <= 0.0) 1.0 else maxOf(1.0, MMI_SLOPE * log10(pgaGal) + MMI_INTERCEPT)
+
+    /**
+     * The lowest PGA, in gal, that still rounds up to [mmi] — i.e. the `min_pga`
+     * threshold for a "MMI [mmi]+" browse filter.
+     *
+     * The exact inverse of [mmiFromPga] at the rounding boundary (`mmi - 0.5`), so
+     * the set of events the server returns is exactly the set whose printed numeral
+     * is [mmi] or higher. Derived rather than tabulated: a hand-written gal constant
+     * would drift the moment the regression changes on either side.
+     *
+     * Note this is *not* [OVERRIDE_PGA_GAL]. That constant answers a different
+     * question — "is this violent enough to ignore distance and alarm everyone" —
+     * and is deliberately stricter than the VII boundary computed here.
+     */
+    fun minPgaForMmi(mmi: Int): Double {
+        if (mmi <= 1) return 0.0
+        val boundary = mmi - 0.5
+        return 10.0.pow((boundary - MMI_INTERCEPT) / MMI_SLOPE)
+    }
+
+    /**
+     * Coefficients of the server's PGA→MMI regression
+     * (`mmi = 3.66 * log10(pga) - 1.66`). Private: callers want [mmiFromPga] or
+     * [minPgaForMmi], and a second copy of the numbers is exactly what this pair
+     * exists to prevent.
+     */
+    private const val MMI_SLOPE = 3.66
+    private const val MMI_INTERCEPT = -1.66
 }
