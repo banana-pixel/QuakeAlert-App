@@ -27,6 +27,19 @@ object Dimens {
     val FilterPillPaddingVertical = 6.dp
     val FilterPillHeight = 30.dp
     val CalendarButtonPadding = 5.dp
+    /** 20x20 `filter-lines` glyph in the trailing filter-sheet trigger (Figma 1:714). */
+    /** Leading glyph of a permissions-hub row. */
+    val PermissionHubGlyphSize = 22.dp
+    /** Check-circle in a satisfied permissions-hub row. */
+    val PermissionHubBadgeGlyphSize = 16.dp
+    val FilterTriggerGlyphSize = 20.dp
+    /** Diameter of the dot marking "criteria are active" on that trigger. */
+    val FilterTriggerBadgeSize = 8.dp
+    /**
+     * How far the list body follows the finger during a pull-to-refresh, at full
+     * pull. Small on purpose: enough to feel elastic, not enough to hide a row.
+     */
+    val PullElasticDistance = 40.dp
 
     // --- History list -------------------------------------------------------
     /** Vertical spacing between history cards (Figma gap 20). */
@@ -87,6 +100,12 @@ object Dimens {
     val SensorsHeaderBlockGap = 20.dp
     /** Map preview card height (Figma height 294). */
     val MapCardHeight = 294.dp
+    /**
+     * Height of the same map inlined in the Settings "Sync Location Now" card. Short
+     * on purpose: there it confirms where the last fix landed, and a full-height
+     * preview would push the sync control below the fold.
+     */
+    val MapCardInlineHeight = 130.dp
     /** Inner padding of the map preview card (Figma padding 12). */
     val MapCardPadding = 12.dp
     /** Location pill height on the map (Figma height 23). */
@@ -369,6 +388,16 @@ object Dimens {
     val WarningHeaderGap = 16.dp
     /** Vertical spacing between the banner block, divider, tips and CTA. */
     val WarningSectionSpacing = 20.dp
+    /**
+     * Leading glyph of the offline notice above the alert banner. Smaller than the
+     * banner's own 50dp glyph on purpose: the notice reports on the app's link to
+     * the network, which must never out-shout the earthquake it is reporting about.
+     */
+    val OfflineNoticeGlyphSize = 20.dp
+    /** Inner padding of that notice, tighter than a card's — it is a strip, not a panel. */
+    val OfflineNoticePadding = 10.dp
+    /** Gap between the notice's glyph, its text column and the retry capsule. */
+    val OfflineNoticeGap = 10.dp
     /** Bottom padding below the last element in the scrolling list. */
     val WarningListBottomPadding = CardListSpacing
 
@@ -503,6 +532,21 @@ object Dimens {
     /** Side padding of the error state's "Retry" action (height is ModalActionHeight). */
     val StateRetryPaddingHorizontal = 24.dp
 
+    // Card chrome shared by the error / no-data / no-coverage states
+    // (Figma node 148:1066). A card rather than bare centred copy: the same shape
+    // then carries "we could not ask" and "the answer is nothing", so the two read
+    // as one language instead of one looking like a broken screen.
+    /** Designed 346x322; width is capped, height is a floor so long copy can grow. */
+    val StateCardMaxWidth = 346.dp
+    val StateCardMinHeight = 322.dp
+    val StateCardPadding = 25.dp
+    /** Standalone 50dp glyph — no icon circle in this design. */
+    val StateCardGlyphSize = 50.dp
+    /** Width of the title column (Figma 148:1067) so titles break like the design. */
+    val StateCardTitleWidth = 228.dp
+    /** Radius of the soft white wash standing in for the message frame's glow. */
+    val StateCardGlowRadius = 30.dp
+
     // --- Corner radii -------------------------------------------------------
     val RadiusSmall = 10.dp
 
@@ -519,5 +563,41 @@ object Dimens {
     val BorderThin = 1.dp
     /** 2px stroke used by the section header pill (Figma node 1:856). */
     val BorderMedium = 2.dp
+
+    // Test Alert Sound modal (Figma node 144:1025)
+
+    /**
+     * START ↔ STOP gap (node 144:1061). 20dp, not the 23dp
+     * [EmergencyControlsGap]: that gap separates MUTE from the square SOS button
+     * on the live alert screen, and this row is a different composition.
+     */
+    val TestAlertActionsGap = 20.dp
+
+    /** Fixed label box behind each action (nodes 144:1050 / 144:1055): 90×34. */
+    val TestAlertActionWidth = 90.dp
+
+    // Skeleton placeholders shown while a list loads (no Figma node)
+
+    // ============================================================
+    // MapLibre basemap (id.web.quakealert.ui.common.QuakeMap)
+    // ============================================================
+
+    /** Inset of the attribution label from the map card's own edges. */
+    val MapAttributionInset = 6.dp
+
+    /** Padding inside the attribution label's scrim capsule. */
+    val MapAttributionPaddingHorizontal = 5.dp
+    val MapAttributionPaddingVertical = 2.dp
+
+    /** Corner radius of a skeleton block, matching [RadiusCard]'s family. */
+    val SkeletonRadius = 8.dp
+    /** Height of a skeleton text line. */
+    val SkeletonLineHeight = 14.dp
+    /** Gap between the stacked lines inside one skeleton card. */
+    val SkeletonLineGap = 10.dp
+    /** How many placeholder cards a loading list shows — one screenful. */
+    const val SkeletonCardCount = 5
+
+
 }
 

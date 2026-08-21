@@ -51,8 +51,15 @@ val CardBorder = Color(0x1AFFFFFF)              // white 10% card stroke
 val PillFill = Color(0xFF373737)                // shared capsule fill #373737
 
 
-// Top-bar "Healthy" status badge
+// Top-bar network-status badge
 val HealthyBadgeFill = Color(0xFF0C3600)        // green badge fill #0C3600
+/**
+ * The same badge while the link is establishing or down. Same geometry, same stroke,
+ * only the fill and the word change — so the badge reads as one control reporting
+ * three states rather than as something appearing and disappearing.
+ */
+val ConnectingBadgeFill = Color(0xFF3A2A02)     // amber badge fill, matched to MmiOrange
+val OfflineBadgeFill = Color(0xFF460808)        // same red container as MmiRedContainer
 
 // Filter pills
 val FilterActiveFill = Color(0xFF003346)        // "All" active fill #003346
@@ -294,6 +301,15 @@ val PossibilityBannerGradient = Brush.verticalGradient(
 )
 
 /**
+ * Offline notice strip above the Warning banner. Deliberately *not* a gradient and
+ * not red: it is a note about the app's link to the server, printed above content
+ * that stays usable without one, so it must be visibly quieter than either banner
+ * gradient while still reading as amber caution.
+ */
+val OfflineNoticeFill = Color(0x664C2C02)   // PossibilityBannerGradientBottom at 40%
+val OfflineNoticeBorder = Color(0x66F39F1D) // MmiOrange at 40%
+
+/**
  * Earthquake Possibility overlay card (Figma 124:1605) — a near-flat dark
  * gradient so the card reads as a lifted surface rather than an alert: the top
  * stop is the shared NavBarFill and the bottom stop lands exactly on CardSurface,
@@ -314,6 +330,29 @@ val PrepIconBorder = Color(0x4DFFFFFF)             // white 30% icon-circle stro
 /** Emergency bottom CTA — dark wine/crimson container rgba(179,54,54,0.31). */
 val EmergencyCtaFill = Color(0x4FB33636)           // rgba(179,54,54,0.31)
 val EmergencyCtaBorder = Color(0x4DFFFFFF)         // white 30% CTA stroke
+
+// ============================================================
+// Shared error / no-data / no-coverage card (Figma node 148:1066)
+// ============================================================
+
+/**
+ * Card fill. The Figma layer is a linear gradient from black to black, i.e. a flat
+ * black, kept as a token so the card is opaque against the app's own gradient
+ * background instead of letting it bleed through the copy.
+ */
+val StateCardFill = Color(0xFF000000)
+
+/** Action capsule — white 31% fill behind a white 30% 2px stroke. */
+val StateCardActionFill = Color(0x4FFFFFFF)        // rgba(255,255,255,0.31)
+val StateCardActionBorder = Color(0x4DFFFFFF)      // white 30%
+
+/**
+ * Wash behind the message, standing in for Figma's `0 4 30 rgba(255,255,255,0.58)`
+ * drop shadow. Compose paints no blurred shadow behind a transparent frame, so the
+ * glow is drawn as a radial gradient instead; a 30px blur of a 58% white spreads to
+ * roughly this alpha at its centre, which is what the design reads as on black.
+ */
+val StateCardMessageGlow = Color(0x24FFFFFF)       // white ~14%
 
 // ============================================================
 // Active earthquake alert screen — QuakeAlert (Figma node 1:1043)
@@ -378,3 +417,48 @@ val OnboardingBackgroundBrush = Brush.verticalGradient(
     colors = listOf(BackgroundGradientTop, BackgroundGradientBottom)
 )
 
+
+/**
+ * "START" fill on the Test Alert Sound modal (Figma node 144:1050) — white 31%.
+ *
+ * Its own token rather than a reuse of [EmergencySosFillIdle] (29%) or
+ * [EmergencyControlFillEngaged] (45%): the design draws START as permanently
+ * raised against a transparent STOP, which is what tells the user at a glance
+ * which button starts the noise.
+ */
+val TestAlertStartFill = Color(0x4FFFFFFF)          // white 31%
+
+/**
+ * Skeleton placeholder fills for the shimmer used while a list loads
+ * ([id.web.quakealert.ui.common.shimmer]). No Figma node authors a loading state,
+ * so these are derived from [CardBorder]: a block just visible enough to read as
+ * "content is coming" without competing with real cards for attention.
+ */
+val SkeletonBase = Color(0x14FFFFFF)                // white 8%
+val SkeletonHighlight = Color(0x33FFFFFF)           // white 20%
+
+
+// ============================================================
+// MapLibre basemap surfaces — QuakeAlert (id.web.quakealert.ui.common.QuakeMap)
+// ============================================================
+
+/**
+ * Ground colour painted behind every basemap.
+ *
+ * It is not a loading placeholder that a working map merely covers up: a phone in
+ * the middle of an earthquake is a phone whose network has very likely just gone
+ * away, and the tiles for a card the user has never opened before will not arrive.
+ * The map card must still read as a map card in that state rather than as a white
+ * hole, so this is the darkest stop of the app's own background gradient rather
+ * than the grey [MapPlaceholder] the pre-SDK stand-in used.
+ */
+val MapSurfaceFallback = Color(0xFF0A1620)
+
+/**
+ * Basemap attribution label and its scrim. Required by ODbL and by the tile
+ * provider's terms, so it is part of the map component itself rather than
+ * something each screen remembers to add — MapLibre's own attribution widget is
+ * switched off because it cannot be styled to the design's capsules.
+ */
+val MapAttributionText = Color(0x99FFFFFF)          // white 60%
+val MapAttributionScrim = Color(0x59000000)         // black 35%

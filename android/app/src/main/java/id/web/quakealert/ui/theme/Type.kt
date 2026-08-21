@@ -345,6 +345,23 @@ val MetricValue = TextStyle(
     lineHeightStyle = CenteredLineHeight
 )
 
+/**
+ * Message body of the shared error / no-data / no-coverage card (Figma 148:1074):
+ * Nunito Bold 16/24, white, centred. Its own token rather than [CardTitle]: this
+ * copy wraps to two or three lines, and CardTitle's 18sp line height is set for
+ * single-line card headers.
+ */
+val StateMessage = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 16.sp,
+    lineHeight = 24.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
 // ============================================================
 // Warning screen typography (Figma nodes 124:1297 / 124:1426)
 // ============================================================
@@ -526,3 +543,22 @@ val EmergencySosLabel = TextStyle(
 
 
 
+
+/**
+ * Body copy on the Test Alert Sound modal (Figma node 144:1033): Nunito Bold
+ * 16/24, centered.
+ *
+ * Separate from [ModalBodyText] (16/22) because this block is two paragraphs of
+ * warning rather than a single line of detail, and the design opens the leading
+ * up to keep it readable at that length.
+ */
+val TestAlertBodyText = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 16.sp,
+    lineHeight = 24.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
