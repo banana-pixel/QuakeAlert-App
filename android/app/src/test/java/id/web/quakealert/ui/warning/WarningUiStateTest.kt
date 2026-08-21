@@ -133,8 +133,79 @@ class WarningUiStateTest {
     fun `idle opens with no overlay raised`() {
         val idle = WarningUiState.Idle()
         assertNull(idle.selectedEventDetails)
-        assertNull(idle.selectedPossibility)
+        assertNull(idle.selectedActivity)
     }
+
+    // --- recent seismic activity ---------------------------------------------
+
+    @Test
+    fun `measured activity counts events and names the window`() {
+        val activity = measuredActivity(eventCount = 3)
+        assertEquals("3 events nearby in the past 30 days", activity.bannerLabel)
+        assertEquals("3 events", activity.countValue)
+    }
+
+    @Test
+    fun `a single event is not pluralised`() {
+        assertEquals("1 event", measuredActivity(eventCount = 1).countValue)
+    }
+
+    /** A full page is a floor, so the count has to admit there may be more behind it. */
+    @Test
+    fun `a capped count reads as a floor`() {
+        val activity = measuredActivity(eventCount = 100, isCountCapped = true)
+        assertEquals("100+ events", activity.countValue)
+        assertEquals("100+ events nearby in the past 30 days", activity.bannerLabel)
+    }
+
+    /**
+     * The reading this state exists to prevent: a genuinely quiet area says so, and
+     * only an area we actually measured is allowed to.
+     */
+    @Test
+    fun `a measured quiet area reports no events`() {
+        val activity = measuredActivity(eventCount = 0)
+        assertEquals("No events", activity.countValue)
+        assertEquals("None recorded", activity.mostRecentValue)
+        assertEquals("None recorded", activity.strongestValue)
+    }
+
+    @Test
+    fun `without a position every value asks for one instead of reporting zero`() {
+        val activity = RecentSeismicActivity()
+        assertEquals(ActivityAvailability.NO_POSITION, activity.availability)
+        assertEquals("Sync your location to see nearby activity", activity.bannerLabel)
+        assertEquals("Needs your location", activity.countValue)
+        assertEquals("Needs your location", activity.mostRecentValue)
+        assertEquals("Needs your location", activity.strongestValue)
+    }
+
+    /**
+     * A failed query must never render as an absence of earthquakes — even when the
+     * numbers it carries happen to be present from an earlier read.
+     */
+    @Test
+    fun `a failed query reports unavailable rather than zero`() {
+        val activity = measuredActivity(eventCount = 3)
+            .copy(availability = ActivityAvailability.UNAVAILABLE)
+        assertEquals("Recent activity unavailable", activity.bannerLabel)
+        assertEquals("Unavailable offline", activity.countValue)
+        assertEquals("Unavailable offline", activity.strongestValue)
+    }
+
+    private fun measuredActivity(
+        eventCount: Int,
+        isCountCapped: Boolean = false
+    ) = RecentSeismicActivity(
+        locationLabel = "-6.91750, 107.61910",
+        availability = ActivityAvailability.MEASURED,
+        eventCount = eventCount,
+        isCountCapped = isCountCapped,
+        mostRecent = "IV (moderate), 2 days ago".takeIf { eventCount > 0 },
+        strongest = "V (strong), 61.5 gal".takeIf { eventCount > 0 },
+        latitude = -6.91750,
+        longitude = 107.61910
+    )
 
     private val details = QuakeHistoryItem(
         id = "evt_1",
@@ -147,6 +218,8 @@ class WarningUiStateTest {
         relativeTime = "20 minutes ago",
         pgaLabel = "61.5 gal",
         durationLabel = "—",
-        coordinates = "-6.91750, 107.61910"
+        coordinates = "-6.91750, 107.61910",
+        latitude = -6.91750,
+        longitude = 107.61910
     )
 }

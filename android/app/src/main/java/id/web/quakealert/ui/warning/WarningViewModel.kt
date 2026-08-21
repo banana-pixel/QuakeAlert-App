@@ -16,6 +16,7 @@ import id.web.quakealert.domain.AlertGate
 import id.web.quakealert.domain.AlertType
 import id.web.quakealert.domain.EarthquakeEvent
 import id.web.quakealert.domain.EventStatus
+import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.domain.UserLocation
 import id.web.quakealert.domain.WsAlertMessage
 import id.web.quakealert.domain.distanceKmTo
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import kotlin.math.roundToInt
 
 /**
@@ -95,6 +97,25 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
      * recompose the screen for a value nothing is showing.
      */
     private var activeAlertDetails: QuakeHistoryItem? = null
+
+    /**
+     * Last device position seen by either load path.
+     *
+     * Cached because [onSeeDetailsClicked] is called from a tap, not a coroutine,
+     * and the Earthquake Possibility card it raises needs a coordinate to centre its
+     * basemap on. Reading the store is suspending, so the alternative is launching a
+     * coroutine on every tap to fetch something that changes far more slowly than
+     * the user opens the card.
+     */
+    private var lastKnownLocation: UserLocation? = null
+
+    /**
+     * Last computed "Recent Seismic Activity" read, cached for the same reason
+     * [lastKnownLocation] is: [onSeeDetailsClicked] runs on a tap, and the card it
+     * raises must open with real numbers rather than a spinner. Recomputed by every
+     * load, so it is never older than the screen around it.
+     */
+    private var recentActivity: RecentSeismicActivity = RecentSeismicActivity()
 
     init {
         load()
@@ -184,12 +205,17 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
      */
     private suspend fun fetchWarning(): LoadOutcome {
         val latest = apiClient.fetchEvents(limit = 1).getOrThrow().firstOrNull()
+        // Read before the resting early-return: the resting state is precisely the
+        // one that offers the Earthquake Possibility card, so the position must be
+        // cached on the quiet path too, not only when there is a quake to gate.
+        val userLocation = apiClient.currentUserLocation()
+        lastKnownLocation = userLocation
         if (latest == null || !latest.isOngoing()) {
             activeAlertDetails = null
-            return LoadOutcome.Resting(restingSnapshot())
+            recentActivity = fetchRecentActivity(userLocation)
+            return LoadOutcome.Resting(restingSnapshot(recentActivity))
         }
 
-        val userLocation = apiClient.currentUserLocation()
         activeAlertDetails = latest.toHistoryItem(userLocation)
 
         // The same gate the realtime path uses. A cold start during a quake on the
@@ -210,6 +236,69 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
             )
         }
         return LoadOutcome.Emergency(latest.toActiveAlert(userLocation))
+    }
+
+    /**
+     * Counts what the network has actually recorded near the user in the last
+     * [ACTIVITY_WINDOW_DAYS] days, for the resting banner's read and the "Recent
+     * Seismic Activity" card behind it.
+     *
+     * Only run on the resting path: that is the one state whose banner offers this
+     * card, so a screen opening on a live quake never pays for a second request.
+     *
+     * The radius is the fixed [SafetyPolicy.ALERT_RADIUS_KM] rather than the History
+     * filter's browse radius. "Near you" here has to mean the area alerts are issued
+     * for; a number the user could widen by changing an unrelated filter would not be
+     * comparable to anything.
+     *
+     * Two failure modes, kept distinct because they need different sentences:
+     *  - **no position**: `fetchEvents` drops `range_km` when it has no centre, so the
+     *    request would silently answer for the whole country. Refused rather than sent
+     *    — a national count labelled "nearby" is worse than admitting the gap.
+     *  - **request failed**: reported as unavailable, never as zero. "No quakes near
+     *    you" is exactly the reading a life-safety app must not invent.
+     */
+    private suspend fun fetchRecentActivity(center: UserLocation?): RecentSeismicActivity {
+        if (center == null) return RecentSeismicActivity()
+
+        val label = QuakeFormat.coordinates(center.latitude, center.longitude)
+        val since = Instant.now().minus(ACTIVITY_WINDOW_DAYS.toLong(), ChronoUnit.DAYS)
+        val events = apiClient.fetchEvents(
+            limit = ACTIVITY_PAGE_LIMIT,
+            rangeKm = SafetyPolicy.ALERT_RADIUS_KM,
+            center = center,
+            since = since
+        ).getOrElse {
+            return RecentSeismicActivity(
+                locationLabel = label,
+                availability = ActivityAvailability.UNAVAILABLE,
+                latitude = center.latitude,
+                longitude = center.longitude
+            )
+        }
+
+        val now = Instant.now()
+        // The feed is sorted created_at DESC, so the newest is the head — but the
+        // strongest has to be searched for: intensity and recency are unrelated.
+        val newest = events.firstOrNull()
+        val strongest = events.maxByOrNull { it.pgaGal }
+
+        return RecentSeismicActivity(
+            locationLabel = label,
+            availability = ActivityAvailability.MEASURED,
+            eventCount = events.size,
+            // A full page is a floor, not a tally: there may be more behind it, and
+            // printing the page size as the count would understate a busy month.
+            isCountCapped = events.size >= ACTIVITY_PAGE_LIMIT,
+            mostRecent = newest?.let {
+                "${it.intensityValueLabel()}, ${QuakeFormat.relativeTime(it.createdAt, now)}"
+            },
+            strongest = strongest?.let {
+                "${it.intensityValueLabel()}, ${QuakeFormat.pga(it.pgaGal)}"
+            },
+            latitude = center.latitude,
+            longitude = center.longitude
+        )
     }
 
     /**
@@ -248,7 +337,10 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
                 // Idle guard.
                 AlertType.EARTHQUAKE_ADVISORY -> _uiState.update { state ->
                     if (state is WarningUiState.Idle) {
-                        state.copy(banner = advisoryBanner(), isLoading = false)
+                        state.copy(
+                            banner = advisoryBanner(recentActivity.bannerLabel),
+                            isLoading = false
+                        )
                     } else {
                         state
                     }
@@ -274,6 +366,7 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
      */
     private suspend fun raiseAlert(message: WsAlertMessage) {
         val userLocation: UserLocation? = apiClient.currentUserLocation()
+        lastKnownLocation = userLocation
         activeAlertDetails = message.toHistoryItem(userLocation)
 
         val decision = AlertGate.decide(
@@ -359,7 +452,7 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
         // non-dismissible: the all-clear is the thing that removes it.
         WarningNotifier.clear(getApplication())
         activeAlertDetails = null
-        val snapshot = restingSnapshot()
+        val snapshot = restingSnapshot(recentActivity)
         _uiState.update { state ->
             WarningUiState.Idle(
                 banner = snapshot.banner,
@@ -425,8 +518,8 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
     /**
      * Raises the overlay behind the idle banner's "SEE DETAILS" capsule, dispatched
      * by the current variant: [ActiveQuakeBanner] opens the "Recent Earthquake"
-     * event detail (Figma 124:1192), [PossibilityBanner] opens the "Earthquake
-     * Possibility" card (Figma 124:1605). Keeping the dispatch here means the screen
+     * event detail (Figma 124:1192), [SeismicActivityBanner] opens the "Recent
+     * Seismic Activity" card (Figma 124:1605). Keeping the dispatch here means the screen
      * never needs to know which overlay a tap raises.
      */
     fun onSeeDetailsClicked() {
@@ -441,9 +534,13 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
                     }
                 }
             }
-            is PossibilityBanner -> _uiState.update { state ->
+            // Opens the cached read rather than firing a request behind the tap: the
+            // card must appear with its numbers already in it, and every load has
+            // refreshed this. A user with no fix sees the NO_POSITION copy, which is the
+            // honest answer to "what is near me?" when we do not know where "me" is.
+            is SeismicActivityBanner -> _uiState.update { state ->
                 if (state is WarningUiState.Idle) {
-                    state.copy(selectedPossibility = EarthquakePossibility())
+                    state.copy(selectedActivity = recentActivity)
                 } else {
                     state
                 }
@@ -462,12 +559,12 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Closes the "Earthquake Possibility" overlay. Called for every dismissal
+     * Closes the "Recent Seismic Activity" overlay. Called for every dismissal
      * path — the close (X) button, a back press and a tap outside the card.
      */
-    fun onPossibilityDismissed() {
+    fun onActivityDismissed() {
         _uiState.update { state ->
-            if (state is WarningUiState.Idle) state.copy(selectedPossibility = null) else state
+            if (state is WarningUiState.Idle) state.copy(selectedActivity = null) else state
         }
     }
 
@@ -521,7 +618,14 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
         const val TITLE_RESTING = "No Recent Earthquake"
         const val SECTION_ACTIVE = "Stay alert for aftershocks"
         const val SECTION_RESTING = "Stay prepared for an earthquake"
-        const val POSSIBILITY_DEFAULT = "Possibility : High Risk"
+
+        /**
+         * How many events one activity query may return. A page rather than a true
+         * count: the endpoint pages, and 100 recorded events inside 200 km in a month
+         * is far past the point where an exact number tells the user anything the
+         * "100+" reading does not.
+         */
+        const val ACTIVITY_PAGE_LIMIT = 100
 
         fun activeSnapshot(intensityLabel: String, timeAgo: String) = WarningSnapshot(
             banner = ActiveQuakeBanner(
@@ -542,10 +646,10 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
             )
         )
 
-        fun restingSnapshot() = WarningSnapshot(
-            banner = PossibilityBanner(
+        fun restingSnapshot(activity: RecentSeismicActivity) = WarningSnapshot(
+            banner = SeismicActivityBanner(
                 title = TITLE_RESTING,
-                possibilityLabel = POSSIBILITY_DEFAULT
+                activityLabel = activity.bannerLabel
             ),
             sectionTitle = SECTION_RESTING,
             tips = noActiveQuakeTips()
@@ -556,9 +660,9 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
          * variant as the resting banner, so the layout is untouched — only the
          * read-out changes.
          */
-        fun advisoryBanner() = PossibilityBanner(
+        fun advisoryBanner(activityLabel: String) = SeismicActivityBanner(
             title = "Possible Tremor Detected",
-            possibilityLabel = POSSIBILITY_DEFAULT
+            activityLabel = activityLabel
         )
 
         /** Unresolved and inside the same window the realtime path uses. */

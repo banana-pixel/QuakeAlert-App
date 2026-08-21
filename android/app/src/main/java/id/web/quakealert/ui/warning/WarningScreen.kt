@@ -76,7 +76,7 @@ fun WarningRoute(
         onSeeDetails = viewModel::onSeeDetailsClicked,
         onEmergency = viewModel::onEmergencyClicked,
         onDetailDismissed = viewModel::onDetailDismissed,
-        onPossibilityDismissed = viewModel::onPossibilityDismissed,
+        onActivityDismissed = viewModel::onActivityDismissed,
         onShareClicked = shareEvent,
         onRetry = viewModel::onRetry,
         onMuteClick = viewModel::onMuteClick,
@@ -100,12 +100,14 @@ fun WarningRoute(
  *
  * **Idle** (Figma 124:1297 / 124:1426), top → bottom, mirroring the Chat/History
  * layout so all tabs share behaviour:
- *  1. the shared [QuakeAppBar] + the summary [AlertBanner] + a short [WarningDivider];
- *  2. a weighted body rendering exactly one of [QuakeLoadingState],
- *     [QuakeErrorState], [QuakeEmptyState] or the [LazyColumn] of preparedness tips,
- *     with the shared soft [fadingEdges] at the scroll bounds. The banner stays
- *     outside the branch: a failed refresh must never blank out an alert the user is
- *     already looking at;
+ *  1. the shared [QuakeAppBar], a [WarningOfflineNotice] while the link is down or a
+ *     load failed, the summary [AlertBanner] and a short [WarningDivider];
+ *  2. a weighted body rendering exactly one of [QuakeLoadingState], the [LazyColumn]
+ *     of preparedness tips, [QuakeErrorState] or [QuakeEmptyState], with the shared
+ *     soft [fadingEdges] at the scroll bounds. The banner stays outside the branch: a
+ *     failed refresh must never blank out an alert the user is already looking at, and
+ *     for the same reason the tips outrank the error card — they are held locally, so
+ *     a dead network is precisely when they are the only thing left that works;
  *  3. a pinned [EmergencyCta], reachable in every state — the emergency route is the
  *     last thing to hide when something goes wrong.
  *
@@ -115,7 +117,7 @@ fun WarningRoute(
  * Two sibling overlays can be raised over the idle state:
  *  - the "Recent Earthquake" event detail (Figma 124:1192) from the active banner's
  *    action, and
- *  - the "Earthquake Possibility" card (Figma 124:1605) from the resting banner's.
+ *  - the "Recent Seismic Activity" card (Figma 124:1605) from the resting banner's.
  *
  * All state and events are hoisted to the caller ([WarningRoute] /
  * [WarningViewModel]), including [listState] — hoisted to
@@ -129,7 +131,7 @@ fun WarningScreen(
     onSeeDetails: () -> Unit,
     onEmergency: () -> Unit,
     onDetailDismissed: () -> Unit,
-    onPossibilityDismissed: () -> Unit,
+    onActivityDismissed: () -> Unit,
     onShareClicked: (QuakeHistoryItem) -> Unit,
     onRetry: () -> Unit,
     onMuteClick: () -> Unit,
@@ -149,6 +151,7 @@ fun WarningScreen(
         when (uiState) {
             is WarningUiState.Idle -> IdleBody(
                 uiState = uiState,
+                connectionState = connectionState,
                 onSeeDetails = onSeeDetails,
                 onEmergency = onEmergency,
                 onRetry = onRetry,
@@ -183,11 +186,12 @@ fun WarningScreen(
         )
     }
 
-    // --- "Earthquake Possibility" overlay (Figma node 124:1605) ---------------
-    idle?.selectedPossibility?.let { possibility ->
-        EarthquakePossibilityModal(
-            possibility = possibility,
-            onDismiss = onPossibilityDismissed
+    // --- "Recent Seismic Activity" overlay (Figma node 124:1605) --------------
+    idle?.selectedActivity?.let { activity ->
+        RecentSeismicActivityModal(
+            activity = activity,
+            unitSystem = uiState.unitSystem,
+            onDismiss = onActivityDismissed
         )
     }
 }
@@ -203,15 +207,42 @@ fun WarningScreen(
 @Composable
 private fun ColumnScope.IdleBody(
     uiState: WarningUiState.Idle,
+    connectionState: ServerConnectionState,
     onSeeDetails: () -> Unit,
     onEmergency: () -> Unit,
     onRetry: () -> Unit,
     listState: LazyListState
 ) {
+    // Reported at the top and nowhere else. A load that failed and a link that is
+    // down are one thing to the user — "what you see below may be stale" — so they
+    // share one strip; the load's own message wins when there is one, being the more
+    // specific of the two. CONNECTING is left out: it is the normal first second of
+    // every cold start, and a notice that always flashes on launch trains the user to
+    // ignore the one that matters.
+    val notice = when {
+        // Suppressed during the first load, where the spinner is already saying
+        // "we are asking" and a notice would only pre-announce a failure.
+        uiState.isLoading -> null
+        uiState.isError -> uiState.errorMessage ?: GENERIC_ERROR_MESSAGE
+        connectionState == ServerConnectionState.DISCONNECTED -> OFFLINE_MESSAGE
+        else -> null
+    }
+    if (notice != null) {
+        WarningOfflineNotice(
+            message = notice,
+            onRetry = onRetry,
+            modifier = Modifier.padding(top = Dimens.WarningHeaderGap)
+        )
+    }
+
     AlertBanner(
         banner = uiState.banner,
         onSeeDetails = onSeeDetails,
-        modifier = Modifier.padding(top = Dimens.WarningHeaderGap)
+        // The header gap belongs to whichever element is first: with the notice above
+        // it, the banner only needs to clear it, not the header a second time.
+        modifier = Modifier.padding(
+            top = if (notice != null) Dimens.StateTextGap else Dimens.WarningHeaderGap
+        )
     )
 
     WarningDivider()
@@ -226,20 +257,12 @@ private fun ColumnScope.IdleBody(
             message = "Checking the alert network..."
         )
 
-        uiState.isError -> QuakeErrorState(
-            message = uiState.errorMessage ?: GENERIC_ERROR_MESSAGE,
-            onRetry = onRetry,
-            modifier = bodyModifier
-        )
-
-        uiState.tips.isEmpty() -> QuakeEmptyState(
-            icon = R.drawable.ic_nav_warning,
-            message = "No Guidance Available",
-            subtitle = "Preparedness guidance for your area will appear here.",
-            modifier = bodyModifier
-        )
-
-        else -> LazyColumn(
+        // Tips outrank the error card deliberately, and this is the whole point of
+        // plan item 5: the list defaults to a locally-held set, so it is real content
+        // that owes nothing to the network. The failure is already stated in the notice
+        // above; blanking the guidance to say it a second time would cost the user the
+        // only part of this screen that still works.
+        uiState.tips.isNotEmpty() -> LazyColumn(
             state = listState,
             modifier = bodyModifier.fadingEdges(),
             contentPadding = PaddingValues(
@@ -262,6 +285,22 @@ private fun ColumnScope.IdleBody(
                 PrepTipRow(tip = tip)
             }
         }
+
+        // Reached only when there is genuinely nothing to show, which is where the
+        // full-body cards belong: the error variant when the failure is why the list
+        // is empty, the empty variant when the list simply came back empty.
+        uiState.isError -> QuakeErrorState(
+            message = uiState.errorMessage ?: GENERIC_ERROR_MESSAGE,
+            onRetry = onRetry,
+            modifier = bodyModifier
+        )
+
+        else -> QuakeEmptyState(
+            icon = R.drawable.ic_nav_warning,
+            message = "No Guidance Available",
+            subtitle = "Preparedness guidance for your area will appear here.",
+            modifier = bodyModifier
+        )
     }
 
     EmergencyCta(
@@ -273,6 +312,14 @@ private fun ColumnScope.IdleBody(
 /** Fallback shown when a failed load carried no message of its own. */
 private const val GENERIC_ERROR_MESSAGE =
     "Could not reach the alert network. Check your connection and try again."
+
+/**
+ * Shown while the backend link is down but nothing has failed outright. Names what
+ * still works rather than only what does not: the guidance below this notice is held
+ * locally, and a user reading it during a quake needs to know it is trustworthy.
+ */
+private const val OFFLINE_MESSAGE =
+    "Offline — alerts are paused. The guidance below works without a connection."
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
@@ -306,9 +353,9 @@ private fun WarningScreenWithDetailPreview() {
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
-private fun WarningScreenWithPossibilityPreview() {
+private fun WarningScreenWithActivityPreview() {
     PreviewWarningScreen(
-        WarningUiState.Idle(selectedPossibility = EarthquakePossibility())
+        WarningUiState.Idle(selectedActivity = previewSeismicActivity)
     )
 }
 
@@ -326,6 +373,16 @@ private fun WarningScreenErrorPreview() {
             isError = true,
             errorMessage = "Could not reach the alert network. Check your connection and try again."
         )
+    )
+}
+
+/** Offline with the tips intact — the state plan item 5 exists to protect. */
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun WarningScreenOfflinePreview() {
+    PreviewWarningScreen(
+        uiState = WarningUiState.Idle(),
+        connectionState = ServerConnectionState.DISCONNECTED
     )
 }
 
@@ -347,14 +404,18 @@ private fun WarningScreenActiveAlertMutedPreview() {
  * threaded through eight identical preview bodies.
  */
 @Composable
-private fun PreviewWarningScreen(uiState: WarningUiState) {
+private fun PreviewWarningScreen(
+    uiState: WarningUiState,
+    connectionState: ServerConnectionState = ServerConnectionState.CONNECTED
+) {
     QuakeAlertTheme {
         WarningScreen(
             uiState = uiState,
+            connectionState = connectionState,
             onSeeDetails = {},
             onEmergency = {},
             onDetailDismissed = {},
-            onPossibilityDismissed = {},
+            onActivityDismissed = {},
             onShareClicked = {},
             onRetry = {},
             onMuteClick = {},
@@ -362,6 +423,17 @@ private fun PreviewWarningScreen(uiState: WarningUiState) {
         )
     }
 }
+
+/** Shared preview fixture for the "Recent Seismic Activity" overlay preview. */
+private val previewSeismicActivity = RecentSeismicActivity(
+    locationLabel = "-6.91750, 107.61910",
+    availability = ActivityAvailability.MEASURED,
+    eventCount = 3,
+    mostRecent = "IV (moderate), 2 days ago",
+    strongest = "V (strong), 61.5 gal",
+    latitude = -6.91750,
+    longitude = 107.61910
+)
 
 /** Shared preview fixture for the Warning detail overlay previews. */
 private val previewActiveAlertDetails = QuakeHistoryItem(
@@ -375,5 +447,7 @@ private val previewActiveAlertDetails = QuakeHistoryItem(
     relativeTime = "2 months ago",
     pgaLabel = "61.5 gal",
     durationLabel = "7 sec",
-    coordinates = "41.40338, 2.17403"
+    coordinates = "41.40338, 2.17403",
+    latitude = 41.40338,
+    longitude = 2.17403
 )

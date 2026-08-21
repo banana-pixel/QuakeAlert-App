@@ -34,6 +34,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import id.web.quakealert.R
+import id.web.quakealert.data.UnitSystem
+import id.web.quakealert.ui.common.MapFocus
+import id.web.quakealert.ui.common.QuakeMap
 import id.web.quakealert.ui.common.QuakeModalHeader
 import id.web.quakealert.ui.theme.AlertActionBorder
 import id.web.quakealert.ui.theme.AlertBannerGradient
@@ -50,11 +53,13 @@ import id.web.quakealert.ui.theme.EmergencyCtaFill
 import id.web.quakealert.ui.theme.EventDetailDividerColor
 import id.web.quakealert.ui.theme.EventDetailLocation
 import id.web.quakealert.ui.theme.EventDetailMeta
-import id.web.quakealert.ui.theme.MapPlaceholder
 import id.web.quakealert.ui.theme.MetricLabel
+import id.web.quakealert.ui.theme.MmiOrange
 import id.web.quakealert.ui.theme.MetricPanelFill
 import id.web.quakealert.ui.theme.MetricValue
 import id.web.quakealert.ui.theme.NunitoFontFamily
+import id.web.quakealert.ui.theme.OfflineNoticeBorder
+import id.web.quakealert.ui.theme.OfflineNoticeFill
 import id.web.quakealert.ui.theme.PossibilityBannerGradient
 import id.web.quakealert.ui.theme.PossibilityDisclaimer
 import id.web.quakealert.ui.theme.PossibilityModalGradient
@@ -84,7 +89,7 @@ fun AlertBanner(
     val shape = RoundedCornerShape(Dimens.AlertBannerRadius)
     val (gradient, glyph) = when (banner) {
         is ActiveQuakeBanner -> AlertBannerGradient to R.drawable.ic_recording_02
-        is PossibilityBanner -> PossibilityBannerGradient to R.drawable.ic_globe_04
+        is SeismicActivityBanner -> PossibilityBannerGradient to R.drawable.ic_globe_04
     }
 
     Row(
@@ -123,8 +128,8 @@ fun AlertBanner(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                is PossibilityBanner -> Text(
-                    text = banner.possibilityLabel,
+                is SeismicActivityBanner -> Text(
+                    text = banner.activityLabel,
                     style = BannerValue,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -161,6 +166,78 @@ fun AlertBanner(
             colorFilter = ColorFilter.tint(TextPrimary),
             modifier = Modifier.size(Dimens.AlertWaveIconSize)
         )
+    }
+}
+
+/**
+ * Offline / failed-load notice, pinned above the alert banner.
+ *
+ * It sits at the *top* and takes only the height of its own copy because of what is
+ * beneath it: the preparedness guidance and the Emergency call-to-action, both of
+ * which work with no network at all. A disaster is exactly when the cell network
+ * fails, and replacing that guidance with a full-body error card would take the
+ * screen's only offline-capable content away at the moment it matters most. So the
+ * bad news is reported here, in one strip, and the rest of the screen stays where
+ * the user left it.
+ *
+ * No design node: the [id.web.quakealert.ui.common.QuakeErrorState] card it replaces
+ * in this position owns the "something failed" language, so this borrows that card's
+ * `alert-triangle` glyph and its "Retry" affordance rather than inventing a third.
+ *
+ * @param message what failed, in one line — a ViewModel `errorMessage`, or the
+ *   screen's offline copy.
+ * @param onRetry re-runs the load. Kept even while the device is offline: the user
+ *   knows better than we do when their signal is back.
+ */
+@Composable
+fun WarningOfflineNotice(
+    message: String,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(Dimens.RadiusSmall)
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(OfflineNoticeFill, shape)
+            .border(Dimens.BorderThin, OfflineNoticeBorder, shape)
+            .padding(Dimens.OfflineNoticePadding),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.OfflineNoticeGap),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.ic_alert_triangle),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(MmiOrange),
+            modifier = Modifier.size(Dimens.OfflineNoticeGlyphSize)
+        )
+
+        Text(
+            text = message,
+            style = CardSubtitle.copy(color = TextPrimary),
+            modifier = Modifier.weight(1f)
+        )
+
+        Box(
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .clip(RoundedCornerShape(Dimens.AlertActionRadius))
+                .border(
+                    Dimens.BorderMedium,
+                    AlertActionBorder,
+                    RoundedCornerShape(Dimens.AlertActionRadius)
+                )
+                .clickable(role = Role.Button, onClick = onRetry)
+                .padding(
+                    horizontal = Dimens.AlertActionPaddingHorizontal,
+                    vertical = Dimens.AlertActionPaddingVertical
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = "RETRY", style = ChipLabel)
+        }
     }
 }
 
@@ -267,15 +344,16 @@ fun EmergencyCta(
 }
 
 /**
- * The Earthquake Possibility overlay hosted in its own [Dialog] window (Figma
- * node 124:1605), opened from the resting banner's "SEE DETAILS" action. Same
- * chrome as [id.web.quakealert.ui.common.QuakeEventDetailModalDialog] — platform
- * width disabled so the card spans the screens' content column, and every
+ * The "Recent Seismic Activity" overlay hosted in its own [Dialog] window (the
+ * design's Figma 124:1605 frame), opened from the resting banner's "SEE DETAILS"
+ * action. Same chrome as [id.web.quakealert.ui.common.QuakeEventDetailModalDialog] —
+ * platform width disabled so the card spans the screens' content column, and every
  * dismissal path (close button, back press, outside tap) routes to [onDismiss].
  */
 @Composable
-fun EarthquakePossibilityModal(
-    possibility: EarthquakePossibility,
+fun RecentSeismicActivityModal(
+    activity: RecentSeismicActivity,
+    unitSystem: UnitSystem,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -283,8 +361,9 @@ fun EarthquakePossibilityModal(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        EarthquakePossibilityCard(
-            possibility = possibility,
+        RecentSeismicActivityCard(
+            activity = activity,
+            unitSystem = unitSystem,
             onDismiss = onDismiss,
             modifier = modifier.padding(Dimens.ScreenHorizontalPadding)
         )
@@ -292,27 +371,47 @@ fun EarthquakePossibilityModal(
 }
 
 /**
- * Stateless Earthquake Possibility card (Figma node 124:1605): a near-flat dark
- * surface (so the overlay reads as a lifted panel, not an alert) carrying five
- * sections [Dimens.EventDetailSectionGap] apart:
- *  1. Header — centered "Earthquake Possibility" with the shared circular close.
- *  2. Location + possibility read.
- *  3. Map placeholder — same deferral of the map SDK the other screens make.
- *  4. Stats card — most recent quake and local count within the coverage radius.
+ * Stateless "Recent Seismic Activity" card (the design's Figma node 124:1605): a
+ * near-flat dark surface (so the overlay reads as a lifted panel, not an alert)
+ * carrying five sections [Dimens.EventDetailSectionGap] apart:
+ *  1. Header — centered "Recent Seismic Activity" with the shared circular close.
+ *  2. The point the counts were measured from, and the query in one line.
+ *  3. Basemap ([QuakeMap]) centred on the device's own position, since the read is
+ *     about activity *where the user is*. With no position ever synced there is
+ *     nothing honest to centre on, so the card keeps [QuakeMap]'s dark ground and
+ *     section 2's copy carries the news.
+ *  4. Stats panel — three recorded facts: how many events, the newest, the hardest.
  *  5. Accuracy disclaimer in light italic.
  *
+ * Every row prints a fact or says plainly that there is none — an em dash and a "None
+ * recorded" instead of a plausible-looking placeholder. This card is the one place the
+ * app volunteers numbers nobody asked for, so a wrong one here would be believed.
+ *
  * The card scrolls internally so every section stays reachable on short
- * viewports. Exposed separately from [EarthquakePossibilityModal] so it can be
+ * viewports. Exposed separately from [RecentSeismicActivityModal] so it can be
  * previewed without a dialog window.
+ *
+ * @param unitSystem renders the query radius in the unit chosen in Settings.
  */
 @Composable
-fun EarthquakePossibilityCard(
-    possibility: EarthquakePossibility,
+fun RecentSeismicActivityCard(
+    activity: RecentSeismicActivity,
+    unitSystem: UnitSystem,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val shape = remember { RoundedCornerShape(Dimens.RadiusCard) }
     val statsShape = remember { RoundedCornerShape(Dimens.RadiusSmall) }
+    val focus = remember(activity.latitude, activity.longitude) {
+        val latitude = activity.latitude
+        val longitude = activity.longitude
+        if (latitude != null && longitude != null) {
+            MapFocus(latitude = latitude, longitude = longitude, zoom = MapFocus.ZOOM_REGION)
+        } else {
+            null
+        }
+    }
+    val radiusLabel = unitSystem.formatDistance(activity.radiusKm)
 
     Column(
         modifier = modifier
@@ -324,32 +423,37 @@ fun EarthquakePossibilityCard(
             .padding(Dimens.ModalPadding),
         verticalArrangement = Arrangement.spacedBy(Dimens.EventDetailSectionGap)
     ) {
-        QuakeModalHeader(onDismiss = onDismiss, title = "Earthquake Possibility")
+        QuakeModalHeader(onDismiss = onDismiss, title = "Recent Seismic Activity")
 
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(Dimens.EventDetailMmiColumnGap)
         ) {
             Text(
-                text = possibility.location,
+                text = activity.locationLabel,
                 style = EventDetailLocation,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            // The query, stated rather than implied. Every number below is scoped by
+            // it, and a count without its radius and window is not a fact.
             Text(
-                text = possibility.possibilityLabel,
+                text = "Within $radiusLabel, past ${activity.windowDays} days",
                 style = EventDetailMeta,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
 
-        Box(
+        QuakeMap(
+            focus = focus,
+            // Top-start: this card draws no overlays of its own, and the top edge
+            // sits furthest from the stats panel below.
+            attributionAlignment = Alignment.TopStart,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(Dimens.EventDetailMapHeight)
                 .clip(shape)
-                .background(MapPlaceholder, shape)
                 .border(Dimens.BorderThin, CardBorder, shape)
         )
 
@@ -362,26 +466,30 @@ fun EarthquakePossibilityCard(
                 .padding(Dimens.EventDetailInfoPadding),
             verticalArrangement = Arrangement.spacedBy(Dimens.EventDetailInfoGap)
         ) {
-            PossibilityStatRow(
-                label = possibility.recentEarthquakeLabel,
-                value = possibility.recentEarthquakeValue
+            ActivityStatRow(
+                label = "Confirmed Events",
+                value = activity.countValue
             )
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(Dimens.BorderThin)
-                    .background(EventDetailDividerColor)
+            ActivityStatDivider()
+
+            ActivityStatRow(
+                label = "Most Recent",
+                value = activity.mostRecentValue
             )
 
-            PossibilityStatRow(
-                label = possibility.earthquakeCountLabel,
-                value = possibility.earthquakeCountValue
+            ActivityStatDivider()
+
+            // "The last one" and "the worst one" are different questions, and in a
+            // month of records they are usually different events.
+            ActivityStatRow(
+                label = "Strongest Shaking",
+                value = activity.strongestValue
             )
         }
 
         Text(
-            text = possibility.disclaimer,
+            text = ACTIVITY_DISCLAIMER,
             style = PossibilityDisclaimer,
             modifier = Modifier.fillMaxWidth()
         )
@@ -389,13 +497,34 @@ fun EarthquakePossibilityCard(
 }
 
 /**
- * One stat row of the possibility card (Figma node 124:1652): a fixed 44dp block
+ * Accuracy note under the stats. Reworded from the design's copy to drop its
+ * "possibility" framing and to name the real limit: these are counts from a community
+ * network whose density varies, so an area with two stations under-reports compared to
+ * one with twenty. It is not, and must not read as, a forecast.
+ */
+private const val ACTIVITY_DISCLAIMER =
+    "Counts come from QuakeAlert's own stations and depend on how many are near you. " +
+        "They describe shaking already recorded — not a forecast of what comes next."
+
+/** Hairline between two [ActivityStatRow]s. */
+@Composable
+private fun ActivityStatDivider(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(Dimens.BorderThin)
+            .background(EventDetailDividerColor)
+    )
+}
+
+/**
+ * One stat row of the activity card (Figma node 124:1652): a fixed 44dp block
  * that Figma splits into two 22dp halves. [Arrangement.SpaceEvenly] reproduces
  * that split from the two line boxes — the same treatment the Earthquake Details
  * overlay's spatial rows use.
  */
 @Composable
-private fun PossibilityStatRow(
+private fun ActivityStatRow(
     label: String,
     value: String,
     modifier: Modifier = Modifier
@@ -423,12 +552,12 @@ private fun PossibilityStatRow(
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
-private fun PossibilityBannerPreview() {
+private fun SeismicActivityBannerPreview() {
     QuakeAlertTheme {
         AlertBanner(
-            banner = PossibilityBanner(
+            banner = SeismicActivityBanner(
                 title = "No Recent Earthquake",
-                possibilityLabel = "Possibility : High Risk"
+                activityLabel = previewActivity.bannerLabel
             ),
             onSeeDetails = {},
             modifier = Modifier.padding(16.dp)
@@ -470,10 +599,39 @@ private fun PrepTipRowPreview() {
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
-private fun EarthquakePossibilityCardPreview() {
+private fun RecentSeismicActivityCardPreview() {
     QuakeAlertTheme {
-        EarthquakePossibilityCard(
-            possibility = EarthquakePossibility(),
+        RecentSeismicActivityCard(
+            activity = previewActivity,
+            unitSystem = UnitSystem.METRIC,
+            onDismiss = {},
+            modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)
+        )
+    }
+}
+
+/** A populated month, so the previews show the card's fullest state. */
+private val previewActivity = RecentSeismicActivity(
+    locationLabel = "-6.91750, 107.61910",
+    availability = ActivityAvailability.MEASURED,
+    eventCount = 3,
+    mostRecent = "IV (moderate), 2 days ago",
+    strongest = "V (strong), 61.5 gal",
+    latitude = -6.91750,
+    longitude = 107.61910
+)
+
+/** The quiet month — the state the card must state plainly rather than pad. */
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+private fun RecentSeismicActivityCardEmptyPreview() {
+    QuakeAlertTheme {
+        RecentSeismicActivityCard(
+            activity = RecentSeismicActivity(
+                locationLabel = "-6.91750, 107.61910",
+                availability = ActivityAvailability.MEASURED
+            ),
+            unitSystem = UnitSystem.METRIC,
             onDismiss = {},
             modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)
         )

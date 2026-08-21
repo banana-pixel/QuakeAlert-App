@@ -4,6 +4,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.runtime.Immutable
 import id.web.quakealert.R
 import id.web.quakealert.data.UnitSystem
+import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.history.QuakeHistoryItem
 
 /**
@@ -11,8 +12,8 @@ import id.web.quakealert.ui.history.QuakeHistoryItem
  * 124:1297 / 124:1426).
  *
  * Sealed so the two states can never mix their fields: a recently-detected quake
- * carries an intensity + relative time, while the calm state carries a possibility
- * read. The variant also drives the banner's gradient and glyph in the component
+ * carries an intensity + relative time, while the calm state carries a read of how
+ * much seismic activity the network has actually recorded nearby. The variant also drives the banner's gradient and glyph in the component
  * layer, mirroring how [id.web.quakealert.ui.history.MmiSeverity] picks the detail
  * modal's gradient — variant is identity, rendering is the component's job.
  *
@@ -41,34 +42,130 @@ data class ActiveQuakeBanner(
 ) : WarningBanner
 
 /**
- * Calm state (Figma 124:1426): no recent quake, so the banner reads the
- * possibility of one instead.
+ * Calm state (Figma 124:1426): no recent quake, so the banner reads what the network
+ * *has* recorded nearby lately.
+ *
+ * It used to read "Possibility : High Risk". That was a prediction, and this system
+ * cannot make one — it reports shaking its stations have already felt. A risk read
+ * the data cannot support is worse than no read at all: a user who is told "high
+ * risk" every calm day learns to discount the screen, and the one thing this screen
+ * must never be is ignorable.
  */
 @Immutable
-data class PossibilityBanner(
+data class SeismicActivityBanner(
     override val title: String,
-    /** Possibility read (e.g. "Possibility : High Risk"). */
-    val possibilityLabel: String
+    /** Recorded-activity read (e.g. "3 events nearby in the past 30 days"). */
+    val activityLabel: String
 ) : WarningBanner
 
 /**
- * Content of the Earthquake Possibility overlay (Figma 124:1605), opened from the
- * resting banner's "SEE DETAILS" action: where the risk is, the most recent quake
- * and the local count within the coverage radius, plus the accuracy disclaimer.
+ * Content of the "Recent Seismic Activity" overlay (the design's Figma 124:1605
+ * frame, re-pointed), opened from the resting banner's "SEE DETAILS" action.
  *
- * The `(--- km radius)` markers are placeholders from the design — they become
- * real radius values once the sensor data feed is wired in.
+ * This replaces the design's Earthquake Possibility card, and the replacement is the
+ * honest one: the card's placeholders promised a risk forecast
+ * (`"Possibility : High Risk"`), a radius the app did not know (`"(--- km radius)"`)
+ * and a "count" that was actually a pair of coordinates. A MEMS network measures
+ * shaking that has already happened; it does not forecast. So every field here is a
+ * count, a time or an intensity the server has recorded — and when the server has
+ * recorded nothing, the card says so rather than filling the space.
+ *
+ * Every string is composed by [WarningViewModel] from real events, except the two
+ * that are constants of the query itself ([radiusKm], [windowDays]) and are printed
+ * by the card in the user's unit.
+ *
+ * @param locationLabel the point the query was measured from, in prose or
+ *   coordinates; names the absence when no fix has ever been synced.
+ * @param radiusKm the radius the counts cover. Defaults to the fixed alert radius,
+ *   because "near you" on this screen means the area alerts are issued for — not the
+ *   browsable radius of the History filter, which the user can change.
+ * @param windowDays how far back the counts reach.
+ * @param eventCount confirmed events inside that radius and window.
+ * @param isCountCapped true when the page hit its limit, so [eventCount] is a floor
+ *   and must be printed as "N+" rather than as an exact tally.
+ * @param mostRecent intensity + relative time of the newest event ("IV (moderate),
+ *   2 days ago"), or null when the window holds none.
+ * @param strongest intensity + PGA of the hardest shaking in the window, or null as
+ *   above. Distinct from [mostRecent]: "the last one" and "the worst one" are
+ *   different questions and are rarely the same event.
+ * @param latitude device latitude the card's basemap is centred on, or null when no
+ *   position has ever been synced — this card is about activity *where the user is*,
+ *   so with no fix there is nothing honest to centre on.
+ * @param longitude device longitude; see [latitude].
  */
+/**
+ * Why [RecentSeismicActivity]'s numbers may be missing. Three cases rather than a
+ * nullable count, because they need three different sentences: an area the network
+ * genuinely recorded nothing in is not the same as an area we could not ask about,
+ * and neither is the same as a device that has never told us where it is. Collapsing
+ * them would print "No events nearby" to a user we simply failed to measure.
+ */
+enum class ActivityAvailability { MEASURED, NO_POSITION, UNAVAILABLE }
+
 @Immutable
-data class EarthquakePossibility(
-    val location: String = "Lembang, West Java, ID",
-    val possibilityLabel: String = "Possibility : High Risk",
-    val recentEarthquakeLabel: String = "Recent Earthquake (--- km radius)",
-    val recentEarthquakeValue: String = "2 days ago",
-    val earthquakeCountLabel: String = "Earthquake Count (--- km radius)",
-    val earthquakeCountValue: String = "41.40338, 2.17403",
-    val disclaimer: String = "Data may not accurate and should not used for reference. Sensor count in your area affect data accuracy."
-)
+data class RecentSeismicActivity(
+    val locationLabel: String = "Location not synced",
+    val availability: ActivityAvailability = ActivityAvailability.NO_POSITION,
+    val radiusKm: Int = SafetyPolicy.ALERT_RADIUS_KM,
+    val windowDays: Int = ACTIVITY_WINDOW_DAYS,
+    val eventCount: Int = 0,
+    val isCountCapped: Boolean = false,
+    val mostRecent: String? = null,
+    val strongest: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null
+) {
+
+    /** "3 events" / "20+ events" / "1 event" / "No events" — measured cases only. */
+    private val countText: String
+        get() = when {
+            eventCount == 0 -> "No events"
+            isCountCapped -> "$eventCount+ events"
+            eventCount == 1 -> "1 event"
+            else -> "$eventCount events"
+        }
+
+    /** The count row's value, or the reason there is no count. */
+    val countValue: String get() = measured(countText)
+
+    /** The newest event, "None recorded" for a quiet window, or the reason. */
+    val mostRecentValue: String get() = measured(mostRecent ?: NONE_RECORDED)
+
+    /** The hardest shaking, on the same three-way terms as [mostRecentValue]. */
+    val strongestValue: String get() = measured(strongest ?: NONE_RECORDED)
+
+    /**
+     * The resting banner's one line. Radius is left out on purpose — the banner has
+     * a single line to spend and the card states the radius exactly, in the user's
+     * own unit, which the banner is built too early to know.
+     */
+    val bannerLabel: String
+        get() = when (availability) {
+            ActivityAvailability.MEASURED ->
+                "$countText nearby in the past $windowDays days"
+            ActivityAvailability.NO_POSITION -> "Sync your location to see nearby activity"
+            ActivityAvailability.UNAVAILABLE -> "Recent activity unavailable"
+        }
+
+    private fun measured(value: String): String = when (availability) {
+        ActivityAvailability.MEASURED -> value
+        ActivityAvailability.NO_POSITION -> NEEDS_POSITION
+        ActivityAvailability.UNAVAILABLE -> UNAVAILABLE_VALUE
+    }
+
+    private companion object {
+        const val NONE_RECORDED = "None recorded"
+        const val NEEDS_POSITION = "Needs your location"
+        const val UNAVAILABLE_VALUE = "Unavailable offline"
+    }
+}
+
+/**
+ * How far back [RecentSeismicActivity] counts. A month: long enough that a quiet
+ * fortnight does not read as a dead network, short enough that the count still
+ * describes now rather than the region's history.
+ */
+const val ACTIVITY_WINDOW_DAYS = 30
 
 /**
  * A single preparedness tip row (Figma node 1:1038): a circular white glyph on
@@ -175,23 +272,26 @@ sealed interface WarningUiState {
      * @param selectedEventDetails the event whose "Recent Earthquake" detail overlay
      *   (Figma node 124:1192) is open — raised from the active banner's action — or
      *   null when no overlay is showing.
-     * @param selectedPossibility the [EarthquakePossibility] overlay (Figma 124:1605)
-     *   raised from the resting banner's action, or null when it is closed.
+     * @param selectedActivity the [RecentSeismicActivity] overlay raised from the
+     *   resting banner's action, or null when it is closed.
      */
     @Immutable
     data class Idle(
         val isLoading: Boolean = false,
         val isError: Boolean = false,
         val errorMessage: String? = null,
-        val banner: WarningBanner = PossibilityBanner(
+        val banner: WarningBanner = SeismicActivityBanner(
             title = "No Recent Earthquake",
-            possibilityLabel = "Possibility : High Risk"
+            // The pre-load read, and deliberately not a number: until the query
+            // returns, the app does not know how many events are nearby, and printing
+            // a placeholder count would be the same lie the old "High Risk" told.
+            activityLabel = "Checking recent activity nearby"
         ),
         val sectionTitle: String = "Stay prepared for an earthquake",
         val tips: List<PreparednessTip> = noActiveQuakeTips(),
         override val unitSystem: UnitSystem = UnitSystem.METRIC,
         val selectedEventDetails: QuakeHistoryItem? = null,
-        val selectedPossibility: EarthquakePossibility? = null
+        val selectedActivity: RecentSeismicActivity? = null
     ) : WarningUiState {
 
         override fun withUnitSystem(unitSystem: UnitSystem): Idle =
