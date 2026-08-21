@@ -1,0 +1,18 @@
+<!--
+  Untitled UI "alert-triangle" at the Warning emergency card's badge size (Figma
+  node 1:1062, 62.5dp). A separate drawable from ic_alert_triangle.xml rather than
+  the same one scaled up: the design's stroke weight is authored against the 63px
+  viewport, and reusing the 24px drawable at 2.6x would render a hairline.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="63dp"
+    android:height="63dp"
+    android:viewportWidth="63"
+    android:viewportHeight="63">
+    <path
+        android:pathData="M31.4994,23.6249V34.1249M31.4994,44.6249H31.5256M27.8646,10.2156L6.2743,47.508C5.0767,49.5765 4.478,50.6107 4.5665,51.4596C4.6437,52.1999 5.0316,52.8727 5.6336,53.3105C6.3239,53.8124 7.519,53.8124 9.9091,53.8124H53.0897C55.4798,53.8124 56.6749,53.8124 57.3652,53.3105C57.9672,52.8727 58.3551,52.1999 58.4323,51.4596C58.5208,50.6107 57.9221,49.5765 56.7245,47.508L35.1342,10.2156C33.9409,8.1546 33.3443,7.1241 32.5659,6.7779C31.887,6.476 31.1118,6.476 30.4329,6.7779C29.6545,7.1241 29.0579,8.1546 27.8646,10.2156Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="6.048"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

@@ -420,6 +420,69 @@ object Dimens {
     val EmergencyCtaHeight = 34.dp
     val EmergencyCtaRadius = 10.dp
 
+    // --- Active earthquake alert screen (Figma node 1:1043) ------------------
+    // The emergency card replaces the whole resting body, so it owns its own
+    // geometry rather than extending the banner's.
+
+    /** Card inner padding (Figma 25) and corner radius (Figma 14). */
+    val EmergencyCardPadding = 25.dp
+    val EmergencyCardRadius = 14.dp
+    /** Gap between the card and the header above it. */
+    val EmergencyCardTopGap = 16.dp
+
+    /** Alert-triangle badge disc (Figma 105) and the glyph inside it (Figma 62.5). */
+    val EmergencyIconBadgeSize = 105.dp
+    val EmergencyIconGlyphSize = 62.5.dp
+    /** Gap between the badge and the "Earthquake Alert" headline (Figma gap 20). */
+    val EmergencyBadgeTitleGap = 20.dp
+
+    /** Gap between the intensity block's label and its value (Figma gap 2). */
+    val EmergencyIntensityGap = 2.dp
+    /** Gap between the intensity block and the proximity line (Figma gap 12). */
+    val EmergencyReadoutGap = 12.dp
+
+    // "Suggested Actions :" container (Figma node 1:1069)
+    val SuggestedActionsRadius = 14.dp
+    val SuggestedActionsPaddingTop = 14.dp
+    val SuggestedActionsPaddingHorizontal = 12.dp
+    val SuggestedActionsPaddingBottom = 20.dp
+    /** Gap between the container header and the action cards (Figma gap 15). */
+    val SuggestedActionsHeaderGap = 15.dp
+    /**
+     * Gap between the three action cards. Figma ships the trio as one 226dp raster
+     * with ~4% internal gutters; rebuilt as three cards, that gutter lands here.
+     */
+    val SuggestedActionCardGap = 8.dp
+    val SuggestedActionCardRadius = 6.dp
+    /**
+     * Width the three action cards share, matching the raster the design places
+     * here (Figma 226). Capped rather than filled: the artwork is a fixed-aspect
+     * pictogram trio, and letting it stretch to the card's full inner width would
+     * blow the figures up out of proportion to everything around them.
+     */
+    val SuggestedActionsRowMaxWidth = 226.dp
+
+    // Emergency hardware controls (Figma nodes 1:1072 / 1:1073 / 1:1076)
+    /** Gap between the wide MUTE control and the square SOS control (Figma gap 23). */
+    val EmergencyControlsGap = 23.dp
+    val EmergencyControlRadius = 10.dp
+    /**
+     * Control stroke (Figma 2). Twice [BorderThin] on purpose: these two are the
+     * only interactive targets on the emergency screen, and the heavier outline is
+     * what separates them from the card's decorative 1dp edges.
+     */
+    val EmergencyControlBorderWidth = 2.dp
+    /** MUTE control padding (Figma 6/10) and its glyph size (Figma 22.04). */
+    val EmergencyMutePaddingVertical = 6.dp
+    val EmergencyMutePaddingHorizontal = 10.dp
+    val EmergencyMuteIconSize = 22.dp
+    /** Gap between a control's glyph and its label (Figma gap 6). */
+    val EmergencyControlIconGap = 6.dp
+    /** SOS control is a fixed 76x76 square (Figma) with a 30dp torch glyph. */
+    val EmergencySosSize = 76.dp
+    val EmergencySosPadding = 8.dp
+    val EmergencySosIconSize = 30.dp
+
     // --- Shared state feedback (loading / empty / error) ---------------------
     // Geometry for the generic QuakeLoadingState / QuakeEmptyState /
     // QuakeErrorState placeholders. Reuses the preparedness-tip icon circle

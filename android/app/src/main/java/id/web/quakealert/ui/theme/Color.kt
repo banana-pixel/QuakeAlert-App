@@ -315,6 +315,60 @@ val PrepIconBorder = Color(0x4DFFFFFF)             // white 30% icon-circle stro
 val EmergencyCtaFill = Color(0x4FB33636)           // rgba(179,54,54,0.31)
 val EmergencyCtaBorder = Color(0x4DFFFFFF)         // white 30% CTA stroke
 
+// ============================================================
+// Active earthquake alert screen — QuakeAlert (Figma node 1:1043)
+// ============================================================
+
+/**
+ * Full-bleed emergency card gradient (node 1:1058):
+ * linear-gradient(180deg, rgba(175,0,0,1) 0%, rgba(50,0,0,1) 100%).
+ *
+ * Its own token rather than a reuse of [AlertBannerGradient]: the resting screen's
+ * banner bottoms out at #4C0202, while the emergency card runs a full stop darker
+ * to #320000 so the card reads as the *whole screen* going critical rather than as
+ * a taller version of the banner.
+ */
+val EmergencyAlertGradientTop = Color(0xFFAF0000)    // rgba(175,0,0,1)
+val EmergencyAlertGradientBottom = Color(0xFF320000) // rgba(50,0,0,1)
+val EmergencyAlertGradient = Brush.verticalGradient(
+    colors = listOf(EmergencyAlertGradientTop, EmergencyAlertGradientBottom)
+)
+
+/**
+ * Circular badge behind the 62.5dp alert triangle (node 1:1061) —
+ * rgba(217,217,217,0.24). A light wash over the crimson gradient, which is what
+ * produces the design's subtle glow around the glyph without a real shadow.
+ */
+val EmergencyAlertIconBadgeFill = Color(0x3DD9D9D9)
+
+/**
+ * "Suggested Actions :" container fill (node 1:1069) — #7F0E00. Sits between the
+ * gradient's two stops so the box reads as recessed into the card at any point of
+ * the gradient.
+ */
+val SuggestedActionsFill = Color(0xFF7F0E00)
+
+/**
+ * Stroke shared by both emergency controls (nodes 1:1073 / 1:1076) — white 30% at
+ * [Dimens.BorderMedium]. Same value as [AlertActionBorder]; named separately
+ * because these are hardware controls, not a navigation capsule.
+ */
+val EmergencyControlBorder = Color(0x4DFFFFFF)      // white 30%
+
+/**
+ * Emergency-control fills. Figma authors both controls in their *resting* state:
+ * the wide MUTE control is transparent (node 1:1073) and the square SOS control
+ * carries a white 29% wash (node 1:1076).
+ *
+ * Engaging either one steps its fill up to white 45% — the design has no engaged
+ * variant, and on a screen the user may be reading while the ground is moving, a
+ * control that looks identical whether or not it took effect is the more dangerous
+ * choice than an extrapolated token.
+ */
+val EmergencyControlFillIdle = Color(0x00FFFFFF)   // transparent (MUTE, resting)
+val EmergencySosFillIdle = Color(0x4AFFFFFF)      // white 29% (SOS, resting)
+val EmergencyControlFillEngaged = Color(0x73FFFFFF) // white 45% (either, engaged)
+
 
 /**
  * Vertical background gradient used across onboarding screens,

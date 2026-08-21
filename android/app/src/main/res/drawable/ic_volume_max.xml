@@ -1,0 +1,31 @@
+<!--
+  Untitled UI "volume-max" — the unmute affordance shown on the Warning screen's
+  alert control once the siren has been silenced (the muted state's inverse of
+  ic_volume_x.xml). Same 23x23 viewport, same speaker body and stroke weight as
+  ic_volume_x.xml so the two swap without the glyph shifting; only the trailing
+  cross is replaced by the two sound arcs.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="23dp"
+    android:height="23dp"
+    android:viewportWidth="23"
+    android:viewportHeight="23">
+    <path
+        android:pathData="M9.2329,4.184L6.1991,7.2178C6.0334,7.3835 5.9505,7.4664 5.8538,7.5257C5.768,7.5782 5.6746,7.6169 5.5768,7.6404C5.4665,7.6669 5.3493,7.6669 5.1149,7.6669H3.45C2.9133,7.6669 2.6449,7.6669 2.4399,7.7713C2.2596,7.8632 2.113,8.0098 2.0211,8.1901C1.9167,8.3951 1.9167,8.6635 1.9167,9.2002V13.8002C1.9167,14.3369 1.9167,14.6053 2.0211,14.8103C2.113,14.9906 2.2596,15.1372 2.4399,15.2291C2.6449,15.3336 2.9133,15.3336 3.45,15.3336H5.1149C5.3493,15.3336 5.4665,15.3336 5.5768,15.36C5.6746,15.3835 5.768,15.4222 5.8538,15.4748C5.9505,15.534 6.0334,15.6169 6.1991,15.7827L9.2329,18.8164C9.6434,19.227 9.8487,19.4322 10.0249,19.4461C10.1778,19.4581 10.3273,19.3962 10.4269,19.2796C10.5417,19.1452 10.5417,18.8549 10.5417,18.2743V4.7261C10.5417,4.1455 10.5417,3.8552 10.4269,3.7208C10.3273,3.6042 10.1778,3.5423 10.0249,3.5543C9.8487,3.5682 9.6434,3.7735 9.2329,4.184Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.08697"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M14.8646,8.9585a3.6042,3.6042 0 0 1 0,5.0834"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.08697"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M18.0729,6.2293a7.6667,7.6667 0 0 1 0,10.5418"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.08697"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

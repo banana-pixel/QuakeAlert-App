@@ -1,0 +1,13 @@
+<!--
+  Material "flashlight_on" (Figma node 1:1077) — the torch glyph on the Warning
+  screen's "SOS LIGHT" control. Solid fill so it can be tinted by the caller.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="30dp"
+    android:height="30dp"
+    android:viewportWidth="30"
+    android:viewportHeight="30">
+    <path
+        android:pathData="M10,27.5V13.75L7.5,10V2.5H22.5V10L20,13.75V27.5H10ZM15,19.375C14.4792,19.375 14.0365,19.1927 13.6719,18.8281C13.3073,18.4635 13.125,18.0208 13.125,17.5C13.125,16.9792 13.3073,16.5365 13.6719,16.1719C14.0365,15.8073 14.4792,15.625 15,15.625C15.5208,15.625 15.9635,15.8073 16.3281,16.1719C16.6927,16.5365 16.875,16.9792 16.875,17.5C16.875,18.0208 16.6927,18.4635 16.3281,18.8281C15.9635,19.1927 15.5208,19.375 15,19.375ZM10,6.25H20V5H10V6.25ZM20,8.75H10V9.25L12.5,13V25H17.5V13L20,9.25V8.75Z"
+        android:fillColor="#FFFFFF" />
+</vector>

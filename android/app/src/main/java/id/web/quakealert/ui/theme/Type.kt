@@ -425,5 +425,104 @@ val BannerValue = TextStyle(
     lineHeightStyle = CenteredLineHeight
 )
 
+// ============================================================
+// Active earthquake alert screen (Figma node 1:1043)
+// ============================================================
+//
+// Figma authors every line on this card with a 36px line box regardless of font
+// size — a text-box artifact, not a leading instruction. Reproducing it literally
+// would open ~16dp of dead space above and below each line and break the card's
+// `space-between` distribution, so each style below takes the design's font size
+// and weight with a line height in proportion to it.
+
+/** "Earthquake Alert" headline (node 1:1063): Nunito Bold 20. */
+val EmergencyAlertTitle = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 20.sp,
+    lineHeight = 26.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/** "Estimated Intensity :" label (node 1:1066): Nunito Bold 16. */
+val EmergencyIntensityLabel = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 16.sp,
+    lineHeight = 22.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/**
+ * "IV (moderate)" intensity read (node 1:1067): Nunito Black 24 — the largest,
+ * heaviest type on the screen, because it is the one value a user glances at while
+ * the ground is moving.
+ */
+val EmergencyIntensityValue = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Black,
+    fontSize = 24.sp,
+    lineHeight = 30.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/** "3 km away (Bandung, West Java, ID)" proximity line (node 1:1068): Bold 16/24. */
+val EmergencyProximity = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 16.sp,
+    lineHeight = 24.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/** "Suggested Actions :" container header (node 1:1070): Nunito Bold 15. */
+val SuggestedActionsHeader = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 15.sp,
+    lineHeight = 20.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/** "MUTE ALERT" control label (node 1:1075): Nunito Bold 13. */
+val EmergencyControlLabel = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 13.sp,
+    lineHeight = 16.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/** "SOS LIGHT" control label (node 1:1078): Nunito Bold 10/12. */
+val EmergencySosLabel = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 10.sp,
+    lineHeight = 12.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+
 
 

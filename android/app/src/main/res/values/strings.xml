@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">QuakeAlert</string>
+
+    <!--
+      Must stay identical to WarningNotifier.CHANNEL_ID: the manifest meta-data tells
+      Firebase which channel to use for a notification that arrives without one, and
+      a mismatch would post it on a channel that was never created with
+      IMPORTANCE_HIGH. Not translatable — it is an identifier, not display text.
+    -->
+    <string name="default_notification_channel_id" translatable="false">quakealert_emergency_alerts</string>
 </resources>
