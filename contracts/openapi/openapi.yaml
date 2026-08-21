@@ -6,8 +6,9 @@ info:
     Kontrak REST resmi QuakeAlert (contract-first, ADR-0004). Base URL selalu HTTPS.
     Satuan kanonik: PGA=gal (cm/s^2), timestamp=ms epoch UTC (int64), jarak=km, RSSI=dBm.
     Semua endpoint memerlukan Bearer JWT (anonymous) KECUALI:
-    `POST /api/v1/auth/anonymous` (publik — bootstrap identitas) dan
-    `GET /api/v1/events` (auth opsional; bila token dikirim ia wajib valid).
+    `GET /healthz` (probe publik), `POST /api/v1/auth/anonymous`
+    (publik — bootstrap identitas) dan `GET /api/v1/events`
+    (auth opsional; bila token dikirim ia wajib valid).
     Empat endpoint berikut adalah permukaan integrasi resmi klien Android
     (alur first-launch → lokasi → push → riwayat); panduan integrasi ada di
     docs/CLIENT_SPEC.md: `POST /api/v1/auth/anonymous`,
@@ -34,8 +35,69 @@ tags:
     description: Profil pengguna anonim
   - name: events
     description: Riwayat kejadian gempa terkonfirmasi
+  - name: ops
+    description: Health probe & kanal realtime (WebSocket)
 
 paths:
+  /healthz:
+    get:
+      tags: [ops]
+      summary: Health probe (publik, tanpa prefix versi)
+      description: >
+        Probe liveness untuk load balancer / k8s. Publik dan sengaja berada di
+        luar /api/v1: kontraknya adalah "proses hidup", bukan versi API. Body
+        adalah teks biasa `ok`, BUKAN JSON, sehingga probe tidak perlu parser.
+      operationId: healthz
+      security: []
+      responses:
+        '200':
+          description: Proses hidup
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: ok
+
+  /ws:
+    get:
+      tags: [ops]
+      summary: Kanal alert realtime (WebSocket upgrade)
+      description: >
+        Meng-upgrade koneksi ke WebSocket dan mengirim frame alert yang sama
+        dengan payload FCM (contracts/fcm/alert_payload.json): EARTHQUAKE_ALERT,
+        EARTHQUAKE_ADVISORY dan EVENT_RESOLVED. Jalur foreground; FCM menangani
+        background. Server mengirim ping berkala dan menutup koneksi bila pong
+        tidak diterima — klien wajib menjawab (OkHttp melakukannya sendiri).
+
+
+        Auth memakai Bearer JWT yang sama, dikirim pada header handshake HTTP.
+        Origin: hanya permintaan browser (yang mengirim header `Origin`) diperiksa
+        terhadap WS_ALLOWED_ORIGINS; klien native tidak mengirim Origin dan
+        diizinkan tanpa konfigurasi tambahan.
+
+
+        Didokumentasikan untuk kelengkapan — OpenAPI tidak memodelkan frame
+        WebSocket, jadi skema pesan tetap di contracts/fcm/alert_payload.json.
+      operationId: wsAlerts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Upgrade
+          in: header
+          required: true
+          schema:
+            type: string
+            const: websocket
+      responses:
+        '101':
+          description: Switching Protocols — koneksi menjadi WebSocket
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: >
+            Origin browser tidak ada dalam WS_ALLOWED_ORIGINS. Tidak pernah
+            terjadi pada klien tanpa header Origin.
+
   /api/v1/auth/anonymous:
     post:
       tags: [auth]
@@ -55,6 +117,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnonymousAuthResponse'
+        '429':
+          description: >
+            Rate limit per-IP: satu pembuatan profil anonim per 30 detik
+            (internal/api: authWindow). IP adalah satu-satunya kunci yang
+            tersedia pada endpoint publik tanpa identitas. Mudah tersentuh saat
+            pengembangan — emulator, CI dan perangkat di belakang satu NAT
+            berbagi IP — jadi klien harus menahan token yang sudah ada dan tidak
+            memanggil ulang di setiap start.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: RATE_LIMITED
+                message: terlalu banyak pendaftaran, coba lagi nanti
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -242,7 +319,11 @@ paths:
             type: integer
             default: 0
             minimum: 0
-          description: Offset paginasi.
+            maximum: 50000
+          description: >
+            Offset paginasi. Dibatasi 50000 (internal/api: maxEventsOffset) agar
+            offset liar tidak memicu scan O(offset) pada indeks started_at DESC;
+            nilai di luar rentang ditolak 400 INVALID_ARGUMENT, bukan di-clamp.
         - name: range_km
           in: query
           required: false
@@ -603,7 +684,14 @@ components:
           example: V
         intensity_label:
           type: string
-          example: Strong
+          description: >
+            Label intensitas yang diemisi konsensus, HURUF KECIL
+            (internal/consensus.Intensity): "light" (PGA < 16.6 gal),
+            "moderate" (< 137.2), "strong" (>= 137.2). Nilai yang sama muncul
+            pada payload FCM/WebSocket. Klien yang memetakannya ke enum harus
+            membandingkan tanpa memedulikan besar-kecil huruf.
+          enum: [light, moderate, strong]
+          example: strong
         latitude:
           type: number
           format: double
