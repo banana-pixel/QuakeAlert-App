@@ -1,0 +1,36 @@
+{
+  "//": [
+    "Template only — copy to app/google-services.json and replace every REPLACE_ME.",
+    "Download the real file from the Firebase console (Project settings -> Your apps ->",
+    "Android app -> google-services.json); see docs/FIREBASE_SETUP.md. The real file is",
+    "gitignored: it is not a secret, but it ties a build to one Firebase project.",
+    "Without it the app still builds and runs, and alerts arrive over the WebSocket only."
+  ],
+  "project_info": {
+    "project_number": "REPLACE_ME_PROJECT_NUMBER",
+    "project_id": "REPLACE_ME_PROJECT_ID",
+    "storage_bucket": "REPLACE_ME_PROJECT_ID.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:REPLACE_ME_PROJECT_NUMBER:android:REPLACE_ME_APP_HASH",
+        "android_client_info": {
+          "package_name": "id.web.quakealert"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "REPLACE_ME_API_KEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
