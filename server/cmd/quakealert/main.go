@@ -61,19 +61,7 @@ func run(log *slog.Logger) error {
 	verifier := ingest.NewVerifier(st, cipher, log)
 
 	// --- Dispatch tier: WebSocket Hub + FCM (opsional) ---
-	// CheckOrigin: produksi harus membatasi origin; default menolak lintas-origin.
-	hub := dispatch.NewHub(log, func(r *http.Request) bool {
-		if len(cfg.WSAllowedOrigins) == 0 {
-			return false
-		}
-		origin := r.Header.Get("Origin")
-		for _, o := range cfg.WSAllowedOrigins {
-			if o == origin || o == "*" {
-				return true
-			}
-		}
-		return false
-	})
+	hub := dispatch.NewHub(log, wsOriginChecker(cfg.WSAllowedOrigins, log))
 
 	var fcm dispatch.FCMSender
 	if cfg.FCMProjectID != "" && cfg.FCMCredentialsFile != "" {
@@ -260,4 +248,32 @@ func newMQTTClient(cfg *config.Config, log *slog.Logger) (mqtt.Client, error) {
 func isTLS(broker string) bool {
 	b := strings.ToLower(broker)
 	return strings.HasPrefix(b, "tls://") || strings.HasPrefix(b, "ssl://") || strings.HasPrefix(b, "mqtts://")
+}
+
+// wsOriginChecker membangun gorilla CheckOrigin dari allowlist konfigurasi.
+//
+// Hanya browser yang mengirim header Origin, dan hanya browser yang perlu
+// dilindungi dari cross-site WebSocket hijacking — di sana kredensial ada di
+// cookie yang dikirim otomatis. Klien native (OkHttp pada aplikasi Android)
+// tidak mengirim Origin dan membawa Bearer token secara eksplisit, jadi upgrade
+// tanpa Origin diizinkan; tanpa ini setiap handshake dari aplikasi ditolak 403
+// selama WS_ALLOWED_ORIGINS belum diisi — jalur realtime life-safety mati pada
+// konfigurasi default.
+//
+// Origin yang ADA tetap diperiksa terhadap allowlist. Allowlist kosong berarti
+// "belum ada origin browser yang dipercaya", bukan "semua".
+func wsOriginChecker(allowed []string, log *slog.Logger) func(*http.Request) bool {
+	return func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		for _, o := range allowed {
+			if o == origin || o == "*" {
+				return true
+			}
+		}
+		log.Warn("upgrade websocket ditolak", "origin", origin)
+		return false
+	}
 }
