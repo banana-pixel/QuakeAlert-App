@@ -134,6 +134,12 @@ data class SensorMapOverview(
  * @param errorCopy classified failure copy from
  *   [id.web.quakealert.ui.common.errorCopy], rendered by
  *   [id.web.quakealert.ui.common.QuakeErrorState], or null when there is no error.
+ * @param needsPosition true when nothing has synced a device position yet, so there
+ *   is no query to make. `GET /sensors` measures every roll from the position the
+ *   *server* holds and answers an empty list when it holds none — in every mode, not
+ *   just "Near". Without this flag a first launch reads "No Sensors In This Area" and
+ *   offers to widen a radius that cannot help, which blames the network for a
+ *   question that was never asked.
  */
 @Immutable
 data class SensorsUiState(
@@ -141,6 +147,7 @@ data class SensorsUiState(
     val isRefreshing: Boolean = false,
     val isError: Boolean = false,
     val errorCopy: ErrorCopy? = null,
+    val needsPosition: Boolean = false,
     // Empty rather than a sample station: the roll is genuinely unknown until
     // `GET /sensors` answers, and a placeholder count would claim coverage the
     // user may not have (the endpoint returns nothing without a stored position).

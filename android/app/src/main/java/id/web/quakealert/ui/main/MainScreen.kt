@@ -206,6 +206,11 @@ fun MainScreen(
 
                             MainDestination.SENSORS -> SensorsRoute(
                                 connectionState = connectionState,
+                                // Same offer as the History feed makes: the
+                                // control that syncs a position lives on
+                                // Settings, so point at it rather than
+                                // duplicating it here.
+                                onSyncLocation = { selected = MainDestination.SETTINGS },
                                 listState = sensorsListState
                             )
 

@@ -114,12 +114,30 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                     isLoading = !isRefresh,
                     isRefreshing = isRefresh,
                     isError = false,
-                    errorCopy = null
+                    errorCopy = null,
+                    needsPosition = false
                 )
             }
             try {
-                roll = fetchSensors()
                 val userLocation = apiClient.currentUserLocation()
+                if (userLocation == null) {
+                    // Checked before the request, not after an empty answer: with no
+                    // stored position the endpoint returns an empty roll in every
+                    // mode, and "no sensors here" would be an answer to a question
+                    // nobody asked.
+                    roll = emptyList()
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            isRefreshing = false,
+                            needsPosition = true,
+                            sensors = emptyList(),
+                            overview = it.overview.copy(sensorCount = 0)
+                        )
+                    }
+                    return@launch
+                }
+                roll = fetchSensors()
                 val locationLabel = userLocation?.locationName?.takeIf { it.isNotBlank() }
                 _uiState.update { state ->
                     state.copy(

@@ -32,6 +32,7 @@ import id.web.quakealert.ui.common.QuakeFilterDialog
 import id.web.quakealert.ui.common.QuakeFilterRow
 import id.web.quakealert.ui.common.QuakeFilterViewModel
 import id.web.quakealert.ui.common.QuakeNoCoverageState
+import id.web.quakealert.ui.common.QuakeNoPositionState
 import id.web.quakealert.ui.common.QuakeNoStationsMatchState
 import id.web.quakealert.ui.common.QuakeStationStatus
 import id.web.quakealert.ui.common.QuakeSkeletonList
@@ -50,6 +51,7 @@ import id.web.quakealert.ui.theme.QuakeAlertTheme
 @Composable
 fun SensorsRoute(
     connectionState: ServerConnectionState,
+    onSyncLocation: () -> Unit,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     viewModel: SensorsViewModel = viewModel(),
@@ -72,6 +74,7 @@ fun SensorsRoute(
         onWidenRadius = filterViewModel::onRadiusWidened,
         onFiltersReset = filterViewModel::onFiltersReset,
         onSensorClicked = viewModel::onSensorClicked,
+        onSyncLocation = onSyncLocation,
         onRetry = viewModel::onRetry,
         onRefresh = viewModel::onRefresh,
         listState = listState,
@@ -120,6 +123,7 @@ fun SensorsScreen(
     onModeSelected: (QuakeFilter) -> Unit,
     onSensorClicked: (SensorStationItem) -> Unit,
     onRetry: () -> Unit,
+    onSyncLocation: () -> Unit = {},
     onFilterSheetClicked: (() -> Unit)? = null,
     onWidenRadius: () -> Unit = {},
     onFiltersReset: () -> Unit = {},
@@ -190,6 +194,14 @@ fun SensorsScreen(
                     // filter the server refused is the one failure the user can
                     // resolve themselves.
                     onResetFilters = onFiltersReset
+                )
+
+                // Before every empty branch: with no synced position there was no
+                // query, so neither "nothing matches" nor "we do not watch there"
+                // is a true thing to say.
+                uiState.needsPosition -> QuakeNoPositionState(
+                    onSyncLocation = onSyncLocation,
+                    modifier = bodyModifier
                 )
 
                 // An empty *slice* of a non-empty roll is a different fact from an

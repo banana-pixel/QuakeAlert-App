@@ -153,10 +153,14 @@ fun AlertBanner(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                // Two lines, unlike its sibling: this variant's line is a sentence
+                // ("Sync your location to see nearby activity"), not a label/value
+                // pair, and clipping it to one line truncated exactly the half that
+                // said what to do. The banner's height is a minimum, so it grows.
                 is SeismicActivityBanner -> Text(
                     text = banner.activityLabel,
                     style = BannerValue,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }
