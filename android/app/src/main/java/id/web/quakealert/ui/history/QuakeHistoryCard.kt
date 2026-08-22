@@ -40,7 +40,6 @@ import id.web.quakealert.ui.theme.CardSubtitle
 import id.web.quakealert.ui.theme.CardSurface
 import id.web.quakealert.ui.theme.CardTitle
 import id.web.quakealert.ui.theme.Dimens
-import id.web.quakealert.ui.theme.MapPlaceholder
 import id.web.quakealert.ui.theme.MmiOrange
 import id.web.quakealert.ui.theme.MmiOrangeContainer
 import id.web.quakealert.ui.theme.MmiRed
@@ -106,7 +105,20 @@ fun QuakeHistoryCard(
     }
 }
 
-/** Circular MMI badge centered above the map thumbnail (Figma node 1:716). */
+/**
+ * Circular MMI badge on the leading side of the card (Figma node 1:716).
+ *
+ * Held at [Dimens.CardLeadingColumnWidth] rather than sized to the badge, because
+ * the detail overlay pins its own badge column to the same 45dp so the two start
+ * their text on the same optical line.
+ *
+ * A grey square with a map glyph used to sit under the badge, standing in for a
+ * per-row map thumbnail. It is gone: it drew a map that does not exist, and the two
+ * honest ways to make it real are both wrong here — a `MapView` per row costs a GL
+ * surface per row, and a raster snapshot costs a tile request per row on the screen
+ * most likely to be opened with no network. The epicentre is on the overlay's map,
+ * one tap away.
+ */
 @Composable
 private fun LeadingColumn(
     intensity: String,
@@ -116,8 +128,7 @@ private fun LeadingColumn(
 ) {
     Column(
         modifier = modifier.width(Dimens.CardLeadingColumnWidth),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Dimens.CardLeadingColumnGap)
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
@@ -133,22 +144,6 @@ private fun LeadingColumn(
                 fontFamily = NunitoFontFamily,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 15.sp
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(Dimens.MapThumbHeight)
-                .clip(RoundedCornerShape(Dimens.RadiusSmall))
-                .background(MapPlaceholder, RoundedCornerShape(Dimens.RadiusSmall)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_map),
-                contentDescription = null,
-                tint = Color.Black,
-                modifier = Modifier.size(20.dp)
             )
         }
     }

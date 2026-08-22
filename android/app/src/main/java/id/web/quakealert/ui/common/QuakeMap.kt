@@ -60,9 +60,8 @@ data class MapFocus(
 }
 
 /**
- * Vector basemap behind the app's map cards, replacing the grey
- * [id.web.quakealert.ui.theme.MapPlaceholder] surface the screens stood on before
- * the SDK landed.
+ * Vector basemap behind the app's map cards, replacing the grey placeholder
+ * surface the screens stood on before the SDK landed.
  *
  * Three deliberate constraints:
  *

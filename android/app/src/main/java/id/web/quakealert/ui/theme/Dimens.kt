@@ -66,19 +66,19 @@ object Dimens {
     val CardPaddingEnd = 17.dp
     val CardPaddingBottom = 16.dp
     val CardPaddingStart = 20.dp
-    /** Gap between the intensity/map column and the details column (Figma 14). */
+    /** Gap between the intensity column and the details column (Figma 14). */
     val CardContentGap = 14.dp
-    /** Width of the leading intensity + map column (Figma width 45). */
+    /**
+     * Width of the leading intensity column (Figma width 45), shared with the
+     * detail overlay's badge column so both start their text on the same line.
+     */
     val CardLeadingColumnWidth = 45.dp
-    /** Gap inside the leading column between MMI badge and map (Figma gap 12). */
-    val CardLeadingColumnGap = 12.dp
 
     // MMI circular badge
     val MmiBadgeSize = 45.dp
     val MmiBadgeBorder = 3.dp
 
     // Map thumbnail
-    val MapThumbHeight = 45.dp
 
     // Details column
     val DetailTitleDistanceGap = 4.dp

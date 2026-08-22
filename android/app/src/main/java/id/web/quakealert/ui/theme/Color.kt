@@ -72,7 +72,6 @@ val MmiRed = Color(0xFFF31D1D)                  // intensity accent / text
 val MmiRedContainer = Color(0xFF460808)         // red badge fill
 
 // Card sub-elements
-val MapPlaceholder = Color(0xFFD9D9D9)          // map thumbnail placeholder
 val DistanceBadgeFill = Color(0xFF373737)       // "X km Away" pill fill
 val ShareButtonFill = Color(0xFF24505D)         // share icon button fill
 
@@ -229,7 +228,7 @@ val EventDetailShareFill = Color(0x4FAB3600)
 /**
  * Pulse rings drawn over the detail map thumbnail. Figma ships a rendered map
  * raster here (node 123:1028); pending the map SDK the epicentre is expressed as
- * concentric rings over the shared [MapPlaceholder] surface, tinted by the event's
+ * concentric rings over the map surface, tinted by the event's
  * MMI accent at these alphas so the focus reads without hiding the map beneath.
  */
 val EventDetailPulseOuterAlpha = 0.12f
@@ -450,7 +449,7 @@ val SkeletonHighlight = Color(0x33FFFFFF)           // white 20%
  * away, and the tiles for a card the user has never opened before will not arrive.
  * The map card must still read as a map card in that state rather than as a white
  * hole, so this is the darkest stop of the app's own background gradient rather
- * than the grey [MapPlaceholder] the pre-SDK stand-in used.
+ * than the grey placeholder the pre-SDK stand-in used.
  */
 val MapSurfaceFallback = Color(0xFF0A1620)
 
