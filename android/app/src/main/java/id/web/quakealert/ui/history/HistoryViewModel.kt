@@ -13,6 +13,7 @@ import id.web.quakealert.ui.common.FilterSection
 import id.web.quakealert.ui.common.QuakeFilter
 import id.web.quakealert.ui.common.QuakeFilterState
 import id.web.quakealert.ui.common.errorCopy
+import id.web.quakealert.ui.common.shouldReloadOnReconnect
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -43,6 +44,8 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
 
     private val apiClient = QuakeNetwork.from(application).apiClient
 
+    private val networkMonitor = QuakeNetwork.from(application).networkMonitor
+
     private val _uiState = MutableStateFlow(HistoryUiState(isLoading = true))
 
     val uiState: StateFlow<HistoryUiState> = combine(
@@ -58,6 +61,24 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         load()
+        observeConnectivity()
+    }
+
+    /**
+     * Reloads the feed when the network comes back, so an outage that ends does not
+     * leave the screen sitting on a stale error until someone taps Retry.
+     *
+     * Only on a regained-connectivity edge and only over an error state — see
+     * [shouldReloadOnReconnect] for why a screen showing content is left alone.
+     */
+    private fun observeConnectivity() {
+        viewModelScope.launch {
+            networkMonitor.onlineRegained.collect {
+                val state = _uiState.value
+                val busy = state.isLoading || state.isRefreshing || state.isLoadingMore
+                if (shouldReloadOnReconnect(isError = state.isError, isBusy = busy)) load()
+            }
+        }
     }
 
     /**

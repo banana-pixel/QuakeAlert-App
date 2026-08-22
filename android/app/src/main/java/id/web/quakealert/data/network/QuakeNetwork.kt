@@ -103,6 +103,14 @@ class QuakeNetwork private constructor(context: Context) {
     }
 
     /**
+     * Connectivity, shared: one registered `NetworkCallback` for the whole process
+     * rather than one per screen that wants to recover from an outage.
+     */
+    val networkMonitor: NetworkMonitor by lazy {
+        NetworkMonitor(context = appContext, scope = networkScope)
+    }
+
+    /**
      * Shared across both delivery channels, which is the entire point: the WebSocket
      * frame and its FCM copy describe one earthquake and must raise one alert.
      */

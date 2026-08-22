@@ -13,6 +13,7 @@ import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.common.FilterSection
 import id.web.quakealert.ui.common.QuakeFilterState
 import id.web.quakealert.ui.common.errorCopy
+import id.web.quakealert.ui.common.shouldReloadOnReconnect
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -50,6 +51,8 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
 
     private val apiClient = QuakeNetwork.from(application).apiClient
 
+    private val networkMonitor = QuakeNetwork.from(application).networkMonitor
+
     private val _uiState = MutableStateFlow(SensorsUiState(isLoading = true))
 
     /**
@@ -76,6 +79,22 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         load()
+        observeConnectivity()
+    }
+
+    /**
+     * Reloads the station roll when the network comes back, matching the History tab:
+     * an outage that ends should not leave a stale error on screen until someone taps
+     * Retry. See [shouldReloadOnReconnect] for why only an error state qualifies.
+     */
+    private fun observeConnectivity() {
+        viewModelScope.launch {
+            networkMonitor.onlineRegained.collect {
+                val state = _uiState.value
+                val busy = state.isLoading || state.isRefreshing
+                if (shouldReloadOnReconnect(isError = state.isError, isBusy = busy)) load()
+            }
+        }
     }
 
     /**
