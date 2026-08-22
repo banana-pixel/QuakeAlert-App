@@ -54,6 +54,24 @@ type fakeRepo struct {
 	eventsLimit int
 	eventsOff   int
 	eventsFilt  *store.EventFilter
+
+	// Chat
+	regionCode    string
+	regionSetErr  error
+	chatIdentity  *store.UserChatIdentity
+	chatIdentErr  error
+	chatChannels  []store.ChatChannel
+	chatChanErr   error
+	chatMessages  []store.ChatMessage
+	chatMsgErr    error
+	chatMsgLimit  int
+	chatMsgBefore *time.Time
+	chatMsgChan   string
+	inserted      *store.ChatMessage
+	insertErr     error
+	insertedBody  string
+	insertedChan  string
+	insertedClID  string
 }
 
 func (f *fakeRepo) CreateNode(_ context.Context, n *store.NewNode) error {
@@ -88,6 +106,55 @@ func (f *fakeRepo) UpdateUserFCMToken(_ context.Context, _, token string) (time.
 func (f *fakeRepo) ListEvents(_ context.Context, limit, offset int, filter *store.EventFilter) ([]store.Event, error) {
 	f.eventsLimit, f.eventsOff, f.eventsFilt = limit, offset, filter
 	return f.events, f.eventsErr
+}
+
+func (f *fakeRepo) SetUserRegion(_ context.Context, _, regionCode string) error {
+	if f.regionSetErr != nil {
+		return f.regionSetErr
+	}
+	f.regionCode = regionCode
+	return nil
+}
+func (f *fakeRepo) GetUserChatIdentity(_ context.Context, _ string) (*store.UserChatIdentity, error) {
+	if f.chatIdentErr != nil {
+		return nil, f.chatIdentErr
+	}
+	if f.chatIdentity == nil {
+		return &store.UserChatIdentity{Pseudonym: "AnonimTenang"}, nil
+	}
+	return f.chatIdentity, nil
+}
+func (f *fakeRepo) ListChatChannels(_ context.Context, _ string) ([]store.ChatChannel, error) {
+	return f.chatChannels, f.chatChanErr
+}
+func (f *fakeRepo) EnsureChatChannel(_ context.Context, _, _, displayName string) (string, error) {
+	return displayName, nil
+}
+func (f *fakeRepo) ListChatMessages(
+	_ context.Context, channelID string, limit int, before *time.Time,
+) ([]store.ChatMessage, error) {
+	f.chatMsgChan, f.chatMsgLimit, f.chatMsgBefore = channelID, limit, before
+	return f.chatMessages, f.chatMsgErr
+}
+func (f *fakeRepo) InsertChatMessage(
+	_ context.Context, channelID, senderID, pseudonym, locationTag, body, clientMessageID string,
+) (*store.ChatMessage, error) {
+	if f.insertErr != nil {
+		return nil, f.insertErr
+	}
+	f.insertedChan, f.insertedBody, f.insertedClID = channelID, body, clientMessageID
+	if f.inserted != nil {
+		return f.inserted, nil
+	}
+	return &store.ChatMessage{
+		MessageID:       "msg-1",
+		ChannelID:       channelID,
+		SenderID:        senderID,
+		SenderPseudonym: pseudonym,
+		LocationTag:     locationTag,
+		Body:            body,
+		CreatedAt:       time.Unix(1_781_913_558, 0).UTC(),
+	}, nil
 }
 
 type fakeCipher struct{}

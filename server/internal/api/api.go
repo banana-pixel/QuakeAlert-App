@@ -73,6 +73,12 @@ type Repo interface {
 	UpdateUserLocation(ctx context.Context, userID string, lat, lon float64, locationName string) (time.Time, error)
 	UpdateUserFCMToken(ctx context.Context, userID, token string) (time.Time, error)
 	ListEvents(ctx context.Context, limit, offset int, filter *store.EventFilter) ([]store.Event, error)
+	SetUserRegion(ctx context.Context, userID, regionCode string) error
+	GetUserChatIdentity(ctx context.Context, userID string) (*store.UserChatIdentity, error)
+	ListChatChannels(ctx context.Context, userID string) ([]store.ChatChannel, error)
+	EnsureChatChannel(ctx context.Context, channelID, kind, displayName string) (string, error)
+	ListChatMessages(ctx context.Context, channelID string, limit int, before *time.Time) ([]store.ChatMessage, error)
+	InsertChatMessage(ctx context.Context, channelID, senderID, pseudonym, locationTag, body, clientMessageID string) (*store.ChatMessage, error)
 }
 
 // SecretEncryptor mengenkripsi provisioning secret menjadi (ciphertext, nonce)
@@ -105,6 +111,9 @@ type Server struct {
 	mqtt    MQTTPublic
 	auth    AuthConfig
 	log     *slog.Logger
+	// chat menyiarkan pesan yang sudah tersimpan; nil berarti chat berjalan
+	// tanpa pembaruan realtime (lihat SetChatFanout).
+	chat ChatFanout
 }
 
 // NewServer membuat Server API. TokenTTL yang kosong diisi defaultTokenTTL.
@@ -505,6 +514,13 @@ type updateLocationRequest struct {
 	Latitude     *float64 `json:"latitude"`
 	Longitude    *float64 `json:"longitude"`
 	LocationName string   `json:"location_name"`
+	// CountryISO & AdminArea berasal dari reverse-geocode yang sama yang mengisi
+	// location_name, dan diturunkan server menjadi kunci kanal regional. Dikirim
+	// bersama posisi, bukan lewat endpoint sendiri, karena region adalah fakta
+	// tentang posisi itu — dua panggilan berarti dua sumber kebenaran yang bisa
+	// tidak sinkron.
+	CountryISO string `json:"country_iso"`
+	AdminArea  string `json:"admin_area"`
 }
 
 type updateLocationResponse struct {
@@ -512,7 +528,11 @@ type updateLocationResponse struct {
 	Latitude     float64 `json:"latitude"`
 	Longitude    float64 `json:"longitude"`
 	LocationName *string `json:"location_name"`
-	UpdatedAt    string  `json:"updated_at"` // RFC3339 UTC
+	// RegionCode adalah kanal chat regional yang berlaku setelah pembaruan ini,
+	// atau null bila wilayahnya tidak dapat dinormalisasi. Dikembalikan agar
+	// klien tidak perlu menebak kanal mana yang kini menjadi miliknya.
+	RegionCode *string `json:"region_code"`
+	UpdatedAt  string  `json:"updated_at"` // RFC3339 UTC
 }
 
 // HandleUpdateLocation menyimpan koordinat user ke last_location (PostGIS) yang
@@ -562,11 +582,29 @@ func (s *Server) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Region diturunkan dari wilayah yang dikirim bersama posisi, lalu disimpan
+	// terpisah. Kegagalan di sini TIDAK menggagalkan permintaan: lokasi sudah
+	// tersimpan dan itulah yang menopang penargetan alert — keanggotaan kanal
+	// chat tidak boleh menjadi alasan sebuah sinkronisasi lokasi dilaporkan gagal.
+	regionCode := RegionCode(req.CountryISO, req.AdminArea)
+	regionSaved := true
+	if err := s.repo.SetUserRegion(r.Context(), userID, regionCode); err != nil {
+		s.log.Warn("gagal menyimpan region chat user", "err", err)
+		regionSaved = false
+	}
+
 	resp := updateLocationResponse{
 		UserID:    userID,
 		Latitude:  *req.Latitude,
 		Longitude: *req.Longitude,
 		UpdatedAt: updatedAt.UTC().Format(time.RFC3339),
+	}
+	// Hanya dilaporkan bila benar-benar tersimpan, dan null bila wilayahnya tidak
+	// dapat dinormalisasi — klien yang melihat kunci kanal di sini berhak
+	// menganggap kanal itu miliknya.
+	if regionSaved && regionCode != "" {
+		code := regionCode
+		resp.RegionCode = &code
 	}
 	// Kosong dipersistensikan sebagai NULL (semantik PUT), jadi respons harus
 	// mencerminkan null—bukan "" — agar klien melihat state yang benar-benar tersimpan.

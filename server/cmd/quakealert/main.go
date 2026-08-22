@@ -158,6 +158,37 @@ func run(log *slog.Logger) error {
 		TokenTTL:  cfg.JWTTokenTTL,
 	}, log)
 
+	// --- Chat: jembatan antara api dan dispatch ---
+	// api dan dispatch tidak saling impor, dan itu disengaja. main yang
+	// menjembatani: sebuah adapter mengubah api.ChatEvent menjadi
+	// dispatch.ChatMessage, dan sebuah resolver menjawab keanggotaan kanal
+	// sebuah koneksi WS tanpa dispatch perlu tahu soal auth atau basis data.
+	apiSrv.SetChatFanout(chatFanout{hub: hub})
+	hub.SetChannelResolver(func(r *http.Request) []string {
+		userID, ok := api.UserIDFromContext(r.Context())
+		if !ok {
+			return nil
+		}
+		channels, err := st.ListChatChannels(r.Context(), userID)
+		if err != nil {
+			log.Warn("gagal membaca kanal chat untuk klien ws", "err", err)
+			// Kanal global tetap diberikan: kegagalan katalog tidak boleh
+			// membuat satu-satunya ruang yang selalu ada ikut hilang.
+			return []string{store.GlobalChannelID}
+		}
+		ids := make([]string, 0, len(channels))
+		for _, c := range channels {
+			ids = append(ids, c.ChannelID)
+		}
+		return ids
+	})
+	// Retensi chat: goroutine terjadwal, bukan pg_cron — ekstensi itu belum tentu
+	// ada di host produksi, dan retensi yang bergantung pada ekstensi opsional
+	// adalah retensi yang diam-diam tidak berjalan. Dibatalkan saat shutdown.
+	chatCtx, stopChatPurge := context.WithCancel(context.Background())
+	defer stopChatPurge()
+	go purgeChatLoop(chatCtx, st, log)
+
 	// --- HTTP server (WebSocket WSS via reverse proxy TLS di produksi) ---
 	// Router chi: /api/v1/auth/anonymous publik, /api/v1/events auth opsional,
 	// sisanya + /ws wajib Bearer JWT (HS256).
@@ -275,5 +306,62 @@ func wsOriginChecker(allowed []string, log *slog.Logger) func(*http.Request) boo
 		}
 		log.Warn("upgrade websocket ditolak", "origin", origin)
 		return false
+	}
+}
+
+// chatFanout mengadaptasi api.ChatFanout ke hub WebSocket. Ada di main karena
+// api dan dispatch tidak saling impor; satu-satunya tempat keduanya bertemu.
+type chatFanout struct{ hub *dispatch.Hub }
+
+func (f chatFanout) BroadcastChat(e api.ChatEvent) {
+	f.hub.BroadcastChat(&dispatch.ChatMessage{
+		Type:            "CHAT_MESSAGE",
+		MessageID:       e.MessageID,
+		ChannelID:       e.ChannelID,
+		SenderID:        e.SenderID,
+		SenderPseudonym: e.SenderPseudonym,
+		SenderLocation:  e.LocationTag,
+		Message:         e.Body,
+		IsAdmin:         e.IsAdmin,
+		Timestamp:       e.CreatedAt.UnixMilli(),
+	})
+}
+
+// Retensi chat: 7 hari, diperiksa setiap jam.
+const (
+	chatRetention     = 7 * 24 * time.Hour
+	chatPurgeInterval = time.Hour
+)
+
+// purgeChatLoop menghapus pesan chat yang melewati masa retensi.
+//
+// Berjalan sekali di awal lalu setiap chatPurgeInterval: sebuah proses yang baru
+// dimulai setelah lama mati akan menemukan tumpukan pesan basi, dan menunggu satu
+// jam untuk membersihkannya berarti menyajikan riwayat yang seharusnya sudah
+// tidak ada.
+func purgeChatLoop(ctx context.Context, st *store.Store, log *slog.Logger) {
+	purge := func() {
+		opCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		deleted, err := st.PurgeChatMessages(opCtx, chatRetention)
+		if err != nil {
+			log.Warn("gagal membersihkan pesan chat basi", "err", err)
+			return
+		}
+		if deleted > 0 {
+			log.Info("pesan chat basi dibersihkan", "rows", deleted)
+		}
+	}
+
+	purge()
+	ticker := time.NewTicker(chatPurgeInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			purge()
+		}
 	}
 }

@@ -35,6 +35,8 @@ tags:
     description: Profil pengguna anonim
   - name: events
     description: Riwayat kejadian gempa terkonfirmasi
+  - name: chat
+    description: Kanal komunitas (global & regional), lihat docs/CHAT_DESIGN.md
   - name: ops
     description: Health probe & kanal realtime (WebSocket)
 
@@ -61,7 +63,7 @@ paths:
   /ws:
     get:
       tags: [ops]
-      summary: Kanal alert realtime (WebSocket upgrade)
+      summary: Kanal realtime alert & chat (WebSocket upgrade)
       description: >
         Meng-upgrade koneksi ke WebSocket dan mengirim frame alert yang sama
         dengan payload FCM (contracts/fcm/alert_payload.json): EARTHQUAKE_ALERT,
@@ -74,6 +76,17 @@ paths:
         Origin: hanya permintaan browser (yang mengirim header `Origin`) diperiksa
         terhadap WS_ALLOWED_ORIGINS; klien native tidak mengirim Origin dan
         diizinkan tanpa konfigurasi tambahan.
+
+
+        Socket yang sama juga memfanout frame chat
+        (`{"type":"CHAT_MESSAGE", ...}`, bentuknya sama dengan skema ChatMessage
+        dengan `timestamp` ms-epoch menggantikan `created_at`), hanya untuk kanal
+        yang menjadi keanggotaan koneksi — dibaca sekali saat handshake. Alert
+        selalu diprioritaskan: bila buffer per-klien menipis, frame chat
+        dilewati dan koneksi TIDAK ditutup, karena pesan chat yang hilang muncul
+        kembali lewat GET /api/v1/chat/messages sedangkan peringatan yang hilang
+        tidak punya jalan kembali. Frame yang DIKIRIM klien tetap diabaikan:
+        pengiriman chat lewat REST.
 
 
         Didokumentasikan untuk kelengkapan — OpenAPI tidak memodelkan frame
@@ -287,6 +300,135 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/chat/channels:
+    get:
+      tags: [chat]
+      summary: Kanal chat yang boleh diakses pemanggil
+      description: >
+        Server yang menjawab kanal mana yang menjadi keanggotaan user, bukan
+        klien yang menebak kuncinya: kanal regional adalah turunan region_code
+        yang tersimpan dari PUT /users/location, dan klien yang menyusun kunci
+        sendiri akan meminta ruang yang tidak ada begitu normalisasi di server
+        berubah. Kanal `global` selalu ada dan merupakan satu-satunya kanal yang
+        berfungsi sebelum user pernah menyinkronkan posisi.
+      operationId: listChatChannels
+      x-client: true # dipakai klien Android (docs/CLIENT_SPEC.md)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatChannelsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/chat/messages:
+    get:
+      tags: [chat]
+      summary: Riwayat pesan satu kanal (terbaru lebih dulu)
+      description: >
+        Paginasi memakai kursor waktu `before`, BUKAN offset: ruang yang aktif
+        menggeser offset di antara dua permintaan, sehingga halaman berikutnya
+        akan melewatkan atau menggandakan baris tepat saat percakapan ramai.
+        Untuk memuat halaman berikutnya, kirim created_at pesan tertua yang sudah
+        diterima. Pesan lebih lama dari 7 hari dihapus oleh retensi.
+      operationId: listChatMessages
+      x-client: true # dipakai klien Android (docs/CLIENT_SPEC.md)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: channel_id
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 50
+            default: global
+          description: Default `global` bila tidak dikirim.
+          example: ID-jawa-barat
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+          description: Nilai di atas 100 dibatasi ke 100, bukan ditolak.
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Kursor eksklusif; hanya pesan dengan created_at lebih awal.
+          example: '2026-06-20T00:19:18Z'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessagesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Kanal bukan keanggotaan user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags: [chat]
+      summary: Kirim satu pesan ke kanal
+      description: >
+        Pengiriman lewat REST, bukan lewat WebSocket: REST bersifat durable dan
+        bisa diulang, sedangkan socket hanya memfanout apa yang sudah tersimpan,
+        sehingga kegagalan siaran tidak pernah menghilangkan pesan. Sertakan
+        client_message_id agar pengiriman idempoten - klien yang timeout tidak
+        tahu apakah percobaan pertamanya sampai, dan pesan ganda di ruang publik
+        tidak bisa ditarik kembali. Batas laju 1 pesan / 2 detik per user.
+      operationId: createChatMessage
+      x-client: true # dipakai klien Android (docs/CLIENT_SPEC.md)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChatMessageRequest'
+      responses:
+        '201':
+          description: >
+            Tersimpan. Pengiriman ulang dengan client_message_id yang sama
+            mengembalikan baris yang SAMA, bukan galat.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Kanal bukan keanggotaan user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Melewati batas laju kirim
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/v1/events:
     get:
@@ -600,10 +742,149 @@ components:
         pseudonym:
           type: string
           example: Quakezen-7B9A
+        region_code:
+          type: [string, "null"]
+          maxLength: 50
+          description: >
+            Kanal chat regional yang berlaku setelah pembaruan ini, atau null
+            bila wilayahnya tidak dapat dinormalisasi (mis. nama non-ASCII) atau
+            tidak dikirim. Dalam kasus itu user hanya punya kanal global.
+          example: ID-jawa-barat
         updated_at:
           type: string
           format: date-time
           example: 2026-08-17T18:30:00Z
+
+    ChatChannel:
+      type: object
+      required: [channel_id, kind, display_name]
+      properties:
+        channel_id:
+          type: string
+          maxLength: 50
+          description: >
+            `global`, atau kunci regional `<ISO2>-<slug-admin1>`. Kunci ini
+            disusun server dari wilayah yang dikirim ke PUT /users/location.
+          example: ID-jawa-barat
+        kind:
+          type: string
+          enum: [GLOBAL, REGIONAL]
+          example: REGIONAL
+        display_name:
+          type: string
+          maxLength: 80
+          description: >
+            Judul kanal milik penulis pertama, bukan ejaan ponsel pemanggil,
+            sehingga setiap anggota melihat satu judul yang sama.
+          example: Jawa Barat
+
+    ChatChannelsResponse:
+      type: object
+      required: [channels]
+      properties:
+        channels:
+          type: array
+          description: Kanal global selalu berada di indeks pertama.
+          items:
+            $ref: '#/components/schemas/ChatChannel'
+
+    ChatMessage:
+      type: object
+      required: [message_id, channel_id, sender_id, sender_pseudonym, message, is_admin, created_at]
+      properties:
+        message_id:
+          type: string
+          format: uuid
+          example: 8f14e45f-ceea-467a-9c3f-2b0c4d5e6f70
+        channel_id:
+          type: string
+          maxLength: 50
+          example: ID-jawa-barat
+        sender_id:
+          type: string
+          description: >
+            UUID pengirim, atau string kosong bila profilnya sudah dihapus
+            (FK ON DELETE SET NULL). Klien memakainya untuk mengenali pesannya
+            sendiri.
+          example: 3a78f1c2-9d4e-4b0a-8f77-2c1b5e9a6d30
+        sender_pseudonym:
+          type: string
+          maxLength: 32
+          description: >
+            SNAPSHOT saat pesan dikirim, bukan hasil join: pseudonym dapat
+            di-reroll, dan riwayat tidak boleh berganti nama secara retroaktif.
+          example: AnonimTenang
+        sender_location_tag:
+          type: string
+          maxLength: 50
+          description: Opsional. Label lokasi pengirim saat pesan dikirim.
+          example: Bandung
+        message:
+          type: string
+          maxLength: 500
+          example: Aman di sini, hanya lampu bergoyang.
+        is_admin:
+          type: boolean
+          description: >
+            Belum dipakai: tidak ada jalur admin yang dibangun (lihat
+            docs/CHAT_DESIGN.md bagian 7). Selalu false untuk saat ini.
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-06-20T00:19:18Z'
+
+    ChatMessagesResponse:
+      type: object
+      required: [channel_id, limit, count, messages]
+      properties:
+        channel_id:
+          type: string
+          example: ID-jawa-barat
+        limit:
+          type: integer
+          example: 30
+        count:
+          type: integer
+          description: >
+            Jumlah pesan pada halaman ini. count < limit berarti tidak ada
+            halaman lebih lama lagi.
+          example: 30
+        messages:
+          type: array
+          description: Urutan menurun berdasarkan created_at (terbaru lebih dulu).
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+
+    CreateChatMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        channel_id:
+          type: string
+          maxLength: 50
+          default: global
+          description: Default `global` bila tidak dikirim.
+          example: ID-jawa-barat
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: >
+            Dihitung dalam karakter (rune), bukan byte: batas berbasis byte akan
+            memotong teks non-Latin jauh lebih pendek daripada 500 karakter yang
+            dijanjikan ke user. Spasi di tepi dipangkas server; body yang hanya
+            berisi spasi ditolak 400.
+          example: Aman di sini, hanya lampu bergoyang.
+        client_message_id:
+          type: string
+          format: uuid
+          description: >
+            Opsional tapi sangat disarankan. Kunci idempotensi: pengiriman ulang
+            dengan nilai yang sama mengembalikan pesan yang sama alih-alih
+            membuat duplikat.
+          example: 5c2d1e90-3b7a-4f61-8e0d-9a4b7c6d5e1f
 
     UpdateLocationRequest:
       type: object
@@ -630,6 +911,25 @@ components:
             endpoint ini bersemantik PUT (replace), mengirim body tanpa
             location_name akan MENGOSONGKAN label yang tersimpan sebelumnya.
           example: Cimahi, West Java, ID
+        country_iso:
+          type: string
+          minLength: 2
+          maxLength: 2
+          description: >
+            Opsional. Kode negara ISO-3166 alpha-2 dari reverse-geocode klien.
+            Bersama admin_area, server menurunkannya menjadi kunci kanal chat
+            regional. Dinormalisasi di server: ejaan yang berbeda untuk provinsi
+            yang sama harus mendarat di satu kanal.
+          example: ID
+        admin_area:
+          type: string
+          maxLength: 100
+          description: >
+            Opsional. Nama wilayah administratif tingkat 1 (provinsi/negara
+            bagian). Granularitas ini disengaja: cukup kasar sehingga keanggotaan
+            kanal bukan pengungkapan lokasi, cukup spesifik sehingga "gempa di
+            dekat saya" masih relevan.
+          example: Jawa Barat
 
     UpdateLocationResponse:
       type: object

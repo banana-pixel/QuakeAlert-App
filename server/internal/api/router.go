@@ -50,6 +50,12 @@ func (s *Server) Router(wsHandler http.HandlerFunc, log *slog.Logger) http.Handl
 		r.Post("/api/v1/users/pseudonym/reroll", s.HandleRerollPseudonym)
 		r.Put("/api/v1/users/location", s.HandleUpdateLocation)
 		r.Put("/api/v1/users/fcm-token", s.HandleUpdateFCMToken)
+		// Chat: kanal mana yang boleh diakses dijawab server, bukan ditebak
+		// klien. Kirim tetap lewat REST agar durable dan bisa diulang; socket
+		// hanya memfanout apa yang sudah tersimpan.
+		r.Get("/api/v1/chat/channels", s.HandleListChatChannels)
+		r.Get("/api/v1/chat/messages", s.HandleListChatMessages)
+		r.Post("/api/v1/chat/messages", s.HandleCreateChatMessage)
 		// WebSocket realtime (WSS via reverse proxy TLS di produksi).
 		r.Get("/ws", wsHandler)
 	})

@@ -18,7 +18,7 @@ Transport **wajib HTTPS** — Android dilarang `usesCleartextTraffic=true`. Real
 Ada **tiga tingkat akses**:
 - **Publik** — `POST /api/v1/auth/anonymous` (bootstrap identitas, tanpa token).
 - **Auth opsional** — `GET /api/v1/events`: boleh tanpa token; bila header `Authorization` dikirim, token **wajib valid** (rusak/kedaluwarsa → `401`, tidak dianggap anonim).
-- **Auth wajib** — `PUT /api/v1/users/location`, `PUT /api/v1/users/fcm-token`, `GET /api/v1/sensors`, `POST /api/v1/users/pseudonym/reroll`, `POST /api/v1/nodes/provision` (yang 2 terakhir bukan untuk Android).
+- **Auth wajib** — `PUT /api/v1/users/location`, `PUT /api/v1/users/fcm-token`, `GET /api/v1/sensors`, `GET /api/v1/chat/channels`, `GET /api/v1/chat/messages`, `POST /api/v1/chat/messages`, `POST /api/v1/users/pseudonym/reroll`, `POST /api/v1/nodes/provision` (yang 2 terakhir bukan untuk Android).
 
 ---
 
@@ -68,9 +68,9 @@ Content-Type: application/json
 
 ---
 
-## 4. Endpoint Client-Facing (4 Endpoint REST)
+## 4. Endpoint Client-Facing (7 Endpoint REST)
 
-> Seluruh 7 endpoint terdaftar di `router.go`; **4 berikut adalah permukaan integrasi Android** (ditandai `x-client: true` di OpenAPI).
+> Seluruh 10 endpoint terdaftar di `router.go`; **7 berikut adalah permukaan integrasi Android** (ditandai `x-client: true` di OpenAPI).
 
 ### 4.1 `POST /api/v1/auth/anonymous` — bootstrap identitas
 - **Publik**, tanpa token. Lihat §2.
@@ -82,13 +82,17 @@ Request:
 {
   "latitude": -6.8721,
   "longitude": 107.5422,
-  "location_name": "Cimahi, West Java, ID"
+  "location_name": "Cimahi, West Java, ID",
+  "country_iso": "ID",
+  "admin_area": "Jawa Barat"
 }
 ```
 
 - `latitude`/`longitude` **wajib** (rentang -90..90 / -180..180).
 - `location_name` opsional (≤150 char, hasil reverse-geocode klien). PUT = replace.
-- `200` → `{ user_id, latitude, longitude, location_name|null, updated_at }`.
+- `country_iso` + `admin_area` opsional, dari reverse-geocode yang sama (`Address.countryCode` dan `Address.adminArea`). Server menormalisasinya menjadi kunci kanal chat regional — kirim apa adanya, jangan menyusun kuncinya sendiri.
+- `200` → `{ user_id, latitude, longitude, location_name|null, region_code|null, updated_at }`.
+- `region_code` adalah kanal chat regional yang berlaku setelah pembaruan ini, `null` bila wilayahnya tidak dapat dinormalisasi (mis. `admin_area` non-ASCII) — user itu hanya punya kanal global.
 - **Kapan dipanggil:** saat onboarding berbagi lokasi, dan saat posisi berubah signifikan (mis. > 1 km). Lokasi tersimpan dipakai server untuk filter radius `GET /api/v1/events` tanpa koordinat eksplisit.
 
 ### 4.3 `PUT /api/v1/users/fcm-token` — daftarkan FCM registration token
@@ -134,6 +138,36 @@ Request:
 
 - `count` = jumlah event **pada halaman ini** (bukan total). `range_km` = `null` bila filter spasial tidak aktif.
 - **`depth_km` SELALU `null`** (jaringan MEMS permukaan mengestimasi centroid 2D, bukan hiposenter) — jangan ditampilkan sebagai kedalaman 0 km; pertahankan field agar model stabil.
+
+### 4.5 `GET /api/v1/chat/channels` — kanal yang boleh diakses
+
+- `200` → `{ "channels": [ { "channel_id", "kind", "display_name" } ] }`, kanal `global` selalu di indeks pertama.
+- **Server yang menjawab, klien tidak menebak.** Kunci regional (`ID-jawa-barat`) diturunkan dari `region_code` hasil §4.2; menyusunnya di klien akan meminta ruang yang tidak ada begitu normalisasi server berubah.
+- Tanpa fix lokasi hanya ada `global` — itu keadaan yang sah, dan UI sebaiknya menyebut alasannya alih-alih menampilkan ruang kosong.
+- **Kapan dipanggil:** saat tab Chat dibuka, dan setelah setiap `PUT /users/location` yang mengubah `region_code`.
+
+### 4.6 `GET /api/v1/chat/messages` — riwayat satu kanal
+
+- Parameter: `channel_id` (default `global`), `limit` (1..100, default 30), `before` (RFC3339).
+- Urutan **menurun** (terbaru lebih dulu). Untuk halaman berikutnya kirim `created_at` pesan tertua yang sudah dipegang sebagai `before`.
+- **Kursor waktu, bukan offset:** ruang yang aktif menggeser offset di antara dua permintaan, jadi paginasi offset akan melewatkan atau menggandakan baris tepat saat percakapan ramai.
+- `count < limit` berarti tidak ada halaman lebih lama lagi. Retensi 7 hari — riwayat memang berujung.
+- `403` bila `channel_id` bukan keanggotaan user.
+
+### 4.7 `POST /api/v1/chat/messages` — kirim pesan
+
+```json
+{
+  "channel_id": "ID-jawa-barat",
+  "message": "Aman di sini, hanya lampu bergoyang.",
+  "client_message_id": "5c2d1e90-3b7a-4f61-8e0d-9a4b7c6d5e1f"
+}
+```
+
+- `message` wajib, 1..500 **karakter** (rune, bukan byte); spasi tepi dipangkas server.
+- `client_message_id` opsional tapi **sangat disarankan**: kunci idempotensi. Kirim ulang dengan nilai yang sama mengembalikan pesan yang **sama**, bukan duplikat — klien yang timeout tidak tahu apakah percobaan pertamanya sampai, dan pesan ganda di ruang publik tidak bisa ditarik kembali.
+- `201` → objek `ChatMessage`. `403` kanal asing, `429` melewati batas laju (1 pesan / 2 detik per user).
+- **Kirim lewat REST, bukan WebSocket.** REST durable dan bisa diulang; socket hanya memfanout apa yang sudah tersimpan.
 
 ---
 
@@ -184,6 +218,29 @@ Payload inti (contoh):
 2. **FCM data-only** (`FirebaseMessagingService`) + `EmergencyMessagingService` agar dipanggil saat app di background/killed.
 3. Prioritaskan kanal yang tersedia: FCM (background) ↔ WS (foreground); dedup via `event_id`.
 
+### 5.4 Frame chat di WebSocket yang sama
+
+Socket `GET /ws` juga memfanout pesan chat, hanya untuk kanal yang menjadi keanggotaan koneksi (dibaca **sekali** saat handshake — klien yang wilayahnya berubah akan menyambung ulang):
+
+```json
+{
+  "type": "CHAT_MESSAGE",
+  "message_id": "8f14e45f-ceea-467a-9c3f-2b0c4d5e6f70",
+  "channel_id": "ID-jawa-barat",
+  "sender_id": "3a78f1c2-9d4e-4b0a-8f77-2c1b5e9a6d30",
+  "sender_pseudonym": "AnonimTenang",
+  "sender_location_tag": "Bandung",
+  "message": "Aman di sini, hanya lampu bergoyang.",
+  "is_admin": false,
+  "timestamp": 1723891234120
+}
+```
+
+- Satu socket, satu envelope ber-`type` — bukan koneksi kedua, sehingga alert dan chat berbagi satu auth dan satu jalur reconnect. Klien memilah berdasarkan `type` dan **mengabaikan tipe yang tidak dikenal**.
+- **Alert selalu diprioritaskan:** bila buffer per-klien menipis, frame chat dilewati dan koneksi TIDAK ditutup. Chat yang hilang muncul kembali lewat §4.6; peringatan yang hilang tidak punya jalan kembali. Karena itu socket adalah jalur *cepat*, bukan sumber kebenaran.
+- `sender_id` memungkinkan klien mengenali pesannya sendiri: cocokkan dengan `user_id` sendiri agar gelembung optimistis **diganti**, bukan digandakan.
+- Frame yang **dikirim** klien tetap diabaikan server. Pengiriman lewat `POST /api/v1/chat/messages`.
+
 ---
 
 ## 6. Error Code Mapping
@@ -194,7 +251,8 @@ Semua error memakai bentuk seragam `{ "code": string, "message": string }`.
 |---|---|---|---|
 | 400 | `INVALID_ARGUMENT` | Body/query invalid, field tak dikenal, koordinat di luar rentang, filter spasial tidak lengkap | Perbaiki request; jangan retry mentah-mentah. |
 | 401 | `UNAUTHENTICATED` | Token tidak ada, rusak, kedaluwarsa, atau profil tak ditemukan | Re-auth via `POST /api/v1/auth/anonymous`, simpan token baru, retry sekali. |
-| 429 | `RATE_LIMITED` | Reroll pseudonym > 1x/60s | Tampilkan cooldown; jangan retry sebelum jeda. |
+| 403 | `PERMISSION_DENIED` | Kanal chat bukan keanggotaan user | Muat ulang `GET /chat/channels`; jangan menyusun `channel_id` sendiri. |
+| 429 | `RATE_LIMITED` | Reroll pseudonym > 1x/60s, atau kirim chat > 1x/2s | Tampilkan cooldown; jangan retry sebelum jeda. |
 | 500 | `INTERNAL` | Kesalahan internal server | Retry dengan backoff eksponensial; laporkan bila berulang. |
 
 Catatan: `GET /api/v1/events` tanpa token mengabaikan 401 (auth opsional) — 401 hanya muncul bila token dikirim tapi invalid.
@@ -216,9 +274,10 @@ Catatan: `GET /api/v1/events` tanpa token mengabaikan 401 (auth opsional) — 40
 
 - [ ] REST: repository dengan Retrofit/Ktor + OkHttp interceptor `Authorization: Bearer <token>`.
 - [ ] First-launch: `POST /auth/anonymous` → simpan `token`/`user_id`/`pseudonym`/`expires_at` di DataStore.
-- [ ] Onboarding lokasi: `PUT /users/location` (dengan `location_name` hasil reverse-geocode).
+- [ ] Onboarding lokasi: `PUT /users/location` (dengan `location_name`, `country_iso` dan `admin_area` hasil reverse-geocode).
 - [ ] Push: `PUT /users/fcm-token` di `onNewToken` + saat start; FCM data-only handler + `EmergencyMessagingService`.
-- [ ] Realtime: WS `GET /ws` (auth JWT); dedup alert via `event_id`.
+- [ ] Realtime: WS `GET /ws` (auth JWT); dedup alert via `event_id`; pilah `type` dan abaikan tipe tak dikenal.
+- [ ] Chat: `GET /chat/channels` saat tab dibuka; paginasi ke atas dengan kursor `before`; kirim dengan `client_message_id` dan ganti gelembung optimistis saat frame `CHAT_MESSAGE` sendiri kembali.
 - [ ] Riwayat: `GET /events` dengan paginasi; filter spasial via lokasi tersimpan atau koordinat eksplisit.
 - [ ] Life-safety: Haversine gating lokal sebelum alarm; `USE_FULL_SCREEN_INTENT` (API 34+ cek `Settings.canUseFullScreenIntent()`); audio `STREAM_ALARM`; minta pengecualian battery-optimization.
 - [ ] Tolak `depth_km` sebagai 0; tampilkan lokasi sebagai "centroid terdeteksi" bukan episenter.

@@ -50,10 +50,43 @@ type AlertMessage struct {
 	NodeCount      int     `json:"node_count"`
 }
 
+// chatBufferCeiling menjaga separuh buffer per-klien tetap kosong untuk alert.
+// Frame chat hanya masuk bila antrean masih di bawah ambang ini, sehingga
+// percakapan yang ramai tidak pernah memakan tempat yang dibutuhkan sebuah
+// peringatan gempa (life-safety: chat boleh hilang, alert tidak).
+const chatBufferCeiling = clientSendBuffer / 2
+
+// ChatMessage adalah frame chat yang difanout ke klien satu kanal. Bentuknya
+// mengikuti AlertMessage: satu socket, satu envelope ber-"type", sehingga klien
+// tidak perlu koneksi kedua dan jalur reconnect kedua.
+type ChatMessage struct {
+	Type            string `json:"type"` // CHAT_MESSAGE
+	MessageID       string `json:"message_id"`
+	ChannelID       string `json:"channel_id"`
+	SenderID        string `json:"sender_id"`
+	SenderPseudonym string `json:"sender_pseudonym"`
+	SenderLocation  string `json:"sender_location_tag,omitempty"`
+	Message         string `json:"message"`
+	IsAdmin         bool   `json:"is_admin"`
+	Timestamp       int64  `json:"timestamp"` // ms epoch UTC, seperti AlertMessage
+}
+
+// ChannelResolver menjawab kanal chat mana yang boleh diterima sebuah koneksi.
+//
+// Sebuah fungsi yang di-inject, bukan lookup di dalam paket ini: dispatch tidak
+// tahu apa-apa soal autentikasi maupun basis data, dan cmd/quakealert yang
+// menjembatani keduanya. Mengembalikan nil berarti koneksi hanya menerima alert.
+type ChannelResolver func(r *http.Request) []string
+
 // client membungkus satu koneksi WebSocket dengan channel kirim ber-buffer.
 type client struct {
 	conn *websocket.Conn
 	send chan []byte
+	// channels adalah keanggotaan kanal chat yang diambil SEKALI saat upgrade.
+	// Snapshot, bukan langganan hidup: koneksi ini berumur pendek dan klien yang
+	// wilayahnya berubah akan menyambung ulang, jadi keanggotaan yang menyegarkan
+	// dirinya sendiri hanya menambah state yang bisa basi tanpa manfaat.
+	channels map[string]struct{}
 }
 
 // Hub mengelola set klien aktif dan broadcast non-blocking.
@@ -62,6 +95,8 @@ type Hub struct {
 	clients  map[*client]struct{}
 	log      *slog.Logger
 	upgrader websocket.Upgrader
+	// resolveChannels boleh nil: hub tetap menyiarkan alert, hanya tanpa chat.
+	resolveChannels ChannelResolver
 }
 
 // NewHub membuat hub kosong. checkOrigin membatasi origin yang diizinkan
@@ -82,16 +117,40 @@ func NewHub(log *slog.Logger, allowOrigin func(r *http.Request) bool) *Hub {
 	}
 }
 
+// SetChannelResolver memasang penentu keanggotaan kanal chat. Dipanggil dari
+// cmd/quakealert setelah store tersedia; tanpa itu hub berperilaku seperti
+// sebelumnya, yaitu hanya menyiarkan alert.
+func (h *Hub) SetChannelResolver(resolver ChannelResolver) {
+	h.mu.Lock()
+	h.resolveChannels = resolver
+	h.mu.Unlock()
+}
+
 // ServeWS meng-upgrade koneksi HTTP menjadi WebSocket dan mendaftarkannya.
 // Autentikasi (JWT) diasumsikan sudah divalidasi di middleware sebelum handler
 // ini (life-safety: endpoint jangan dibiarkan tanpa auth di produksi).
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
+	// Keanggotaan dibaca SEBELUM upgrade: sesudahnya request sudah dibajak dan
+	// context-nya (tempat userID berada) tidak lagi dapat diandalkan.
+	h.mu.RLock()
+	resolver := h.resolveChannels
+	h.mu.RUnlock()
+	var channels map[string]struct{}
+	if resolver != nil {
+		if ids := resolver(r); len(ids) > 0 {
+			channels = make(map[string]struct{}, len(ids))
+			for _, id := range ids {
+				channels[id] = struct{}{}
+			}
+		}
+	}
+
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.log.Warn("gagal upgrade websocket", "err", err)
 		return
 	}
-	c := &client{conn: conn, send: make(chan []byte, clientSendBuffer)}
+	c := &client{conn: conn, send: make(chan []byte, clientSendBuffer), channels: channels}
 
 	h.mu.Lock()
 	h.clients[c] = struct{}{}
@@ -118,6 +177,39 @@ func (h *Hub) Broadcast(msg *AlertMessage) {
 		default:
 			// Buffer penuh -> klien lambat; drop pesan untuk klien ini.
 			h.log.Warn("buffer klien ws penuh, pesan di-drop untuk 1 klien")
+		}
+	}
+}
+
+// BroadcastChat mengirim satu frame chat hanya ke klien yang menjadi anggota
+// kanalnya.
+//
+// Berbeda dari Broadcast dalam satu hal yang penting: frame chat dilewati bila
+// antrean klien sudah melewati chatBufferCeiling, dan klien TIDAK ditutup.
+// Pesan chat yang hilang akan muncul kembali saat klien memuat riwayat lewat
+// REST; peringatan yang hilang tidak punya jalan kembali.
+func (h *Hub) BroadcastChat(msg *ChatMessage) {
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		h.log.Error("gagal marshal chat ws", "err", err)
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for c := range h.clients {
+		if _, ok := c.channels[msg.ChannelID]; !ok {
+			continue
+		}
+		if len(c.send) >= chatBufferCeiling {
+			// Sisa buffer disimpan untuk alert; chat dilewati tanpa menutup klien.
+			h.log.Debug("buffer klien ws menipis, frame chat dilewati")
+			continue
+		}
+		select {
+		case c.send <- payload:
+		default:
+			h.log.Debug("buffer klien ws penuh, frame chat di-drop")
 		}
 	}
 }
