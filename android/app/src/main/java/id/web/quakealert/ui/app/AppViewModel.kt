@@ -37,15 +37,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val network = QuakeNetwork.from(application)
 
     init {
-        // App start is the third position-sync trigger, alongside the onboarding grant
-        // and Settings → Sync Now. Cheap and silent: it no-ops unless auto-sync is on
-        // and the stored fix has gone stale, and a failure only leaves the previous
-        // position in place. Run on the process scope so a rotation cannot cancel a
-        // request mid-flight.
-        network.applicationScope.launch {
-            network.userLocationRepository.syncIfStale()
-        }
-
         // Push registration also runs here rather than only in `onNewToken`: a token
         // can rotate while the app is not running, and the server keeps only the last
         // one it was told about. No-ops when Firebase is not configured.
@@ -64,6 +55,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = AppUiState.Loading
         )
+
+    /**
+     * Re-checks position staleness whenever the app comes to the foreground.
+     *
+     * Called from [AppRoot] on every `ON_START`, not once at construction, because a
+     * process that is never killed never re-checked: leave the app backgrounded across
+     * a flight and the position it targets alerts with stays where you took off from
+     * until Android happens to reclaim the process.
+     *
+     * Cheap enough to call on every resume without a guard of its own, because
+     * [id.web.quakealert.data.users.UserLocationRepository.syncIfStale] already has
+     * three: auto-sync must be on, the stored fix must be older than six hours, and a
+     * device that has moved under a kilometre records the check without uploading. The
+     * repository also serialises concurrent syncs, so a fast background/foreground flap
+     * cannot produce two uploads of one fix. A failure leaves the previous position in
+     * place.
+     *
+     * Runs on the process scope, so a rotation cannot cancel a request mid-flight.
+     */
+    fun onAppForegrounded() {
+        network.applicationScope.launch {
+            network.userLocationRepository.syncIfStale()
+        }
+    }
 
     /** Persists onboarding completion, flipping the entry point to MainScreen. */
     fun completeOnboarding() {

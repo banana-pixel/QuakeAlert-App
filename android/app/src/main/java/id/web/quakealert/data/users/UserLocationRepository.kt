@@ -14,6 +14,8 @@ import id.web.quakealert.device.hasLocationPermission
 import id.web.quakealert.device.locationSource
 import id.web.quakealert.domain.UserLocation
 import id.web.quakealert.domain.haversineKm
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * What a position sync did, for the caller that wants to say so on screen.
@@ -87,7 +89,16 @@ class UserLocationRepository(
      *   false by the automatic paths, which must not spend a request per launch.
      */
     suspend fun sync(force: Boolean = false): LocationSyncResult =
-        syncOnce(force).also { Log.i(TAG, "sync(force=$force) -> ${it.logLabel()}") }
+        // Serialised, because the triggers are independent and can overlap: app start,
+        // a return to the foreground, onboarding's grant and Settings' "Sync Now" all
+        // call in. Two concurrent runs would each read the *pre-sync* stored position,
+        // so both would decide the device had moved and both would upload the same fix.
+        syncMutex.withLock {
+            syncOnce(force).also { Log.i(TAG, "sync(force=$force) -> ${it.logLabel()}") }
+        }
+
+    /** One sync at a time, process-wide — this repository is a singleton. */
+    private val syncMutex = Mutex()
 
     /**
      * The sync itself. Split from [sync] only so every one of the five outcomes is

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.ui.main.MainScreen
@@ -35,6 +36,15 @@ fun AppRoot(
     viewModel: AppViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Every foreground is a chance for the stored position to have gone stale — the
+    // process-start check alone misses an app that was simply left in the background.
+    // Placed on the root rather than in a tab so it covers onboarding too, and nothing
+    // is needed on the way out.
+    LifecycleStartEffect(Unit) {
+        viewModel.onAppForegrounded()
+        onStopOrDispose { }
+    }
 
     Box(
         modifier = modifier
