@@ -13,6 +13,19 @@ plugins {
  * point logs and returns, and alerts arrive over the WebSocket exactly as they do
  * today. See docs/FIREBASE_SETUP.md.
  */
+/**
+ * A build secret from the environment, or from a Gradle property, or null.
+ *
+ * Env var first so CI can inject one without writing a file; the Gradle property
+ * is the local convenience, and it must live in `~/.gradle/gradle.properties`
+ * rather than the project's, which is committed. Blank is treated as absent
+ * because an unset CI variable expands to an empty string, and an empty password
+ * would otherwise fail deep inside the signing task instead of here.
+ */
+fun quakeSecret(envName: String, propertyName: String): String? =
+    (System.getenv(envName) ?: providers.gradleProperty(propertyName).orNull)
+        ?.takeIf { it.isNotBlank() }
+
 val hasFirebaseConfig = file("google-services.json").exists()
 if (hasFirebaseConfig) {
     apply(plugin = "com.google.gms.google-services")
@@ -36,6 +49,51 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    /**
+     * Release signing, supplied by the environment rather than by a file in the
+     * repository.
+     *
+     * Every value comes from an env var, with a Gradle property as the local
+     * fallback (`~/.gradle/gradle.properties`, which is outside the repo). No
+     * keystore, alias or password is ever committed; `.gitignore` refuses `*.jks`
+     * and `*.keystore` as a second line of defence.
+     *
+     * When the variables are absent the config is simply not registered, so
+     * `assembleRelease` still builds an *unsigned* APK. That is deliberate: CI must
+     * be able to prove the release build compiles and passes R8 on every pull
+     * request without holding the production signing key.
+     */
+    val releaseKeystore = quakeSecret("QUAKE_KEYSTORE_PATH", "quake.keystorePath")
+        ?.let(::file)
+        ?.takeIf { it.exists() }
+    val releaseStorePassword = quakeSecret("QUAKE_KEYSTORE_PASSWORD", "quake.keystorePassword")
+    val releaseKeyAlias = quakeSecret("QUAKE_KEY_ALIAS", "quake.keyAlias")
+    val releaseKeyPassword = quakeSecret("QUAKE_KEY_PASSWORD", "quake.keyPassword")
+    val canSignRelease = releaseKeystore != null &&
+        releaseStorePassword != null &&
+        releaseKeyAlias != null &&
+        releaseKeyPassword != null
+
+    signingConfigs {
+        if (canSignRelease) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                // v1 is unnecessary below API 24 and this app is minSdk 28.
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        } else {
+            logger.lifecycle(
+                "QuakeAlert: no release signing credentials in the environment - " +
+                    "assembleRelease will produce an unsigned APK."
+            )
+        }
+    }
+
     buildTypes {
         debug {
             // Emulator loopback to the Go server on the host (docs/CLIENT_SPEC.md §1).
@@ -45,11 +103,19 @@ android {
         release {
             // ADR-0003: production transport is HTTPS/WSS only.
             buildConfigField("String", "QUAKE_BASE_URL", "\"https://api.quakealert.id/\"")
-            isMinifyEnabled = false
+            // R8: shrink, optimise and obfuscate. The rules R8 cannot infer -
+            // MapLibre's JNI callbacks, the serializers looked up by class, the
+            // ServiceLoader-found main dispatcher - are in app/proguard-rules.pro,
+            // which explains each keep rather than leaning on a blanket one.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Null when the environment holds no credentials, which leaves the APK
+            // unsigned instead of failing the build. See signingConfigs above.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {

@@ -20,6 +20,11 @@
 *secrets.local
 android/local.properties
 firmware/src/secrets.h
+# Kunci penandatanganan rilis: dipasok lewat env var (QUAKE_KEYSTORE_PATH dkk),
+# tidak pernah masuk repo. Lihat android/app/build.gradle.kts signingConfigs.
+*.jks
+*.keystore
+android/keystore.properties
 
 # --- Android (Gradle) ---
 android/.gradle/
