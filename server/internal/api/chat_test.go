@@ -298,3 +298,58 @@ func longRunes(n int) string {
 	}
 	return string(out)
 }
+
+func TestUpdateLocation_KeepsTheRegionWhenNoPlaceIsSent(t *testing.T) {
+	// Reverse-geocode yang gagal di ponsel adalah kondisi sesaat, bukan bukti
+	// bahwa user pindah provinsi. Sinkronisasi tanpa wilayah karena itu tidak
+	// boleh mengeluarkannya dari ruang chat wilayahnya.
+	repo := &fakeRepo{
+		locUpdated:   time.Unix(1_781_913_558, 0).UTC(),
+		chatIdentity: &store.UserChatIdentity{Pseudonym: "AnonimTenang", RegionCode: "ID-jawa-barat"},
+	}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+
+	body := `{"latitude":-6.9175,"longitude":107.6191,"location_name":"Bandung"}`
+	rec := do(h, authedRequest(http.MethodPut, "/api/v1/users/location", body, testSecret, "u-1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200: %s", rec.Code, rec.Body.String())
+	}
+	if repo.regionSets != 0 {
+		t.Fatalf("SetUserRegion dipanggil %d kali, mau 0", repo.regionSets)
+	}
+	var resp updateLocationResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.RegionCode == nil || *resp.RegionCode != "ID-jawa-barat" {
+		t.Fatalf("region_code respons = %v, mau kanal yang tersimpan", resp.RegionCode)
+	}
+}
+
+func TestUpdateLocation_UnnameablePlaceClearsTheRegion(t *testing.T) {
+	// Kasus sebaliknya: geocoder menjawab, tetapi dengan sesuatu yang tidak bisa
+	// dinamai menjadi kunci kanal. Region memang dikosongkan — kanal regional
+	// yang salah lebih buruk daripada tidak ada kanal regional.
+	repo := &fakeRepo{
+		locUpdated:   time.Unix(1_781_913_558, 0).UTC(),
+		regionCode:   "ID-jawa-barat",
+		chatIdentity: &store.UserChatIdentity{Pseudonym: "AnonimTenang", RegionCode: "ID-jawa-barat"},
+	}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+
+	body := `{"latitude":-6.9175,"longitude":107.6191,"country_iso":"ID","admin_area":"日本語"}`
+	rec := do(h, authedRequest(http.MethodPut, "/api/v1/users/location", body, testSecret, "u-1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200", rec.Code)
+	}
+	if repo.regionSets != 1 || repo.regionCode != "" {
+		t.Fatalf("region tersimpan = %q setelah %d penulisan, mau kosong sekali", repo.regionCode, repo.regionSets)
+	}
+	var resp updateLocationResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.RegionCode != nil {
+		t.Fatalf("region_code = %v, mau null", *resp.RegionCode)
+	}
+}

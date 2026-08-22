@@ -57,6 +57,7 @@ type fakeRepo struct {
 
 	// Chat
 	regionCode    string
+	regionSets    int
 	regionSetErr  error
 	chatIdentity  *store.UserChatIdentity
 	chatIdentErr  error
@@ -113,6 +114,7 @@ func (f *fakeRepo) SetUserRegion(_ context.Context, _, regionCode string) error 
 		return f.regionSetErr
 	}
 	f.regionCode = regionCode
+	f.regionSets++
 	return nil
 }
 func (f *fakeRepo) GetUserChatIdentity(_ context.Context, _ string) (*store.UserChatIdentity, error) {

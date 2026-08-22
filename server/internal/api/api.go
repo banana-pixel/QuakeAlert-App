@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/banana-pixel/quakealert/server/internal/store"
@@ -582,16 +583,7 @@ func (s *Server) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Region diturunkan dari wilayah yang dikirim bersama posisi, lalu disimpan
-	// terpisah. Kegagalan di sini TIDAK menggagalkan permintaan: lokasi sudah
-	// tersimpan dan itulah yang menopang penargetan alert — keanggotaan kanal
-	// chat tidak boleh menjadi alasan sebuah sinkronisasi lokasi dilaporkan gagal.
-	regionCode := RegionCode(req.CountryISO, req.AdminArea)
-	regionSaved := true
-	if err := s.repo.SetUserRegion(r.Context(), userID, regionCode); err != nil {
-		s.log.Warn("gagal menyimpan region chat user", "err", err)
-		regionSaved = false
-	}
+	regionCode, regionKnown := s.syncChatRegion(r.Context(), userID, req)
 
 	resp := updateLocationResponse{
 		UserID:    userID,
@@ -602,7 +594,7 @@ func (s *Server) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
 	// Hanya dilaporkan bila benar-benar tersimpan, dan null bila wilayahnya tidak
 	// dapat dinormalisasi — klien yang melihat kunci kanal di sini berhak
 	// menganggap kanal itu miliknya.
-	if regionSaved && regionCode != "" {
+	if regionKnown && regionCode != "" {
 		code := regionCode
 		resp.RegionCode = &code
 	}
@@ -613,6 +605,45 @@ func (s *Server) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
 		resp.LocationName = &name
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// syncChatRegion menurunkan kanal chat regional dari wilayah yang dikirim
+// bersama posisi, dan mengembalikan kanal yang berlaku setelahnya.
+//
+// Bila klien tidak mengirim wilayah sama sekali, region yang sudah tersimpan
+// DIBIARKAN, bukan dikosongkan: reverse-geocode yang gagal adalah kondisi
+// jaringan sesaat, bukan bukti bahwa user pindah provinsi — dan mengeluarkan
+// seseorang dari ruang chat wilayahnya tepat saat jaringannya buruk adalah
+// hasil yang lebih buruk daripada keanggotaan yang tertinggal satu sinkronisasi.
+// Sinkronisasi berikut yang berhasil memperbaikinya.
+//
+// Wilayah yang dikirim tetapi tidak dapat dinormalisasi adalah kasus sebaliknya:
+// geocoder menjawab dengan sesuatu yang tidak bisa kita namai, jadi region
+// memang dikosongkan.
+//
+// Nilai kedua adalah "region ini benar-benar diketahui" — false ketika
+// penyimpanan atau pembacaannya gagal, sehingga respons tidak menjanjikan kanal
+// yang belum tentu milik pemanggil.
+func (s *Server) syncChatRegion(
+	ctx context.Context, userID string, req updateLocationRequest,
+) (string, bool) {
+	if strings.TrimSpace(req.CountryISO) == "" && strings.TrimSpace(req.AdminArea) == "" {
+		identity, err := s.repo.GetUserChatIdentity(ctx, userID)
+		if err != nil {
+			s.log.Warn("gagal membaca region chat user", "err", err)
+			return "", false
+		}
+		return identity.RegionCode, true
+	}
+	regionCode := RegionCode(req.CountryISO, req.AdminArea)
+	// Kegagalan di sini TIDAK menggagalkan permintaan: lokasi sudah tersimpan dan
+	// itulah yang menopang penargetan alert — keanggotaan kanal chat tidak boleh
+	// menjadi alasan sebuah sinkronisasi lokasi dilaporkan gagal.
+	if err := s.repo.SetUserRegion(ctx, userID, regionCode); err != nil {
+		s.log.Warn("gagal menyimpan region chat user", "err", err)
+		return "", false
+	}
+	return regionCode, true
 }
 
 // --- Update FCM token handler ---

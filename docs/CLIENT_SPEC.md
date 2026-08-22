@@ -91,8 +91,9 @@ Request:
 - `latitude`/`longitude` **wajib** (rentang -90..90 / -180..180).
 - `location_name` opsional (≤150 char, hasil reverse-geocode klien). PUT = replace.
 - `country_iso` + `admin_area` opsional, dari reverse-geocode yang sama (`Address.countryCode` dan `Address.adminArea`). Server menormalisasinya menjadi kunci kanal chat regional — kirim apa adanya, jangan menyusun kuncinya sendiri.
+- **Keduanya absen berarti "jangan diubah", bukan "kosongkan".** Reverse-geocode yang gagal di ponsel adalah kondisi sesaat, bukan bukti user pindah provinsi, jadi region yang tersimpan dibiarkan dan respons mengembalikan kanal yang sudah ada. Wilayah yang dikirim tetapi tidak dapat dinormalisasi adalah kasus sebaliknya: region dikosongkan.
 - `200` → `{ user_id, latitude, longitude, location_name|null, region_code|null, updated_at }`.
-- `region_code` adalah kanal chat regional yang berlaku setelah pembaruan ini, `null` bila wilayahnya tidak dapat dinormalisasi (mis. `admin_area` non-ASCII) — user itu hanya punya kanal global.
+- `region_code` adalah kanal chat regional yang berlaku setelah pembaruan ini, `null` bila wilayahnya tidak dapat dinormalisasi (mis. `admin_area` non-ASCII) atau tidak dapat dibaca — user itu hanya punya kanal global.
 - **Kapan dipanggil:** saat onboarding berbagi lokasi, dan saat posisi berubah signifikan (mis. > 1 km). Lokasi tersimpan dipakai server untuk filter radius `GET /api/v1/events` tanpa koordinat eksplisit.
 
 ### 4.3 `PUT /api/v1/users/fcm-token` — daftarkan FCM registration token
