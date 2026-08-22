@@ -20,6 +20,7 @@
 #include "network.h"
 #include "sensor.h"
 #include "mqtt.h"
+#include "mqtt_tls.h"
 
 // Ensure Arduino LED define exists
 #ifndef LED_BUILTIN
@@ -319,11 +320,12 @@ void setup() {
     mqttClient.setKeepAlive(CUSTOM_MQTT_KEEPALIVE);
     mqttClient.setCallback(mqttCallback);
     
-    // Server is using a self-signed certificate (ca.crt), so we cannot use
-    // Let's Encrypt Root CA. We use setInsecure() to encrypt the TLS payload
-    // without dropping connection due to invalid chain validation.
-    // Skip certificate chain validation — still fully encrypts the TLS session
-    espClient.setInsecure();
+    // Trust anchor dipasang sebelum koneksi pertama: setCACert pada sesi yang
+    // sudah berjalan tidak berlaku untuk sesi itu. Detail pilihan akar ada di
+    // mqtt_ca.h; koneksi ditahan sampai NTP memberi jam yang masuk akal
+    // (mqttTlsClockReady), karena verifikasi masa berlaku terhadap jam 1970
+    // selalu gagal.
+    configureMqttTls();
 
     initWifi();
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);

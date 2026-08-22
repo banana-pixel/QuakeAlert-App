@@ -12,6 +12,7 @@
 #include "state.h"
 #include "utils.h"
 #include "crypto.h"
+#include "mqtt_tls.h"
 
 #include <WiFi.h>
 #include <PubSubClient.h>
@@ -349,6 +350,14 @@ void checkMqttConnection() {
         return;
     }
     lastMqttAttempt = now;
+
+    // Sertifikat broker diverifikasi terhadap jam dinding, dan ESP32 boot pada
+    // 1970. Mencoba handshake sebelum NTP hanya menghasilkan rc=-2 yang terlihat
+    // seperti broker tidak dapat dihubungi. Ditahan di sini, bukan di dalam
+    // configureMqttTls(), karena syaratnya berubah selama runtime.
+    if (!mqttTlsClockReady()) {
+        return;
+    }
 
     char clientId[40];
     snprintf(clientId, sizeof(clientId), "%s%04X", MQTT_CLIENT_ID_PREFIX,

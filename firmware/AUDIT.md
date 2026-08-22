@@ -46,10 +46,12 @@ Severity: 🔴 blocker (integritas/keamanan/kontrak), 🟡 penting, 🟢 minor.
 - **Kontrak:** satu event `trigger` (QoS 1). `.clinerules/30` #4: debounce ≥60s setelah trigger pertama (sudah ada `EVENT_COOLDOWN_PERIOD_MS=60000` ✅).
 - **Aksi:** Konsolidasi menjadi satu `publishTrigger()` QoS 1 sesuai skema. `dur_ms` = durasi event STA/LTA (sudah dihitung, cap `MAX_EVENT_DURATION_MS`).
 
-### 🟡 F-7 — TLS/MQTTS 8883 perlu verifikasi CA
-- **Sekarang:** `secrets.h.example` sudah `SECRET_MQTT_PORT 8883` ✅. Perlu cek `network.cpp` apakah pakai `WiFiClientSecure` + `setCACert()`.
+### ✅ F-7 — TLS/MQTTS 8883 perlu verifikasi CA — SELESAI
+- **Sekarang:** `configureMqttTls()` (`src/mqtt_tls.cpp`) mem-pin akar ISRG X1 + X2 dari `src/mqtt_ca.h` lewat `espClient.setCACert()`. `setInsecure()` tidak lagi ada di jalur default; ia hanya terkompilasi bila `secrets.h` mendefinisikan `SECRET_MQTT_ALLOW_INSECURE_TLS`, dan build itu mengumumkan dirinya di setiap boot.
 - **Kontrak:** ADR-0003 & `.clinerules/30` #6: MQTTS 8883 dengan validasi CA; plaintext 1883 dilarang di produksi.
-- **Aksi:** Pastikan `WiFiClientSecure` dengan CA cert ter-pin; jangan `setInsecure()` di produksi.
+- **Catatan:** yang dipin adalah AKAR, bukan leaf. Sertifikat broker diterbitkan ACME lewat Caddy dan diperbarui tiap ~60 hari (`deploy/scripts/sync-mqtt-certs.sh`), jadi mem-pin leaf berarti me-reflash fleet setiap perpanjangan. Kedua akar disertakan karena rantai RSA berujung di X1 sementara rantai ECDSA dapat berujung di X2.
+- **Konsekuensi runtime:** verifikasi masa berlaku butuh jam dinding, dan ESP32 boot pada 1970. `checkMqttConnection()` menahan koneksi sampai `mqttTlsClockReady()` true, sehingga node tidak membakar siklus reconnect pada handshake yang pasti gagal sebelum NTP.
+- **Broker dengan CA sendiri:** `SECRET_MQTT_CA_CERT` di `secrets.h` menggantikan akar publik tanpa mengubah kode.
 
 ### 🟡 F-8 — `node_id` format
 - **Sekarang:** `STATION_ID_BUFFER_SIZE 16`, prefix client `ESP32-Seismo-`.
@@ -82,6 +84,6 @@ Untuk HMAC (F-1): **tidak perlu lib eksternal** — pakai `mbedtls/md.h` yang su
 2. F-2 + F-6: ubah topik ke `sensor/<station_id>/trigger`, konsolidasi ke satu `publishTrigger()` QoS 1.
 3. F-4 + F-8: kunci presisi `pga` 4 desimal, format `node_id` `NODE-XXXXXXXX`.
 4. F-5: selaraskan heartbeat ke `{id, rssi, uptime_s, ts}`.
-5. F-7 + F-9: verifikasi TLS CA & provisioning NVS/SoftAP.
+5. ~~F-7~~ + F-9: TLS CA sudah ter-pin (lihat F-7 di atas); sisa: provisioning NVS/SoftAP.
 
 Semua perubahan firmware harus disertai uji vektor HMAC yang **identik byte** dengan implementasi server Go (uji silang) sebelum dianggap selesai.
