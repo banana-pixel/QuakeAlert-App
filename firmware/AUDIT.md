@@ -62,6 +62,25 @@ Severity: 🔴 blocker (integritas/keamanan/kontrak), 🟡 penting, 🟢 minor.
 - **`.clinerules/30` #2/#3:** Wi-Fi creds & `station_id` via `Preferences.h` (NVS); reset via BOOT 5s → SoftAP `QuakeNode-Setup` → `POST /setup`.
 - **Aksi:** Verifikasi keberadaan di `network.cpp`; jika hardcode via `secrets.h`, jadikan fallback saja.
 
+### 🔴 F-11 — Kredensial MQTT node harus dirotasi, dan `secrets.h` lokal memakai peran yang salah
+
+- **Sekarang:** `firmware/src/secrets.h` di mesin pengembang memakai `SECRET_MQTT_USER "vito100"` dengan password yang terlihat asli. Berkas itu tidak pernah masuk git (`.gitignore:22`, dan `git log --all -- firmware/src/secrets.h` kosong), jadi tidak ada kebocoran lewat repo — tetapi nilainya sudah terlihat di luar tempatnya dan harus diperlakukan sebagai bocor.
+- **Dua masalah terpisah:**
+  1. **Peran salah.** `vito100` bukan salah satu dari tiga user di `deploy/mosquitto/aclfile`. Broker produksi memakai `allow_anonymous false` dan menolak setiap topik untuk user yang tidak disebut di ACL, jadi node dengan kredensial ini menyala, tersambung Wi-Fi, dan tidak pernah berhasil mem-publish apa pun. Kegagalannya muncul sebagai "tidak ada trigger yang masuk", bukan sebagai pesan tentang kredensial. Peran yang benar adalah `quakealert-node`.
+  2. **Password perlu dirotasi.** Satu password dipakai seluruh fleet (firmware tidak punya penyimpanan per-node untuk itu), sehingga rotasi berarti me-flash ulang setiap node. Itu alasan mengapa langkahnya harus berurutan: broker tidak boleh menolak fleet lama sebelum fleet baru siap.
+- **Pencegahan:** `firmware/scripts/check-secrets.sh` memeriksa `secrets.h` terhadap `aclfile` sebelum upload (peran, port 8883, dan `SECRET_MQTT_ALLOW_INSECURE_TLS` yang tertinggal). Jalankan sebagai bagian dari `pio run -t upload`.
+
+**Prosedur rotasi (berurutan, jangan dibalik):**
+
+1. Password baru untuk `MQTT_NODE_PASSWORD` di `deploy/.env.prod` (mis. `openssl rand -base64 24`). Password `MQTT_SERVER_PASSWORD` tidak ikut dirotasi kecuali ia juga dicurigai — mengubahnya berarti me-restart server aplikasi.
+2. `cd deploy && ./scripts/init-mqtt-users.sh` — menulis ulang `mosquitto/passwd` dengan hash baru. Skrip ini sudah memvalidasi bahwa setiap nama user ada di `aclfile`.
+3. `docker compose -f docker-compose.prod.yml kill -s HUP mosquitto` — memuat ulang berkas passwd. **Titik ini memutus seluruh fleet lama.**
+4. `firmware/src/secrets.h`: `SECRET_MQTT_USER "quakealert-node"` dan password baru dari langkah 1.
+5. `cd firmware && ./scripts/check-secrets.sh && pio run -t upload` per node.
+6. Verifikasi: `log_type notice` di broker menampilkan koneksi node, dan `sensor/+/heartbeat` kembali masuk.
+
+Bila fleet tidak dapat di-flash serentak, tambahkan user kedua sementara (`quakealert-node-v2` di `aclfile` dengan hak yang sama), pindahkan node satu per satu, lalu hapus user lama — dengan begitu langkah 3 tidak memutus apa pun.
+
 ### 🟢 F-10 — Zero-block loop
 - **`.clinerules/30` #1:** dilarang `delay()` di loop utama. Firmware sudah pakai FreeRTOS task + `millis()` interval ✅. Pertahankan.
 
