@@ -38,7 +38,7 @@ Menyempurnakan antarmuka pengguna (UI), keandalan penanganan error (*disaster re
 │    - Paginasi 20 item tetap utuh tanpa terpotong di client                 │
 │                                                                            │
 │ 3. ANDROID CLIENT: HistoryViewModel & SensorsViewModel                     │
-│    - Shared session state di AppViewModel                                  │
+│    - Shared session state di QuakeFilterViewModel                                  │
 │    - Infinite scroll & LOAD_MORE_THRESHOLD bekerja 100% mulus              │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -83,10 +83,23 @@ Menyempurnakan antarmuka pengguna (UI), keandalan penanganan error (*disaster re
 > - **All Intensities**: Semua data yang tercatat jaringan sensor.
 > - **Felt (MMI IV+)**: Guncangan ringan yang dirasakan orang banyak.
 > - **Moderate (MMI VI+)**: Guncangan sedang yang berpotensi merusak plester/benda gantung.
-> - **Severe (MMI VII+ / PGA $\ge$ 250 gal)**: Selaras dengan `SafetyPolicy.OVERRIDE_MMI` dan `OVERRIDE_PGA_GAL`.
+> - **Severe (MMI VII+ / PGA $\ge$ 169.63 gal)**: Sama dengan MMI VII pada `SafetyPolicy.OVERRIDE_MMI`, tetapi **bukan** `OVERRIDE_PGA_GAL` (250 gal). Konstanta itu adalah jalur override siren yang berdiri sendiri saat label MMI hilang atau rusak, bukan lantai gal untuk MMI VII.
 >
 > **Ambang dikirim dalam gal, bukan MMI.** Tabel `earthquake_events` menyimpan `mmi_scale VARCHAR(10)` (angka Romawi) dan `max_pga NUMERIC(8,4)`; **tidak ada kolom `mmi_rank`**, jadi perbandingan numerik hanya mungkin pada `max_pga` — tanpa migrasi baru.
 > Konversi bucket $\rightarrow$ gal **wajib diturunkan dari satu sumber yang sudah ada**, `server/internal/consensus/centroid.go` (`Intensity` / `MMIFromPGA`, tabel ambang SYSTEM_SPEC Bab 5.3: `< 16.6` light, `16.6..137.2` moderate, `>= 137.2` strong). Nilai cermin di sisi Android diletakkan bersama `SafetyPolicy.OVERRIDE_PGA_GAL` dengan disiplin "harus sama dengan server" seperti `ALERT_RADIUS_KM`. Label di UI tetap MMI.
+>
+> **Dua tabel ambang, jangan dicampur.** Angka `16.6 / 137.2` adalah batas **kata sifat** (`light` / `moderate` / `strong`) yang dipakai `Intensity()` untuk mewarnai badge. Lantai filter berbeda: ia harus mengembalikan tepat event yang angka Romawi tercetaknya $\ge$ pilihan pengguna, jadi ia adalah **inverse** dari regresi yang sama, dievaluasi pada batas bawah tiap angka (`mmi - 0.5`):
+>
+> $$\text{PGA}_{\min}(mmi) = 10^{\;\frac{(mmi - 0.5) + 1.66}{3.66}}$$
+>
+> | Bucket sheet | MMI floor | `min_pga` terkirim |
+> |---|---|---|
+> | All Intensities | — | parameter dihilangkan (bukan `min_pga=0`, yang tetap sebuah predikat) |
+> | Felt | IV | **25.69 gal** |
+> | Moderate | VI | **90.42 gal** |
+> | Severe | VII | **169.63 gal** |
+>
+> Nilai-nilai ini **dihitung, bukan ditabulasi**, oleh `SafetyPolicy.minPgaForMmi()` — satu-satunya salinan koefisien di sisi Android — sehingga bucket tidak dapat menyimpang dari chip intensitas yang ditampilkannya. `QuakeApiUrlTest` mengikat ketiganya (25..26, 90..91, 169..170) agar perubahan koefisien gagal di test, bukan di lapangan.
 
 ---
 
@@ -96,7 +109,7 @@ Menyempurnakan antarmuka pengguna (UI), keandalan penanganan error (*disaster re
 > - **Browse Search Radius**: Opsi penelusuran riwayat: **100 km / 250 km (default History) / 500 km / 1000 km**.
 > - UI Filter Sheet secara gamblang mencantumkan keterangan: *"Filter ini hanya mengatur tampilan daftar, tidak mengubah radius peringatan darurat 200 km."*
 > - **Batas per-endpoint berbeda**: `/events` menerima `range_km` sampai 2000, tetapi `/sensors` hanya sampai 500 (`QuakeApiClient`, mengikuti `server/internal/api/api.go`). Karena filter tersinkronisasi lintas tab, pilihan 1000 km **di-clamp ke 500 km untuk tab Sensors** dan clamp itu ditampilkan di sheet — jangan dibiarkan senyap, karena permintaan di atas batas ditolak server.
-> - **Filter bersifat session-only** di `AppViewModel` (bukan DataStore): pengguna yang meninggalkan filter sempit pekan lalu lalu membuka aplikasi saat gempa harus melihat semuanya, bukan potongan basi.
+> - **Filter bersifat session-only** di `ui/common/QuakeFilterViewModel.kt` (bukan DataStore): pengguna yang meninggalkan filter sempit pekan lalu lalu membuka aplikasi saat gempa harus melihat semuanya, bukan potongan basi.
 
 ---
 
@@ -137,7 +150,7 @@ Menyempurnakan antarmuka pengguna (UI), keandalan penanganan error (*disaster re
 flowchart TD
     Step1[1. Update OpenAPI Contract: min_pga, since, until] --> Step2[2. Update Go Server /events handler & go test]
     Step2 --> Step3[3. Update QuakeApiClient.eventsUrl + QuakeApiUrlTest]
-    Step3 --> Step4[4. Implement Shared Filter Model in AppViewModel]
+    Step3 --> Step4[4. Implement Shared Filter Model in QuakeFilterViewModel]
     Step4 --> Step5[5. Build QuakeFilterDialog Figma 1-709]
     Step5 --> Step6[6. Integrated Elastic Drag in History & Sensors PullToRefreshBox]
     Step6 --> Step7[7. Polish Test Alert Modal with 5s Numeric Timer & Close X]
@@ -157,7 +170,7 @@ flowchart TD
 | `server/internal/api/api_test.go` | Server Go | **MODIFY** | Test unit Go untuk query filter baru. |
 | `android/app/.../data/network/QuakeApiClient.kt` | Android Data | **MODIFY** | `eventsUrl(...)` (fungsi murni yang sudah ada) memasang `min_pga`, `since`, `until`; hilangkan param bila tidak diset. |
 | `android/app/.../test/.../QuakeApiUrlTest.kt` | Android Test | **MODIFY** | Verifikasi query string baru & pemetaan bucket MMI $\rightarrow$ gal. |
-| `android/app/.../ui/app/AppViewModel.kt` | Android UI | **MODIFY** | Session-level shared filter state (`QuakeFilterState`). |
+| `android/app/.../ui/common/QuakeFilterViewModel.kt` | Android UI | **NEW** | Session-level shared filter state (`QuakeFilterState`) + status sheet terbuka/tertutup. Bukan `ui/app/AppViewModel.kt`: kelas itu ada tetapi tidak memegang filter. Satu instance dipakai bersama karena kedua tab memanggil `viewModel()` pada store Activity. |
 | `android/app/.../ui/history/HistoryScreen.kt` | Android UI | **MODIFY** | Terapkan *Integrated Elastic Drag* via `graphicsLayer { translationY = state.distanceFraction * 40.dp }`. |
 | `android/app/.../ui/sensors/SensorsScreen.kt` | Android UI | **MODIFY** | Terapkan *Integrated Elastic Drag* via `graphicsLayer { translationY = state.distanceFraction * 40.dp }`. |
 | `android/app/.../device/TestAlertPlayback.kt` | Android Device | **MODIFY** | `remainingSeconds: StateFlow<Int>` (5s countdown). |
