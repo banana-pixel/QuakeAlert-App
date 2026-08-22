@@ -91,12 +91,16 @@ sealed interface ChatListItem {
  * @param subtitle who this room reaches.
  * @param canSwitch whether a second channel exists to switch to. False for a user
  *   with no synced position, who has the global room only.
+ * @param kind which tier is live, carried so the card can colour itself from the
+ *   domain fact instead of matching on the display name — a room really called
+ *   "Global" in some region would otherwise take the global styling.
  */
 @Immutable
 data class ChatChannelInfo(
     val channelName: String,
     val subtitle: String,
-    val canSwitch: Boolean = false
+    val canSwitch: Boolean = false,
+    val kind: ChatChannelKind = ChatChannelKind.GLOBAL
 )
 
 /** The two tiers as the header card describes them. */
@@ -106,7 +110,8 @@ internal fun ChatChannel.toChannelInfo(canSwitch: Boolean): ChatChannelInfo = Ch
         ChatChannelKind.GLOBAL -> "Everyone using QuakeAlert"
         ChatChannelKind.REGIONAL -> "People in your area"
     },
-    canSwitch = canSwitch
+    canSwitch = canSwitch,
+    kind = kind
 )
 
 /**

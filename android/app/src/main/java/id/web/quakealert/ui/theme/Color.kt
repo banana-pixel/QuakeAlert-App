@@ -251,6 +251,19 @@ val ChatChannelCardGradient = Brush.horizontalGradient(
     colors = listOf(ChatChannelGradientStart, ChatChannelGradientEnd)
 )
 
+// Regional room gradient (linear 90deg, warm amber → deep ember).
+//
+// A second fill rather than a badge because the tier decides who hears you: saying
+// "the wall came down" to your province is a different act from saying it to every
+// user of the app, and the card is the only thing on screen that says which one is
+// live. Warm against the global card's cool blue-green, so the two are told apart
+// at a glance and in peripheral vision.
+//
+// Colour is never the only signal — the title and subtitle change with it — so the
+// pair does not have to survive a colour-blind reading on its own.
+val ChatRegionalGradientStart = Color(0xFF4A2C00)  // warm amber
+val ChatRegionalGradientEnd = Color(0xFF3A1400)    // deep ember
+
 // Incoming message bubble reuses CardSurface (#222222) + CardBorder (white 10%).
 val ChatIncomingFill = CardSurface                // #222222
 // Outgoing message bubble — dark teal/cyan fill #032B39 with a cyan accent stroke.
