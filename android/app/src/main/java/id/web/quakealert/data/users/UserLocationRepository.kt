@@ -157,8 +157,13 @@ class UserLocationRepository(
         countryIso = place?.countryCode,
         adminArea = place?.adminArea
     ).fold(
-        onSuccess = {
+        onSuccess = { regionCode ->
             settings.setLastSyncAtMs(now())
+            // The server's answer to "which regional chat room does this position put
+            // you in", recorded so Chat can notice that a room it could not offer a
+            // moment ago now exists. Never derived on the client: the normalisation
+            // that produces the key lives on the server (docs/CHAT_DESIGN.md §3).
+            settings.setRegionCode(regionCode)
             LocationSyncResult.Updated(UserLocation(latitude, longitude, label))
         },
         onFailure = { error ->

@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.network.QuakeApiClient
 import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.mapper.toChatListItems
@@ -16,6 +17,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -45,6 +48,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val webSocketClient = QuakeNetwork.from(application).webSocketClient
 
     private val networkMonitor = QuakeNetwork.from(application).networkMonitor
+
+    /** Same per-consumer construction as every other ViewModel; DataStore itself is shared. */
+    private val settings = AppSettingsRepository(application)
 
     private val _uiState = MutableStateFlow(ChatUiState(isLoading = true))
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -76,6 +82,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         loadChannels()
         observeSocket()
         observeConnectivity()
+        observeRegion()
     }
 
     /** Retries whatever failed, from the error card's "Retry" action. */
@@ -377,6 +384,35 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val busy = state.isLoading || state.isLoadingOlder || state.isSending
                 if (shouldReloadOnReconnect(isError = state.isError, isBusy = busy)) onRetry()
             }
+        }
+    }
+
+    /**
+     * Reacts to the regional room appearing, changing or going away.
+     *
+     * A first location sync creates a room this screen was told did not exist, and
+     * nothing else would ever ask again: the channel list is fetched once at start-up.
+     * Two things therefore happen on a change, and both are needed —
+     *
+     *  - the list is re-read, so the switcher and the notice stop describing the old
+     *    membership;
+     *  - the socket is reconnected, because the server reads membership at handshake
+     *    only, so an already-open connection will never fan out the new room's frames
+     *    (docs/CLIENT_SPEC.md §5.4).
+     *
+     * `drop(1)` skips the value DataStore replays on collection: a cold start is not a
+     * change, and treating it as one would reconnect a healthy socket on every launch.
+     */
+    private fun observeRegion() {
+        viewModelScope.launch {
+            settings.regionCode
+                .distinctUntilChanged()
+                .drop(1)
+                .collect {
+                    Log.i(TAG, "region changed, re-reading channels and reconnecting")
+                    loadChannels()
+                    webSocketClient.reconnect()
+                }
         }
     }
 

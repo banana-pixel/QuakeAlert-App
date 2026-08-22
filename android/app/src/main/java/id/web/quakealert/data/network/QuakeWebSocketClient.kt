@@ -35,6 +35,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.random.Random
 
@@ -85,6 +86,12 @@ class QuakeWebSocketClient(
      */
     private val _connectionState = MutableStateFlow(ServerConnectionState.DISCONNECTED)
 
+    /** The socket of the connection currently in flight, for [reconnect] to close. */
+    private val liveSocket = AtomicReference<WebSocket?>(null)
+
+    /** Set by [reconnect] so the loop rebuilds immediately instead of backing off. */
+    private val immediateReconnect = AtomicBoolean(false)
+
     /**
      * Chat frames from the same socket, in arrival order.
      *
@@ -131,6 +138,15 @@ class QuakeWebSocketClient(
                 authRepository.invalidate()
             }
 
+            // A deliberate reconnect is not a failure, so it neither counts as an
+            // attempt nor waits: the caller asked for this cycle because the server
+            // would answer differently now.
+            if (immediateReconnect.compareAndSet(true, false)) {
+                attempt = 0
+                Log.i(TAG, "websocket reconnecting now (membership changed)")
+                continue
+            }
+
             attempt++
             val backoff = backoffMillis(attempt)
             Log.d(TAG, "websocket reconnecting in ${backoff}ms (attempt $attempt)", outcome.cause)
@@ -171,6 +187,27 @@ class QuakeWebSocketClient(
     )
 
     /**
+     * Drops the current connection so the retry loop builds a new one at once.
+     *
+     * Needed because channel membership is read **once, at handshake** (server
+     * `dispatch/ws.go`, docs/CLIENT_SPEC.md §5.4): a user whose region has just been
+     * derived is not in their regional room on a socket that was opened before it
+     * existed, and no amount of waiting fixes that. Reconnecting is the only way to be
+     * re-enrolled.
+     *
+     * `close`, not `cancel`, so the server's writer goroutine ends through the normal
+     * closing handshake — the loop then sees `opened = true`, resets its attempt
+     * counter, and [immediateReconnect] tells it not to wait out a backoff for a cycle
+     * nothing failed in. A no-op when no socket is up: the next connection will read the
+     * new membership anyway.
+     */
+    fun reconnect() {
+        val socket = liveSocket.getAndSet(null) ?: return
+        immediateReconnect.set(true)
+        socket.close(CLOSE_NORMAL, "membership changed")
+    }
+
+    /**
      * Runs one connection to completion.
      *
      * Suspends until the socket closes or fails, so the caller's loop is a plain
@@ -191,6 +228,9 @@ class QuakeWebSocketClient(
             val finished = AtomicBoolean(false)
 
             fun finish(outcome: Outcome) {
+                // Sessions run one at a time, so the socket being cleared is always
+                // this one.
+                liveSocket.set(null)
                 // onClosed and onFailure are mutually exclusive in practice, but
                 // resuming twice would crash rather than reconnect.
                 if (finished.compareAndSet(false, true) && continuation.isActive) {
@@ -201,6 +241,7 @@ class QuakeWebSocketClient(
             val socket = client.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     opened.set(true)
+                    liveSocket.set(webSocket)
                     _connectionState.value = ServerConnectionState.CONNECTED
                     Log.i(TAG, "websocket connected")
                 }
@@ -234,6 +275,7 @@ class QuakeWebSocketClient(
             continuation.invokeOnCancellation {
                 // cancel(), not close(): the collector is gone, so there is nothing
                 // to wait a closing handshake for.
+                liveSocket.set(null)
                 socket.cancel()
             }
         }

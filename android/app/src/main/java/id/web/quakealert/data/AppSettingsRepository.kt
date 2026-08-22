@@ -101,6 +101,24 @@ class AppSettingsRepository(context: Context) {
 
     fun setLastSyncAtMs(epochMs: Long) = write { it[KEY_LAST_SYNC_AT_MS] = epochMs }
 
+    /**
+     * The regional chat channel the server says applies to the last synced position,
+     * or null when it has none.
+     *
+     * Stored here, and not derived on the Chat screen, because the fact is produced by
+     * `PUT /users/location` and consumed somewhere else entirely: it is what tells Chat
+     * that a room the user could not see a moment ago now exists. DataStore because it
+     * has to survive process death — otherwise a cold start would look like a change and
+     * reconnect the socket for nothing.
+     */
+    val regionCode: Flow<String?> = read { it[KEY_REGION_CODE] }
+
+    /** Records the region the server derived; blank and null both mean "global only". */
+    fun setRegionCode(code: String?) = write {
+        val trimmed = code?.trim().orEmpty()
+        if (trimmed.isEmpty()) it.remove(KEY_REGION_CODE) else it[KEY_REGION_CODE] = trimmed
+    }
+
     /** UI language tag. Inert placeholder — only `en` ships today. */
     val language: Flow<String> = read { it[KEY_LANGUAGE] ?: DEFAULT_LANGUAGE }
 
@@ -128,5 +146,6 @@ class AppSettingsRepository(context: Context) {
         private val KEY_NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
         private val KEY_LAST_SYNC_AT_MS = longPreferencesKey("last_sync_at_ms")
         private val KEY_LANGUAGE = stringPreferencesKey("language")
+        private val KEY_REGION_CODE = stringPreferencesKey("region_code")
     }
 }
