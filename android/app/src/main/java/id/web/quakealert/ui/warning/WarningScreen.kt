@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.R
@@ -71,6 +72,18 @@ fun WarningRoute(
         }
     }
 
+    val dialNumber: (String) -> Unit = remember(context) {
+        { number ->
+            // ACTION_DIAL, never ACTION_CALL: it needs no CALL_PHONE permission and it
+            // shows the number before it rings, which is what you want from a button
+            // that can be hit by accident while the ground is moving. runCatching
+            // because a device with no dialler at all must not crash the alert screen.
+            runCatching {
+                context.startActivity(Intent(Intent.ACTION_DIAL, "tel:$number".toUri()))
+            }
+        }
+    }
+
     WarningScreen(
         uiState = uiState,
         connectionState = connectionState,
@@ -80,6 +93,8 @@ fun WarningRoute(
         onActivityDismissed = viewModel::onActivityDismissed,
         onProtectionStatus = viewModel::onProtectionStatusClicked,
         onProtectionStatusDismissed = viewModel::onProtectionStatusDismissed,
+        onEmergencyInfoDismissed = viewModel::onEmergencyInfoDismissed,
+        onDial = dialNumber,
         onShareClicked = shareEvent,
         onRetry = viewModel::onRetry,
         onMuteClick = viewModel::onMuteClick,
@@ -139,6 +154,8 @@ fun WarningScreen(
     onActivityDismissed: () -> Unit,
     onProtectionStatus: () -> Unit,
     onProtectionStatusDismissed: () -> Unit,
+    onEmergencyInfoDismissed: () -> Unit,
+    onDial: (String) -> Unit,
     onShareClicked: (QuakeHistoryItem) -> Unit,
     onRetry: () -> Unit,
     onMuteClick: () -> Unit,
@@ -211,6 +228,18 @@ fun WarningScreen(
         ProtectionStatusModalDialog(
             radiusLabel = uiState.alertRadiusLabel,
             onDismiss = onProtectionStatusDismissed
+        )
+    }
+
+    // --- "Emergency Steps & Contacts" overlay ---------------------------------
+    // Raised from the pinned CTA, which is reachable in every idle sub-state. Its
+    // contents are resolved by the ViewModel at open time, so the numbers belong to
+    // the network the phone is on right now.
+    idle?.emergencyInfo?.let { info ->
+        EmergencyInfoModalDialog(
+            info = info,
+            onDial = onDial,
+            onDismiss = onEmergencyInfoDismissed
         )
     }
 }
@@ -435,6 +464,8 @@ private fun PreviewWarningScreen(
             onActivityDismissed = {},
             onProtectionStatus = {},
             onProtectionStatusDismissed = {},
+            onEmergencyInfoDismissed = {},
+            onDial = {},
             onShareClicked = {},
             onRetry = {},
             onMuteClick = {},

@@ -12,10 +12,12 @@ import id.web.quakealert.data.network.mapper.intensityBannerLabel
 import id.web.quakealert.data.network.mapper.intensityValueLabel
 import id.web.quakealert.data.network.mapper.toHistoryItem
 import id.web.quakealert.device.AlertSiren
+import id.web.quakealert.device.DeviceCountry
 import id.web.quakealert.device.TorchController
 import id.web.quakealert.domain.AlertGate
 import id.web.quakealert.domain.AlertType
 import id.web.quakealert.domain.EarthquakeEvent
+import id.web.quakealert.domain.EmergencyContacts
 import id.web.quakealert.domain.EventStatus
 import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.domain.UserLocation
@@ -598,9 +600,36 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** Placeholder hook for tapping the bottom "Emergency" call-to-action. */
+    /**
+     * Opens the "Emergency Steps & Contacts" overlay, resolving its two variable
+     * parts now rather than holding them all the time.
+     *
+     * The numbers come from the country the phone is *currently* attached to, so a
+     * list resolved at startup would be the wrong country's for anyone who has since
+     * crossed a border or landed. The position line comes from the last sync, which
+     * is the same fact the maps show; it is null on a first launch and the overlay
+     * says so rather than printing a placeholder coordinate to read to a dispatcher.
+     */
     fun onEmergencyClicked() {
-        // Intentionally empty until the emergency-resource flow is defined.
+        val info = EmergencyInfoState(
+            numbers = EmergencyContacts.forCountry(DeviceCountry.resolve(getApplication())),
+            coordinatesLabel = lastKnownLocation?.let {
+                QuakeFormat.coordinates(it.latitude, it.longitude)
+            }
+        )
+        _uiState.update { state ->
+            if (state is WarningUiState.Idle) state.copy(emergencyInfo = info) else state
+        }
+    }
+
+    /**
+     * Closes the emergency overlay. Called for every dismissal path — the close (X)
+     * button, a back press and a tap outside the card.
+     */
+    fun onEmergencyInfoDismissed() {
+        _uiState.update { state ->
+            if (state is WarningUiState.Idle) state.copy(emergencyInfo = null) else state
+        }
     }
 
     /**

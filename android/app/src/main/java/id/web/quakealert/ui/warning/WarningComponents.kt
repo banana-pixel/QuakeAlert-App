@@ -338,9 +338,13 @@ fun PrepTipRow(
 
 /**
  * Bottom emergency call-to-action (Figma nodes 124:1312 / 124:1441): a fixed-height
- * stadium button with a translucent wine fill and a white 30% stroke. Label
- * follows the current design's "SHELTER & EMERGENCY INFO"; the action is a stub
- * until the emergency-resource flow is defined.
+ * stadium button with a translucent wine fill and a white 30% stroke, opening
+ * [EmergencyInfoModalDialog].
+ *
+ * The design's label was "SHELTER & EMERGENCY INFO", and it is not used: "shelter"
+ * promises evacuation points, which needs a dataset the project does not have, and a
+ * user who taps it looking for one and finds first-aid steps has been told something
+ * untrue by the button. The label now names exactly what opens.
  *
  * Full-width, so its touch area already clears the 48dp minimum on the horizontal
  * axis; [minimumInteractiveComponentSize] lifts the 34dp height to 48dp too while
@@ -366,7 +370,7 @@ fun EmergencyCta(
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = "SHELTER & EMERGENCY INFO",
+            text = "EMERGENCY STEPS & CONTACTS",
             style = ChipLabel
         )
     }

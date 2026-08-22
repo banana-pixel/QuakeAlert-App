@@ -4,6 +4,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.runtime.Immutable
 import id.web.quakealert.R
 import id.web.quakealert.data.UnitSystem
+import id.web.quakealert.domain.EmergencyNumber
 import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.common.ErrorCopy
 import id.web.quakealert.ui.history.QuakeHistoryItem
@@ -287,6 +288,11 @@ sealed interface WarningUiState {
      *   null when no overlay is showing.
      * @param selectedActivity the [RecentSeismicActivity] overlay raised from the
      *   resting banner's action, or null when it is closed.
+     * @param emergencyInfo the resolved contents of the "Emergency Steps & Contacts"
+     *   overlay, or null when it is closed. A payload rather than a flag, unlike
+     *   [isProtectionStatusOpen]: the numbers depend on the network the phone is
+     *   attached to and the position line on the last sync, so both are resolved when
+     *   the overlay opens and the card stays a pure function of what it is handed.
      * @param isProtectionStatusOpen whether the "Protection Status" overlay is up,
      *   raised by the banner's info affordance. A flag rather than a payload,
      *   unlike its two siblings: the overlay states fixed policy, so there is
@@ -309,7 +315,8 @@ sealed interface WarningUiState {
         override val unitSystem: UnitSystem = UnitSystem.METRIC,
         val selectedEventDetails: QuakeHistoryItem? = null,
         val selectedActivity: RecentSeismicActivity? = null,
-        val isProtectionStatusOpen: Boolean = false
+        val isProtectionStatusOpen: Boolean = false,
+        val emergencyInfo: EmergencyInfoState? = null
     ) : WarningUiState {
 
         override fun withUnitSystem(unitSystem: UnitSystem): Idle =
@@ -421,4 +428,23 @@ fun noActiveQuakeTips(): List<PreparednessTip> = listOf(
         title = "Secure Heavy Items",
         description = "Anchor tall furniture, TVs, and large appliances to wall studs so they do not fall."
     )
+)
+
+/**
+ * What the "Emergency Steps & Contacts" overlay shows that is not fixed copy.
+ *
+ * Assembled in [WarningViewModel] when the overlay opens rather than held all the
+ * time: the country a phone is attached to changes while the app is running, and a
+ * list resolved at startup would be the wrong country's by the time it mattered.
+ *
+ * @param numbers dialable numbers, [id.web.quakealert.domain.EmergencyContacts]'
+ *   universal 112 first.
+ * @param coordinatesLabel the last synced position, already formatted, or null when
+ *   nothing has ever synced — in which case the overlay says so instead of printing
+ *   0,0.
+ */
+@Immutable
+data class EmergencyInfoState(
+    val numbers: List<EmergencyNumber>,
+    val coordinatesLabel: String?
 )

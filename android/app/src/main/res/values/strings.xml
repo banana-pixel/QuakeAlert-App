@@ -8,4 +8,38 @@
       IMPORTANCE_HIGH. Not translatable — it is an identifier, not display text.
     -->
     <string name="default_notification_channel_id" translatable="false">quakealert_emergency_alerts</string>
+
+    <!--
+      Emergency Steps & Contacts overlay (ui/warning/EmergencyInfoModal.kt). The only
+      screen whose copy lives in resources rather than inline: it is the one a
+      non-English reader most needs to understand under stress, so the postponed
+      Bahasa Indonesia pass should be a values-in/ file and not a code change.
+      The numbers themselves stay in Kotlin (domain/EmergencyContacts.kt) — a phone
+      number is data keyed by country, not translatable text.
+    -->
+    <string name="emergency_title">Emergency Steps &amp; Contacts</string>
+
+    <string name="emergency_during_title">While the ground is shaking</string>
+    <string name="emergency_step_drop_title">1. Drop</string>
+    <string name="emergency_step_drop_detail">Get down on your hands and knees before the shaking knocks you down. Stay where you are — most injuries happen to people moving between rooms or running outside.</string>
+    <string name="emergency_step_cover_title">2. Cover</string>
+    <string name="emergency_step_cover_detail">Cover your head and neck with one arm. Get under a sturdy table if one is within reach, or against an interior wall away from windows, mirrors and anything tall.</string>
+    <string name="emergency_step_hold_title">3. Hold on</string>
+    <string name="emergency_step_hold_detail">Hold on to your shelter and stay put until the shaking stops. If you are in bed, stay there and cover your head with a pillow.</string>
+
+    <string name="emergency_after_title">Once the shaking stops</string>
+    <string name="emergency_after_aftershocks">Expect aftershocks. The next one can arrive within seconds and can be strong enough to finish what the first one started, so keep clear of anything already damaged.</string>
+    <string name="emergency_after_gas">Check for gas, water and electrical damage. If you smell gas, shut the valve, open a window and do not touch light switches.</string>
+    <string name="emergency_after_exit">Leave only when it is safe to move, using stairs and never a lift. Check your exit route before you commit to it.</string>
+    <string name="emergency_after_injuries">Help anyone near you who cannot move themselves before you leave the building.</string>
+
+    <string name="emergency_contacts_title">Emergency numbers</string>
+    <string name="emergency_contacts_note">112 works on any GSM network, with or without a SIM card, and is routed to the local emergency service. The numbers below it are the ones for the country this phone is currently connected to.</string>
+    <string name="emergency_dial_action">Dial %1$s</string>
+
+    <string name="emergency_position_title">Your last known position</string>
+    <string name="emergency_position_note">Read these coordinates out to a dispatcher if you cannot describe where you are.</string>
+    <string name="emergency_position_unknown">No position has synced yet, so there are no coordinates to read out. Describe a landmark or a street instead.</string>
+
+    <string name="emergency_offline_note">Everything on this screen is stored on the phone and needs no connection.</string>
 </resources>
