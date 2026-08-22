@@ -50,7 +50,11 @@ val MmiSeverity.label: String
  *   not have.
  * @param relativeTime coarse age of the event (e.g. "2 months ago"), detail only.
  * @param pgaLabel peak ground acceleration incl. unit (e.g. "61.5 gal"), detail only.
- * @param durationLabel shaking duration incl. unit (e.g. "7 sec"), detail only.
+ * @param reportingNodesLabel how many stations reported the shaking (e.g. "3
+ *   stations"), detail only. Stands where a shaking duration used to: the REST
+ *   contract carries none (the firmware sends `dur_ms`, but `earthquake_events` has
+ *   no column for it), and a cell that always read "-" taught nobody anything,
+ *   while the node count says how much to trust the reading.
  * @param coordinates centroid latitude/longitude (e.g. "41.40338, 2.17403"),
  *   detail only.
  * @param latitude raw centroid latitude in WGS84. Kept alongside the formatted
@@ -71,7 +75,7 @@ data class QuakeHistoryItem(
     val distanceKm: Int?,
     val relativeTime: String,
     val pgaLabel: String,
-    val durationLabel: String,
+    val reportingNodesLabel: String,
     val coordinates: String,
     val latitude: Double,
     val longitude: Double
@@ -103,7 +107,7 @@ fun QuakeHistoryItem.toShareText(unitSystem: UnitSystem): String = buildString {
     appendLine("MMI $intensity (${severity.label})")
     appendLine(timestampLabel)
     appendLine("PGA (Max): $pgaLabel")
-    appendLine("Duration: $durationLabel")
+    appendLine("Reporting stations: $reportingNodesLabel")
     appendLine("Distance from me: ${distanceKm?.let { unitSystem.formatDistance(it) } ?: "unknown"}")
     append("Centroid: $coordinates")
 }

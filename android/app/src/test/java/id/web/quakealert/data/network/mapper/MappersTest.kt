@@ -103,8 +103,10 @@ class MappersTest {
         assertEquals("61.5 gal", item.pgaLabel)
         assertEquals("-6.91750, 107.61910", item.coordinates)
         assertEquals("10 minutes ago", item.relativeTime)
-        // No duration in the REST contract; the card shows a dash, never a guess.
-        assertEquals(QuakeFormat.UNAVAILABLE, item.durationLabel)
+        // The third metric cell reports how many stations triggered, because the
+        // REST contract carries no shaking duration and a permanent dash taught
+        // nobody anything.
+        assertEquals("3 stations", item.reportingNodesLabel)
         assertEquals(0, item.distanceKm)
     }
 
@@ -155,6 +157,16 @@ class MappersTest {
         assertEquals("2 months ago", QuakeFormat.relativeTime(base, base.plusSeconds(5_200_000)))
         // Device clock behind the server must not render a negative age.
         assertEquals("just now", QuakeFormat.relativeTime(base, base.minusSeconds(600)))
+    }
+
+    @Test
+    fun `the station count is singular at one and absent at zero`() {
+        assertEquals("1 station", QuakeFormat.reportingNodes(1))
+        assertEquals("4 stations", QuakeFormat.reportingNodes(4))
+        // An event exists because stations triggered, so zero is a missing field
+        // rather than a real count, and must not print as "0 stations".
+        assertEquals(QuakeFormat.UNAVAILABLE, QuakeFormat.reportingNodes(0))
+        assertEquals(QuakeFormat.UNAVAILABLE, QuakeFormat.reportingNodes(-1))
     }
 
     @Test

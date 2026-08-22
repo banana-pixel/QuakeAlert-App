@@ -42,6 +42,25 @@ internal object QuakeFormat {
     fun pga(pgaGal: Double): String = String.format(Locale.US, "%.1f gal", pgaGal)
 
     /**
+     * How many stations reported the shaking, e.g. "3 stations".
+     *
+     * Replaces the shaking duration in the detail overlay's third metric cell. The
+     * REST contract carries no duration: the firmware does send `dur_ms`, and the
+     * server range-checks and HMAC-signs it, but `earthquake_events` has no column
+     * for it, so it is discarded after verification. Printing a permanent "-" in a
+     * cell taught the user nothing, while the node count is a fact the response
+     * already carries and is the one that says how much to trust the reading.
+     *
+     * Zero is [UNAVAILABLE] rather than "0 stations": an event exists because
+     * stations triggered, so a zero here is a missing field, not a real count.
+     */
+    fun reportingNodes(count: Int): String = when {
+        count <= 0 -> UNAVAILABLE
+        count == 1 -> "1 station"
+        else -> "$count stations"
+    }
+
+    /**
      * Centroid as "-6.91750, 107.61910" — five decimals, matching the precision the
      * detail overlay was designed around (~1 m, well below the centroid's own error).
      */

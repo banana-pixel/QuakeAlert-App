@@ -43,10 +43,11 @@ fun List<EventDto>.toDomain(): List<EarthquakeEvent> = map { it.toDomain() }
  *
  * Two fields have no server-side source and are worth knowing about before reading
  * a card:
- *  - `durationLabel` — the REST contract carries no shaking duration, so it renders
- *    as [QuakeFormat.UNAVAILABLE]. `resolved_at - created_at` is *not* a substitute:
- *    resolution is driven by the server's 90 s quiet-period cooldown, so deriving
- *    duration from it would show ~90 s for every quake.
+ *  - `reportingNodesLabel` — stands where a shaking duration used to. The REST
+ *    contract carries no duration, and `resolved_at - created_at` is *not* a
+ *    substitute: resolution is driven by the server's 90 s quiet-period cooldown, so
+ *    deriving duration from it would show ~90 s for every quake. `dur_ms` does reach
+ *    the server from the nodes, but `earthquake_events` has no column for it.
  *  - `distanceKm` — needs the user's own position, so it is null until something has
  *    called `PUT /users/location`. Null rather than 0: every card on a first launch
  *    used to read "0 km Away", which says *at the epicentre*. The display side prints
@@ -71,7 +72,7 @@ fun EarthquakeEvent.toHistoryItem(
     distanceKm = userLocation.distanceKmTo(latitude, longitude)?.roundToInt(),
     relativeTime = QuakeFormat.relativeTime(createdAt, now),
     pgaLabel = QuakeFormat.pga(pgaGal),
-    durationLabel = QuakeFormat.UNAVAILABLE,
+    reportingNodesLabel = QuakeFormat.reportingNodes(triggeredNodesCount),
     coordinates = QuakeFormat.coordinates(latitude, longitude),
     latitude = latitude,
     longitude = longitude

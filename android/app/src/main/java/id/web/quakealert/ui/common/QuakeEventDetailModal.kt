@@ -366,8 +366,8 @@ private fun SeismicMetricsRow(
             modifier = Modifier.weight(1f)
         )
         MetricCell(
-            label = "Duration",
-            value = event.durationLabel,
+            label = "Stations",
+            value = event.reportingNodesLabel,
             modifier = Modifier.weight(1f)
         )
     }
@@ -524,7 +524,7 @@ private val PreviewEvent = QuakeHistoryItem(
     distanceKm = 60,
     relativeTime = "2 months ago",
     pgaLabel = "61.5 gal",
-    durationLabel = "7 sec",
+    reportingNodesLabel = "3 stations",
     coordinates = "41.40338, 2.17403",
     latitude = 41.40338,
     longitude = 2.17403
@@ -553,7 +553,7 @@ private fun EventDetailModalSeverePreview() {
                 intensity = "IX",
                 severity = MmiSeverity.SEVERE,
                 pgaLabel = "142.0 gal",
-                durationLabel = "23 sec"
+                reportingNodesLabel = "7 stations"
             ),
             unitSystem = UnitSystem.METRIC,
             onDismiss = {},

@@ -43,9 +43,10 @@ private fun String.toAlertTypeOrNull(): AlertType? =
  * Earthquake" overlay renders a live alert through exactly the same component (and
  * share text) as a row from the History feed.
  *
- * `durationLabel` and an unknown `distanceKm` behave as described on
- * [id.web.quakealert.data.network.mapper.toHistoryItem]: the alert payload carries
- * no shaking duration, and distance needs a known device position.
+ * `reportingNodesLabel` and an unknown `distanceKm` behave as described on
+ * [id.web.quakealert.data.network.mapper.toHistoryItem]: the count comes from the
+ * frame's own `node_count`, so a live alert and the stored event it becomes read the
+ * same, and distance needs a known device position.
  */
 fun WsAlertMessage.toHistoryItem(
     userLocation: UserLocation?,
@@ -66,7 +67,7 @@ fun WsAlertMessage.toHistoryItem(
         distanceKm = userLocation.distanceKmTo(centroidLat, centroidLon)?.roundToInt(),
         relativeTime = QuakeFormat.relativeTime(occurredAt, now),
         pgaLabel = QuakeFormat.pga(pgaGal),
-        durationLabel = QuakeFormat.UNAVAILABLE,
+        reportingNodesLabel = QuakeFormat.reportingNodes(nodeCount),
         coordinates = QuakeFormat.coordinates(centroidLat, centroidLon),
         latitude = centroidLat,
         longitude = centroidLon
