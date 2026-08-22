@@ -237,6 +237,12 @@ func (s *Store) ListChatMessages(
 // 000003 yang menegakkannya; ON CONFLICT DO NOTHING lalu SELECT membuat
 // percobaan kedua mengembalikan baris yang SAMA, bukan galat.
 //
+// Predikat indeks (WHERE client_message_id IS NOT NULL) WAJIB diulang pada klausa
+// ON CONFLICT: inferensi Postgres hanya mengenali indeks parsial bila predikatnya
+// disebutkan, dan tanpa itu insert gagal 42P10 ("no unique or exclusion constraint
+// matching the ON CONFLICT specification") — bukan galat kompilasi, jadi hanya
+// muncul saat pesan pertama dikirim.
+//
 // clientMessageID kosong tetap diterima (disimpan NULL) supaya klien lama atau
 // pengirim non-Android tidak dipaksa ikut skema idempotensi.
 func (s *Store) InsertChatMessage(
@@ -256,7 +262,8 @@ func (s *Store) InsertChatMessage(
 			message, client_message_id
 		)
 		VALUES ($1, $2, $3, NULLIF($4, ''), $5, NULLIF($6, '')::uuid)
-		ON CONFLICT (sender_id, client_message_id) DO NOTHING
+		ON CONFLICT (sender_id, client_message_id) WHERE client_message_id IS NOT NULL
+		    DO NOTHING
 		RETURNING message_id, channel_id, COALESCE(sender_id::text, ''), sender_pseudonym,
 		          COALESCE(sender_location_tag, ''), message, COALESCE(is_admin, FALSE), created_at`
 
