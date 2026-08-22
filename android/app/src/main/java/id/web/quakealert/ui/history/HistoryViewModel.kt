@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.history
 
 import android.app.Application
+import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -13,14 +14,17 @@ import id.web.quakealert.ui.common.FilterSection
 import id.web.quakealert.ui.common.QuakeFilter
 import id.web.quakealert.ui.common.QuakeFilterState
 import id.web.quakealert.ui.common.errorCopy
+import id.web.quakealert.ui.common.remainingRefreshHoldMs
 import id.web.quakealert.ui.common.shouldReloadOnReconnect
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -47,6 +51,14 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
     private val networkMonitor = QuakeNetwork.from(application).networkMonitor
 
     private val _uiState = MutableStateFlow(HistoryUiState(isLoading = true))
+
+    /**
+     * When the refresh indicator was last raised, on the elapsed-realtime clock.
+     * Read in [load]'s `finally` to work out whether it has been visible long enough
+     * to be retractable — see
+     * [id.web.quakealert.ui.common.MIN_REFRESH_VISIBLE_MS].
+     */
+    private var refreshShownAtMs: Long = 0L
 
     val uiState: StateFlow<HistoryUiState> = combine(
         repository.unitSystem,
@@ -95,11 +107,26 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
      * Distinct from [load] in what it shows, not in what it fetches: the list the
      * user pulled stays on screen under the indicator instead of being replaced by a
      * skeleton, because a refresh that blanks the row someone was reading looks like
-     * a failure. Ignored while any load is already in flight — the gesture is easy
-     * to repeat by accident.
+     * a failure.
+     *
+     * The flag is raised here, synchronously, rather than inside the coroutine
+     * [load] launches: `PullToRefreshBox` retracts its indicator only on a true →
+     * false transition it can observe, so the gesture must not be able to end
+     * without one having started. See
+     * [id.web.quakealert.ui.common.MIN_REFRESH_VISIBLE_MS].
+     *
+     * A gesture arriving while the *initial* load is still running is handed to that
+     * load rather than dropped — it is a common thing to do while a skeleton is on
+     * screen, and dropping it used to park the indicator forever, since nothing
+     * would ever raise the flag it was waiting to see fall. A second pull during a
+     * refresh is ignored: that gesture is already being served.
      */
     fun onRefresh() {
-        if (_uiState.value.isLoading || _uiState.value.isRefreshing) return
+        val state = _uiState.value
+        if (state.isRefreshing) return
+        refreshShownAtMs = SystemClock.elapsedRealtime()
+        _uiState.update { it.copy(isRefreshing = true) }
+        if (state.isLoading) return
         load(isRefresh = true)
     }
 
@@ -172,11 +199,19 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
                     )
                 }
             } finally {
-                // The single owner of both in-flight flags, so no exit path can leave
+                // The single owner of every in-flight flag, so no exit path can leave
                 // one set: the early return above, an unclassified throw, and scope
                 // cancellation all pass through here. Runs before the rethrown
                 // CancellationException propagates, so the flag clears without
                 // swallowing the cancellation.
+                //
+                // The hold is what makes the indicator retract at all when the answer
+                // came back inside a single frame; skipped on cancellation, where
+                // there is no indicator left to be seen and no reason to delay
+                // teardown. See MIN_REFRESH_VISIBLE_MS for the mechanics.
+                if (_uiState.value.isRefreshing && isActive) {
+                    delay(remainingRefreshHoldMs(SystemClock.elapsedRealtime() - refreshShownAtMs))
+                }
                 _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
             }
         }

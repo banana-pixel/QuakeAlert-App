@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.sensors
 
 import android.app.Application
+import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -13,14 +14,17 @@ import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.common.FilterSection
 import id.web.quakealert.ui.common.QuakeFilterState
 import id.web.quakealert.ui.common.errorCopy
+import id.web.quakealert.ui.common.remainingRefreshHoldMs
 import id.web.quakealert.ui.common.shouldReloadOnReconnect
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -54,6 +58,13 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
     private val networkMonitor = QuakeNetwork.from(application).networkMonitor
 
     private val _uiState = MutableStateFlow(SensorsUiState(isLoading = true))
+
+    /**
+     * When the refresh indicator was last raised, on the elapsed-realtime clock; read
+     * in [load]'s `finally`. See
+     * [id.web.quakealert.ui.common.MIN_REFRESH_VISIBLE_MS].
+     */
+    private var refreshShownAtMs: Long = 0L
 
     /**
      * The roll exactly as `/sensors` returned it, before the station-status
@@ -110,11 +121,21 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
      *
      * Distinct from [load] in what it shows, not in what it fetches: the roll the
      * user pulled stays on screen under the indicator instead of being replaced by a
-     * skeleton, because a refresh that blanks the list looks like a failure. Ignored
-     * while any load is already in flight — the gesture is easy to repeat by accident.
+     * skeleton, because a refresh that blanks the list looks like a failure.
+     *
+     * Flag-raising and gesture handoff follow the History tab exactly — see
+     * [id.web.quakealert.ui.history.HistoryViewModel.onRefresh] and
+     * [id.web.quakealert.ui.common.MIN_REFRESH_VISIBLE_MS]: the flag is raised
+     * synchronously so the gesture cannot end without a transition
+     * `PullToRefreshBox` can observe, a pull during the initial load is handed to
+     * that load rather than dropped, and a second pull mid-refresh is ignored.
      */
     fun onRefresh() {
-        if (_uiState.value.isLoading || _uiState.value.isRefreshing) return
+        val state = _uiState.value
+        if (state.isRefreshing) return
+        refreshShownAtMs = SystemClock.elapsedRealtime()
+        _uiState.update { it.copy(isRefreshing = true) }
+        if (state.isLoading) return
         load(isRefresh = true)
     }
 
@@ -216,6 +237,14 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                 // cancellation all pass through here. [onRefresh] refuses to start
                 // while isRefreshing is set, so a flag left behind is a permanently
                 // spinning indicator.
+                //
+                // The hold is what makes the indicator retract when the answer came
+                // back inside a single frame — the no-position return above answers
+                // without a request at all. Skipped on cancellation, where there is no
+                // indicator left to see. See MIN_REFRESH_VISIBLE_MS for the mechanics.
+                if (_uiState.value.isRefreshing && isActive) {
+                    delay(remainingRefreshHoldMs(SystemClock.elapsedRealtime() - refreshShownAtMs))
+                }
                 _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
             }
         }
