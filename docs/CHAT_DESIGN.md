@@ -106,7 +106,7 @@ identitas anonim (JWT) dipakai ulang; tidak ada jalur auth baru.
 ```
 GET  /api/v1/chat/channels
 GET  /api/v1/chat/messages?channel_id=<id>&limit=<n>&before=<RFC3339>
-POST /api/v1/chat/messages   { "channel_id": "...", "body": "...", "client_message_id": "<uuid>" }
+POST /api/v1/chat/messages   { "channel_id": "...", "message": "...", "client_message_id": "<uuid>" }
 ```
 
 * `GET /chat/channels` menjawab kanal yang **boleh** diakses pemanggil: selalu
@@ -118,7 +118,7 @@ POST /api/v1/chat/messages   { "channel_id": "...", "body": "...", "client_messa
 * `client_message_id` membuat pengiriman **idempoten**: retry setelah jaringan putus
   mengembalikan pesan yang sama, bukan duplikat. Disimpan dengan indeks unik
   `(sender_id, client_message_id)`.
-* Batas isi **500 karakter** (`INVALID_ARGUMENT` bila lebih), dan body kosong/whitespace
+* Batas isi **500 karakter** (rune, bukan byte) (`INVALID_ARGUMENT` bila lebih), dan body kosong/whitespace
   ditolak.
 * Rate limit per user via `internal/api/ratelimit.go`: 1 pesan / 2 detik untuk `POST`.
 
@@ -132,7 +132,8 @@ satu jalur auth, dan satu logika reconnect:
 
 ```json
 {"type":"CHAT_MESSAGE","channel_id":"ID-jawa-barat","message_id":"…",
- "sender_id":"…","pseudonym":"Quakezen-7B9A","body":"…","created_at":"…"}
+ "sender_id":"…","sender_pseudonym":"Quakezen-7B9A","sender_location_tag":"Bandung",
+ "message":"…","is_admin":false,"timestamp":1723891234120}
 ```
 
 * **Kirim tetap REST**, socket hanya menyebar apa yang sudah tersimpan. Chat karena itu
@@ -141,6 +142,8 @@ satu jalur auth, dan satu logika reconnect:
   klien lambat kehilangan chat, **tidak pernah** kehilangan alert. Implementasi: kirim
   chat dengan `select`/`default` seperti sekarang, dan bila buffer penuh drop frame chat
   — bukan menutup klien.
+* **Stempel waktu socket adalah ms epoch**, bukan RFC3339 seperti REST — sama seperti
+  frame alert di soket yang sama, sehingga satu parser menangani keduanya.
 * Frame masuk tetap dibuang (`maxMessageSize` kecil dipertahankan). Socket bukan jalur
   tulis, jadi tidak ada permukaan serangan baru di sisi baca.
 * Fan-out disaring per kanal: klien menerima frame kanal yang ia ikuti. Karena itu
