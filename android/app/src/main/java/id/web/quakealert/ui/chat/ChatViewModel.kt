@@ -202,10 +202,33 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val index = channels.indexOfFirst { it.id == activeChannelId }
         val next = channels[(index + 1) % channels.size]
         if (next.id == activeChannelId) return
-        activeChannelId = next.id
+        activate(next)
+    }
+
+    /**
+     * Makes [channel] the room on screen: header, list and paging state together.
+     *
+     * The single owner of that transition, shared with [loadChannels], because the two
+     * paths drifting apart is exactly the bug this replaces — the switch used to move
+     * `activeChannelId` and reload the messages while leaving the header naming the room
+     * the user had just left, so a switch that worked looked like one that did nothing.
+     *
+     * [ChatUiState.hasOlder] is reset for a harder reason than tidiness: it is the flag
+     * that lets the list ask for an older page, and the cursor it would page from is the
+     * oldest entry of the *previous* room.
+     */
+    private fun activate(channel: ChatChannel) {
+        activeChannelId = channel.id
         entries = emptyList()
         sendStates = emptyMap()
-        publish()
+        _uiState.update {
+            it.copy(
+                channel = channel.toChannelInfo(canSwitch = channels.size > 1),
+                items = emptyList(),
+                hasOlder = false,
+                isLoadingOlder = false
+            )
+        }
         loadMessages()
     }
 
@@ -270,14 +293,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         return@fold
                     }
-                    activeChannelId = active.id
-                    _uiState.update {
-                        it.copy(
-                            channel = active.toChannelInfo(canSwitch = available.size > 1),
-                            notice = noticeFor(available)
-                        )
-                    }
-                    loadMessages()
+                    _uiState.update { it.copy(notice = noticeFor(available)) }
+                    activate(active)
                 },
                 onFailure = { throwable ->
                     Log.w(TAG, "could not load chat channels", throwable)

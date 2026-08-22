@@ -135,6 +135,15 @@ fun ChatScreen(
             if (shouldLoadOlder) onLoadOlder()
         }
 
+        // A room opens at its newest message, and a switch returns there. The stream is
+        // oldest-first, so "newest" is the last index. Keyed on the channel and on
+        // content merely appearing — not on the item count, which would drag the list
+        // back down every time an older page landed above the user's reading position.
+        val newestIndex = uiState.items.lastIndex
+        LaunchedEffect(uiState.channel.channelName, newestIndex >= 0) {
+            if (newestIndex >= 0) listState.scrollToItem(newestIndex)
+        }
+
         // --- Body: loading / error / empty / the conversation ----------------
         val bodyModifier = Modifier
             .weight(1f)
