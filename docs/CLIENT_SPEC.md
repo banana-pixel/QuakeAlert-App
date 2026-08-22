@@ -242,6 +242,16 @@ Socket `GET /ws` juga memfanout pesan chat, hanya untuk kanal yang menjadi keang
 - `sender_id` memungkinkan klien mengenali pesannya sendiri: cocokkan dengan `user_id` sendiri agar gelembung optimistis **diganti**, bukan digandakan.
 - Frame yang **dikirim** klien tetap diabaikan server. Pengiriman lewat `POST /api/v1/chat/messages`.
 
+### 5.5 Notifikasi status: tanpa foreground service (keputusan)
+
+Klien menampilkan notifikasi **status** yang tenang dan berkelanjutan (`StatusNotifier`, kanal `quakealert_status`, `IMPORTANCE_MIN`, **opt-in dan mati secara default**). Notifikasi itu hanya mencetak fakta yang sudah dipegang app — sakelar alert user, izin `POST_NOTIFICATIONS`, umur posisi terakhir, dan status pembebasan battery optimization — dan **tidak pernah** mengklaim perlindungan yang tidak bisa diberikan.
+
+Yang **tidak** dilakukan, beserta alasannya, supaya tidak dibuka ulang tanpa sengaja:
+
+1. **Bukan foreground service, dan socket tidak ditahan terbuka.** Jalur pengiriman background sudah ada dan direstui platform: FCM prioritas tinggi kebal Doze dan sampai walau proses mati (§5.3 poin 2–3). Socket yang ditahan di service hanya menang di latensi, tidak di keterjangkauan.
+2. **`specialUse` tidak dapat dibenarkan.** Pada `targetSdk 36`, satu-satunya `foregroundServiceType` yang cocok untuk "menahan socket" adalah `specialUse`, yang ditinjau Google per kasus dan ditolak bila ada alternatif yang didukung. Menambah tinjauan Play, boot receiver, dan penanganan pembebasan Doze untuk menduplikasi jalur yang sudah bekerja adalah trade yang salah. Karena itu manifest **tidak** meminta `FOREGROUND_SERVICE`.
+3. **Kesehatan socket tidak ikut dicetak.** `connectionState` dibagikan `WhileSubscribed` dan menutup ketika UI hilang, jadi baris "offline" akan muncul untuk app yang di-background padahal alert-nya memang datang lewat push. Berlangganan dari notifikasi agar barisnya jujur berarti menahan koneksi 24 jam demi satu baris di shade.
+
 ---
 
 ## 6. Error Code Mapping

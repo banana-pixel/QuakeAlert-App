@@ -119,6 +119,19 @@ class AppSettingsRepository(context: Context) {
         if (trimmed.isEmpty()) it.remove(KEY_REGION_CODE) else it[KEY_REGION_CODE] = trimmed
     }
 
+    /**
+     * Whether the quiet ongoing status notification is shown.
+     *
+     * Default **false**: an ongoing notification the user did not ask for is clutter,
+     * and the app is no less protective without it. See
+     * [id.web.quakealert.service.StatusNotifier].
+     */
+    val statusNotification: Flow<Boolean> = read { it[KEY_STATUS_NOTIFICATION] ?: false }
+
+    fun setStatusNotification(enabled: Boolean) = write {
+        it[KEY_STATUS_NOTIFICATION] = enabled
+    }
+
     /** UI language tag. Inert placeholder — only `en` ships today. */
     val language: Flow<String> = read { it[KEY_LANGUAGE] ?: DEFAULT_LANGUAGE }
 
@@ -147,5 +160,6 @@ class AppSettingsRepository(context: Context) {
         private val KEY_LAST_SYNC_AT_MS = longPreferencesKey("last_sync_at_ms")
         private val KEY_LANGUAGE = stringPreferencesKey("language")
         private val KEY_REGION_CODE = stringPreferencesKey("region_code")
+        private val KEY_STATUS_NOTIFICATION = booleanPreferencesKey("status_notification")
     }
 }

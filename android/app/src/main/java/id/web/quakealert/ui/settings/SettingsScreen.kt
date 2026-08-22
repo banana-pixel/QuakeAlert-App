@@ -167,6 +167,7 @@ fun SettingsRoute(
         onAutoSyncToggled = viewModel::onAutoSyncToggled,
         onSyncLocationNow = syncLocation,
         onNotificationsToggled = viewModel::onNotificationsToggled,
+        onStatusNotificationToggled = viewModel::onStatusNotificationToggled,
         onTestAlertSound = { showTestAlertSound = true },
         onBatterySettings = { context.openBatteryOptimizationSettings() },
         onFixNotifications = { context.openNotificationSettings() },
@@ -266,6 +267,7 @@ fun SettingsScreen(
     onAutoSyncToggled: (Boolean) -> Unit,
     onSyncLocationNow: () -> Unit,
     onNotificationsToggled: (Boolean) -> Unit,
+    onStatusNotificationToggled: (Boolean) -> Unit,
     onTestAlertSound: () -> Unit,
     onBatterySettings: () -> Unit,
     onFixNotifications: () -> Unit,
@@ -402,6 +404,26 @@ fun SettingsScreen(
                     )
                 }
             )
+
+            // Off by default, and named for what it is: a place to look, not another
+            // alert. The line under the title is the whole value proposition, because
+            // the question it answers ("is this thing still watching?") is one the app
+            // otherwise never gets asked out loud.
+            QuakeCard(
+                title = "Show Status in Notification Shade",
+                detail = {
+                    Text(
+                        text = "A silent, ongoing summary of whether alerts can reach you",
+                        style = CardSubtitle,
+                        color = TextSecondary
+                    )
+                }
+            ) {
+                QuakeSwitch(
+                    checked = uiState.statusNotification,
+                    onCheckedChange = onStatusNotificationToggled
+                )
+            }
 
             QuakeCard(
                 title = "Delivery Checklist",
@@ -630,6 +652,7 @@ private fun SettingsScreenPreview() {
             onFixNotifications = {},
             onFixLocation = {},
             onNotificationsToggled = {},
+            onStatusNotificationToggled = {},
             onTestAlertSound = {},
             onBatterySettings = {},
             onCopyValue = {},

@@ -1,13 +1,7 @@
 package id.web.quakealert.ui.settings
 
-import android.Manifest
 import android.app.Application
-import android.content.Context
-import android.content.pm.PackageManager
-import android.os.PowerManager
 import android.util.Log
-import androidx.core.content.ContextCompat
-import androidx.core.content.getSystemService
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.web.quakealert.data.AppSettingsRepository
@@ -16,7 +10,9 @@ import id.web.quakealert.data.network.ApiException
 import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.mapper.QuakeFormat
 import id.web.quakealert.data.users.LocationSyncResult
+import id.web.quakealert.device.canPostNotifications
 import id.web.quakealert.device.hasLocationPermission
+import id.web.quakealert.device.isBatteryUnrestricted
 import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.common.errorCopy
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,6 +63,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             repository.notificationsEnabled.collect { on ->
                 _uiState.update { it.copy(notificationsEnabled = on) }
+            }
+        }
+        viewModelScope.launch {
+            repository.statusNotification.collect { on ->
+                _uiState.update { it.copy(statusNotification = on) }
             }
         }
         viewModelScope.launch {
@@ -141,6 +142,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(notificationsEnabled = enabled) }
         if (enabled && !getApplication<Application>().canPostNotifications()) {
             post("Allow notifications in system settings for alerts to arrive")
+        }
+    }
+
+    /**
+     * Toggles the quiet ongoing status notification.
+     *
+     * Turning it on without the OS grant is reported, for the same reason the alert
+     * switch does: the notification cannot post, so the switch would otherwise be the
+     * only evidence of a feature the user can never see.
+     */
+    fun onStatusNotificationToggled(enabled: Boolean) {
+        repository.setStatusNotification(enabled)
+        _uiState.update { it.copy(statusNotification = enabled) }
+        if (enabled && !getApplication<Application>().canPostNotifications()) {
+            post("Allow notifications in system settings to show the status")
         }
     }
 
@@ -299,22 +315,3 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         const val HTTP_TOO_MANY_REQUESTS = 429
     }
 }
-
-/** Whether the OS currently allows this app to post notifications. */
-private fun Context.canPostNotifications(): Boolean =
-    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
-        true
-    } else {
-        ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
-    }
-
-/**
- * Whether the app is exempt from battery optimisation.
- *
- * Relevant to alert delivery, not battery life: under Doze a data-only FCM message
- * can be held back until the next maintenance window, which for an earthquake
- * warning is indistinguishable from never arriving.
- */
-private fun Context.isBatteryUnrestricted(): Boolean =
-    getSystemService<PowerManager>()?.isIgnoringBatteryOptimizations(packageName) ?: false

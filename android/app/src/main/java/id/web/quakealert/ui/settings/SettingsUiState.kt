@@ -83,6 +83,7 @@ data class SettingsUiState(
     val lastSyncLabel: String? = null,
     val autoSyncLocation: Boolean = true,
     val notificationsEnabled: Boolean = true,
+    val statusNotification: Boolean = false,
     val notificationPermissionGranted: Boolean = true,
     val locationPermissionGranted: Boolean = true,
     val batteryUnrestricted: Boolean = false,

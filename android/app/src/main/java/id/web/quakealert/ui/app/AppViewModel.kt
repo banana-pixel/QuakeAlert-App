@@ -5,12 +5,21 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.network.QuakeNetwork
+import id.web.quakealert.data.network.mapper.QuakeFormat
+import id.web.quakealert.device.canPostNotifications
+import id.web.quakealert.device.isBatteryUnrestricted
+import id.web.quakealert.domain.ProtectionStatus
+import id.web.quakealert.service.StatusNotifier
 import id.web.quakealert.service.WarningNotifier
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
 
 /**
  * Top-level UI state that gates the application entry point.
@@ -36,6 +45,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val network = QuakeNetwork.from(application)
 
+    /**
+     * The two OS-owned facts behind the status notification, refreshed on every
+     * resume. Held as state rather than read at post time so a revocation the user
+     * performs in system Settings updates the shade as soon as they come back.
+     */
+    private val systemState = MutableStateFlow(
+        SystemState(
+            notificationsPermitted = application.canPostNotifications(),
+            batteryUnrestricted = application.isBatteryUnrestricted()
+        )
+    )
+
     init {
         // Push registration also runs here rather than only in `onNewToken`: a token
         // can rotate while the app is not running, and the server keeps only the last
@@ -46,6 +67,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // before the first alert needs it — creating a channel while posting to it
         // works, but leaves no chance to see it in system settings beforehand.
         WarningNotifier.ensureChannel(application)
+
+        observeStatusNotification()
     }
 
     val uiState: StateFlow<AppUiState> = repository.isOnboardingCompleted
@@ -75,13 +98,78 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * Runs on the process scope, so a rotation cannot cancel a request mid-flight.
      */
     fun onAppForegrounded() {
+        // Both grants and the battery exemption can be changed in system Settings while
+        // the app sits in the background, and none of them is observable — re-reading
+        // them on every resume is what keeps the status notification from claiming a
+        // permission the user has since revoked.
+        systemState.value = SystemState(
+            notificationsPermitted = getApplication<Application>().canPostNotifications(),
+            batteryUnrestricted = getApplication<Application>().isBatteryUnrestricted()
+        )
+
         network.applicationScope.launch {
             network.userLocationRepository.syncIfStale()
         }
     }
+
+    /**
+     * Keeps the opt-in status notification in step with the state it reports.
+     *
+     * Driven from here rather than from a service, because there is no service: the
+     * facts it prints all live in [AppSettingsRepository] and in two system checks, and
+     * a notification is posted, not hosted. See
+     * [id.web.quakealert.service.StatusNotifier] for why a foreground service would be
+     * the wrong shape for this.
+     *
+     * The notification outlives this collector, which is the intended behaviour — a
+     * posted notification survives the UI going away, and the facts it carries do not
+     * change while nothing is running. The toggle going off is the only thing that
+     * clears it.
+     */
+    private fun observeStatusNotification() {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            combine(
+                repository.statusNotification,
+                repository.notificationsEnabled,
+                repository.autoSyncLocation,
+                repository.lastSyncAtMs,
+                systemState
+            ) { enabled, alertsEnabled, autoSync, lastSyncAtMs, system ->
+                if (!enabled) {
+                    null
+                } else {
+                    ProtectionStatus(
+                        alertsEnabled = alertsEnabled,
+                        notificationsPermitted = system.notificationsPermitted,
+                        autoSyncEnabled = autoSync,
+                        batteryUnrestricted = system.batteryUnrestricted,
+                        lastSyncLabel = lastSyncAtMs?.let(::relativeLabel)
+                    )
+                }
+            }
+                .distinctUntilChanged()
+                .collect { status ->
+                    if (status == null) {
+                        StatusNotifier.clear(context)
+                    } else {
+                        StatusNotifier.notify(context, status)
+                    }
+                }
+        }
+    }
+
+    private fun relativeLabel(epochMs: Long): String =
+        QuakeFormat.relativeTime(Instant.ofEpochMilli(epochMs), Instant.now())
 
     /** Persists onboarding completion, flipping the entry point to MainScreen. */
     fun completeOnboarding() {
         repository.completeOnboarding()
     }
 }
+
+/** The OS-owned half of [ProtectionStatus], polled rather than observed. */
+private data class SystemState(
+    val notificationsPermitted: Boolean,
+    val batteryUnrestricted: Boolean
+)
