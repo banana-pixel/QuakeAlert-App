@@ -128,8 +128,6 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                     roll = emptyList()
                     _uiState.update {
                         it.copy(
-                            isLoading = false,
-                            isRefreshing = false,
                             needsPosition = true,
                             sensors = emptyList(),
                             overview = it.overview.copy(sensorCount = 0)
@@ -142,8 +140,6 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                 _uiState.update { state ->
                     state.copy(
                         sensors = state.filter.narrow(roll),
-                        isLoading = false,
-                        isRefreshing = false,
                         // The map badge counts *reporting* stations in the whole
                         // roll, matching the server's `active_sensors_count`: an
                         // offline node is in the list but is not coverage, and a
@@ -181,8 +177,6 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                 val narrowed = _uiState.value.filter.isNarrowed(FilterSection.SENSORS)
                 _uiState.update {
                     it.copy(
-                        isLoading = false,
-                        isRefreshing = false,
                         isError = !hadContent,
                         errorCopy = if (hadContent) {
                             null
@@ -191,6 +185,13 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                         }
                     )
                 }
+            } finally {
+                // The single owner of both in-flight flags, so no exit path can leave
+                // one set — the no-position return, an unclassified throw, and scope
+                // cancellation all pass through here. [onRefresh] refuses to start
+                // while isRefreshing is set, so a flag left behind is a permanently
+                // spinning indicator.
+                _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
             }
         }
     }

@@ -101,28 +101,29 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
                     needsPosition = false
                 )
             }
-            // Asked before anything is requested: "Near" with no fix has no query
-            // behind it, so the screen says so instead of showing a national feed
-            // under a pill that reads "Near".
-            if (needsPosition()) {
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        isRefreshing = false,
-                        items = emptyList(),
-                        hasMore = false,
-                        needsPosition = true
-                    )
-                }
-                return@launch
-            }
             try {
+                // Asked before anything is requested: "Near" with no fix has no query
+                // behind it, so the screen says so instead of showing a national feed
+                // under a pill that reads "Near".
+                //
+                // Inside the try, not before it: this reads the session store, which
+                // can fail like any other I/O, and a throw here used to escape the
+                // state machine entirely — leaving isRefreshing set with onRefresh
+                // refusing to start again, i.e. an indicator that spins forever.
+                if (needsPosition()) {
+                    _uiState.update {
+                        it.copy(
+                            items = emptyList(),
+                            hasMore = false,
+                            needsPosition = true
+                        )
+                    }
+                    return@launch
+                }
                 val items = fetchPage(offset = 0)
                 _uiState.update {
                     it.copy(
                         items = items,
-                        isLoading = false,
-                        isRefreshing = false,
                         hasMore = items.size >= PAGE_SIZE
                     )
                 }
@@ -141,8 +142,6 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
                 val narrowed = _uiState.value.filter.isNarrowed(FilterSection.HISTORY)
                 _uiState.update {
                     it.copy(
-                        isLoading = false,
-                        isRefreshing = false,
                         isError = !hadContent,
                         errorCopy = if (hadContent) {
                             null
@@ -151,6 +150,13 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
                         }
                     )
                 }
+            } finally {
+                // The single owner of both in-flight flags, so no exit path can leave
+                // one set: the early return above, an unclassified throw, and scope
+                // cancellation all pass through here. Runs before the rethrown
+                // CancellationException propagates, so the flag clears without
+                // swallowing the cancellation.
+                _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
             }
         }
     }
@@ -178,7 +184,6 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
                         // server's window while the user scrolls, which would
                         // otherwise re-append the row that moved onto this page.
                         items = (current.items + page).distinctBy { item -> item.id },
-                        isLoadingMore = false,
                         hasMore = page.size >= PAGE_SIZE
                     )
                 }
@@ -188,7 +193,11 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
                 // A failed *append* keeps the list and stops paging rather than
                 // replacing content the user is reading with an error screen.
                 Log.w(TAG, "could not load more history", throwable)
-                _uiState.update { it.copy(isLoadingMore = false, hasMore = false) }
+                _uiState.update { it.copy(hasMore = false) }
+            } finally {
+                // Same single owner as [load]: a set isLoadingMore blocks every
+                // further page, so no exit path may leave it behind.
+                _uiState.update { it.copy(isLoadingMore = false) }
             }
         }
     }
