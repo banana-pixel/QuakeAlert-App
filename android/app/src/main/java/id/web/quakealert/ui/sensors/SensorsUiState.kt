@@ -3,6 +3,9 @@ package id.web.quakealert.ui.sensors
 import androidx.compose.runtime.Immutable
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.ErrorCopy
+import id.web.quakealert.ui.common.MapFocus
+import id.web.quakealert.ui.common.MapMarker
+import id.web.quakealert.ui.common.MapMarkerKind
 import id.web.quakealert.ui.common.QuakeFilterState
 
 /**
@@ -36,6 +39,12 @@ data class SensorTelemetry(
  * @param chipLabel sensor module label rendered inside the chip badge (e.g. "MPU 6050").
  * @param status online/offline connectivity.
  * @param telemetry live metric pills.
+ * @param latitude WGS84 latitude of the station, or null when the server holds no
+ *   fix for it. Nullable rather than defaulted: `GET /sensors` answers 0.0 for a
+ *   node that was provisioned without coordinates, and a dot at 0,0 would put the
+ *   station in the Gulf of Guinea — a map that is confidently wrong is worse than a
+ *   row with no dot, which is what a null produces.
+ * @param longitude WGS84 longitude; see [latitude].
  */
 @Immutable
 data class SensorStationItem(
@@ -44,8 +53,13 @@ data class SensorStationItem(
     val location: String,
     val chipLabel: String,
     val status: SensorStatus,
-    val telemetry: SensorTelemetry
-)
+    val telemetry: SensorTelemetry,
+    val latitude: Double? = null,
+    val longitude: Double? = null
+) {
+    /** True when the station can be pinned on the map and focused. */
+    val hasPosition: Boolean get() = latitude != null && longitude != null
+}
 
 /**
  * Summary overlay data for the map preview card (Figma node 1:1091), shared by
@@ -134,6 +148,9 @@ data class SensorMapOverview(
  * @param errorCopy classified failure copy from
  *   [id.web.quakealert.ui.common.errorCopy], rendered by
  *   [id.web.quakealert.ui.common.QuakeErrorState], or null when there is no error.
+ * @param selectedStationId the station whose row was tapped, or null when none is.
+ *   Held as an id rather than the item so the list and the map read one fact, and so
+ *   a refreshed roll cannot leave a stale copy of a station selected.
  * @param needsPosition true when nothing has synced a device position yet, so there
  *   is no query to make. `GET /sensors` measures every roll from the position the
  *   *server* holds and answers an empty list when it holds none — in every mode, not
@@ -160,5 +177,79 @@ data class SensorsUiState(
     ),
     val filter: QuakeFilterState = QuakeFilterState(),
     val unitSystem: UnitSystem = UnitSystem.METRIC,
-    val sensors: List<SensorStationItem> = emptyList()
+    val sensors: List<SensorStationItem> = emptyList(),
+    val selectedStationId: String? = null
 )
+
+/**
+ * Every dot the Sensors map shows: one per station that has a fix, plus the device
+ * position.
+ *
+ * Derived here rather than assembled in the composable so it can be tested without
+ * a GL context, and so the map and the list cannot disagree about which station is
+ * selected — both read the same [selectedStationId].
+ *
+ * Stations with no coordinates contribute nothing. The user dot comes from the same
+ * [SensorMapOverview] coordinates the camera is pointed at, so the dot and the
+ * centre cannot drift apart.
+ */
+fun SensorsUiState.mapMarkers(): List<MapMarker> = buildList {
+    sensors.forEach { station ->
+        val latitude = station.latitude ?: return@forEach
+        val longitude = station.longitude ?: return@forEach
+        add(
+            MapMarker(
+                id = station.id,
+                latitude = latitude,
+                longitude = longitude,
+                kind = when {
+                    station.id == selectedStationId -> MapMarkerKind.SELECTED
+                    station.status == SensorStatus.ONLINE -> MapMarkerKind.STATION_ONLINE
+                    else -> MapMarkerKind.STATION_OFFLINE
+                }
+            )
+        )
+    }
+    val latitude = overview.latitude
+    val longitude = overview.longitude
+    if (latitude != null && longitude != null) {
+        add(
+            MapMarker(
+                id = USER_MARKER_ID,
+                latitude = latitude,
+                longitude = longitude,
+                kind = MapMarkerKind.USER
+            )
+        )
+    }
+}
+
+/**
+ * Where the Sensors map points: the selected station when there is one, otherwise
+ * the device position, otherwise nowhere.
+ *
+ * A selected station is framed at [MapFocus.ZOOM_EVENT] — one step in from the
+ * coverage framing — because the question a tap asks is "where is *this* node",
+ * not "what does my area look like".
+ */
+fun SensorsUiState.mapFocus(): MapFocus? {
+    val selected = sensors.firstOrNull { it.id == selectedStationId }
+    val selectedLatitude = selected?.latitude
+    val selectedLongitude = selected?.longitude
+    if (selectedLatitude != null && selectedLongitude != null) {
+        return MapFocus(
+            latitude = selectedLatitude,
+            longitude = selectedLongitude,
+            zoom = MapFocus.ZOOM_EVENT
+        )
+    }
+    val latitude = overview.latitude ?: return null
+    val longitude = overview.longitude ?: return null
+    return MapFocus(latitude = latitude, longitude = longitude, zoom = MapFocus.ZOOM_COVERAGE)
+}
+
+/**
+ * Feature id for the device dot. A fixed string rather than a station id, because
+ * there is exactly one and it must never collide with a station's key.
+ */
+private const val USER_MARKER_ID = "user-position"

@@ -58,6 +58,8 @@ import id.web.quakealert.ui.common.QuakePill
 import id.web.quakealert.ui.common.QuakeSwitch
 import id.web.quakealert.ui.common.TestAlertSoundDialog
 import id.web.quakealert.ui.common.fadingEdges
+import id.web.quakealert.ui.common.MapMarker
+import id.web.quakealert.ui.common.MapMarkerKind
 import id.web.quakealert.ui.sensors.SensorMapCard
 import id.web.quakealert.ui.sensors.SensorMapOverview
 import id.web.quakealert.ui.theme.CardBorder
@@ -339,6 +341,12 @@ fun SettingsScreen(
                             longitude = uiState.longitude
                         ),
                         unitSystem = uiState.unitSystem,
+                        // The user dot, and only the user dot: what this card
+                        // claims is where the last fix landed, and a centred
+                        // camera says that far less directly than a mark on the
+                        // ground does. Station dots and a range badge would make
+                        // it say something else as well.
+                        markers = userMarker(uiState.latitude, uiState.longitude),
                         showGeofence = false,
                         showRangeBadge = false,
                         height = Dimens.MapCardInlineHeight,
@@ -575,6 +583,27 @@ private fun CenteredSectionBadge(
         }
     }
 }
+
+
+/**
+ * The device dot for the "Sync Location Now" map, or nothing when no position has
+ * ever synced — in which case the card has no camera either and the basemap does not
+ * render at all.
+ */
+private fun userMarker(latitude: Double?, longitude: Double?): List<MapMarker> =
+    if (latitude != null && longitude != null) {
+        listOf(
+            MapMarker(
+                id = "settings-user-position",
+                latitude = latitude,
+                longitude = longitude,
+                kind = MapMarkerKind.USER
+            )
+        )
+    } else {
+        emptyList()
+    }
+
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable

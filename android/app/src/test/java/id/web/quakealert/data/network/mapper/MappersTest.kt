@@ -271,6 +271,41 @@ class MappersTest {
         assertEquals(SensorStatus.ONLINE, degraded.copy(online = true).toStationItem().status)
     }
 
+    @Test
+    fun `station coordinates survive the mapping and null island does not`() {
+        val located = SensorDto(
+            stationId = "NODE-1",
+            sensorModel = "MPU 6050",
+            locationName = "Bandung, West Java, ID",
+            latitude = -6.9175,
+            longitude = 107.6191,
+            status = "Online",
+            lastPing = "33s ago",
+            rssiDbm = -61,
+            latencyMs = 2
+        ).toDomain().toStationItem()
+
+        assertEquals(-6.9175, located.latitude!!, 1e-6)
+        assertEquals(107.6191, located.longitude!!, 1e-6)
+        assertTrue(located.hasPosition)
+
+        // The contract defaults both to 0.0 for a node provisioned without a fix,
+        // which would otherwise put a station dot in the Gulf of Guinea.
+        val unlocated = SensorDto(
+            stationId = "NODE-2",
+            sensorModel = "MPU 6050",
+            locationName = "Unknown",
+            status = "Online",
+            lastPing = null,
+            rssiDbm = null,
+            latencyMs = null
+        ).toDomain().toStationItem()
+
+        assertEquals(null, unlocated.latitude)
+        assertEquals(null, unlocated.longitude)
+        assertTrue(!unlocated.hasPosition)
+    }
+
     private fun wsDto(
         type: String = "EARTHQUAKE_ALERT",
         eventId: String = "evt-1"

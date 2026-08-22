@@ -142,6 +142,10 @@ fun SensorsScreen(
         SensorMapCard(
             overview = uiState.overview,
             unitSystem = uiState.unitSystem,
+            // Both derived from the same state as the list below, so the dot the
+            // camera moves to is the row the user tapped.
+            markers = uiState.mapMarkers(),
+            focus = uiState.mapFocus(),
             modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
         )
 

@@ -12,6 +12,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.viewinterop.AndroidView
@@ -21,13 +23,24 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.MapAttributionScrim
 import id.web.quakealert.ui.theme.MapAttributionText
+import id.web.quakealert.ui.theme.AccentBlue
 import id.web.quakealert.ui.theme.MapSurfaceFallback
 import id.web.quakealert.ui.theme.MicroCaption
+import id.web.quakealert.ui.theme.StatusOfflineDot
+import id.web.quakealert.ui.theme.StatusOnlineDot
+import id.web.quakealert.ui.theme.TextPrimary
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
 
 /**
  * Where a map card is pointed: a WGS84 coordinate plus the zoom that frames it.
@@ -61,6 +74,51 @@ data class MapFocus(
 }
 
 /**
+ * What a [MapMarker] stands for, which is the only thing that decides how it is
+ * drawn: an enum rather than colours and radii on the marker itself, so a station
+ * dot cannot be painted one way on the Sensors map and another way in Settings.
+ *
+ * Declaration order is paint order (see [toCircleLayer]), so it is not arbitrary:
+ * where dots overlap, a reporting station wins over a dead one, and the tapped
+ * station and the device position win over both.
+ */
+enum class MapMarkerKind {
+    /** A provisioned station that is not reporting. */
+    STATION_OFFLINE,
+
+    /** A station the server currently counts as reporting. */
+    STATION_ONLINE,
+
+    /** The station whose row the user tapped; drawn larger and on top. */
+    SELECTED,
+
+    /** The device's own last synced position. */
+    USER
+}
+
+/**
+ * A single dot drawn on the basemap in map coordinates.
+ *
+ * Deliberately *not* Compose [content]: an overlay drawn in the card's own
+ * coordinate space is only correct at the exact centre of the camera, which is why
+ * the coverage circle and the location pill can stay Compose but a station 40 km
+ * east of the user cannot. These go through MapLibre so they stay pinned to the
+ * ground the camera is looking at.
+ *
+ * @param id stable feature identity, used only to keep the collection diffable.
+ * @param latitude WGS84 latitude; callers must not pass a placeholder.
+ * @param longitude WGS84 longitude.
+ * @param kind drives colour and size; see [MapMarkerKind].
+ */
+@Immutable
+data class MapMarker(
+    val id: String,
+    val latitude: Double,
+    val longitude: Double,
+    val kind: MapMarkerKind
+)
+
+/**
  * Vector basemap behind the app's map cards, replacing the grey placeholder
  * surface the screens stood on before the SDK landed.
  *
@@ -86,6 +144,10 @@ data class MapFocus(
  *   which case no GL surface is created at all.
  * @param attributionAlignment corner for the required provider credit. Defaults to
  *   bottom-end; cards that already own that corner move it.
+ * @param markers dots pinned to the ground rather than to the card — stations, the
+ *   device position — drawn as MapLibre circle layers. Empty by default, so a card
+ *   that has nothing to pin (the event-detail map, which is already centred on its
+ *   one subject) pays nothing and renders exactly as before.
  * @param content overlays drawn over the basemap, in the same coordinate space as
  *   the card.
  */
@@ -94,6 +156,7 @@ fun QuakeMap(
     focus: MapFocus?,
     modifier: Modifier = Modifier,
     attributionAlignment: Alignment = Alignment.BottomEnd,
+    markers: List<MapMarker> = emptyList(),
     content: @Composable BoxScope.() -> Unit = {}
 ) {
     Box(modifier = modifier.background(MapSurfaceFallback)) {
@@ -101,7 +164,11 @@ fun QuakeMap(
         // so a MapView there fails the whole preview rather than the map card.
         val canRender = focus != null && !LocalInspectionMode.current
         if (canRender) {
-            Basemap(focus = focus!!, modifier = Modifier.matchParentSize())
+            Basemap(
+                focus = focus!!,
+                markers = markers,
+                modifier = Modifier.matchParentSize()
+            )
             MapAttribution(modifier = Modifier.align(attributionAlignment))
         }
         content()
@@ -110,7 +177,11 @@ fun QuakeMap(
 
 /** The GL surface itself, lifted out so [QuakeMap] reads as composition. */
 @Composable
-private fun Basemap(focus: MapFocus, modifier: Modifier = Modifier) {
+private fun Basemap(
+    focus: MapFocus,
+    markers: List<MapMarker>,
+    modifier: Modifier = Modifier
+) {
     val mapView = rememberMapView()
 
     AndroidView(
@@ -126,7 +197,15 @@ private fun Basemap(focus: MapFocus, modifier: Modifier = Modifier) {
                         isAttributionEnabled = false
                         isCompassEnabled = false
                     }
-                    map.setStyle(BASEMAP_STYLE_URL)
+                    map.setStyle(BASEMAP_STYLE_URL) { style ->
+                        // Source and layers are created once, here, and only ever
+                        // re-fed below: adding a layer per emission would stack
+                        // duplicates and throw on the second identical id.
+                        style.addSource(
+                            GeoJsonSource(MARKER_SOURCE_ID, markers.toFeatureCollection())
+                        )
+                        MapMarkerKind.entries.forEach { style.addLayer(it.toCircleLayer()) }
+                    }
                 }
             }
         },
@@ -136,11 +215,90 @@ private fun Basemap(focus: MapFocus, modifier: Modifier = Modifier) {
                     .target(LatLng(focus.latitude, focus.longitude))
                     .zoom(focus.zoom)
                     .build()
+                // getStyle's callback fires only once the style has finished
+                // loading, so a marker list that arrives before the tiles do is
+                // applied when they land instead of being dropped on the floor.
+                map.getStyle { style ->
+                    style.getSourceAs<GeoJsonSource>(MARKER_SOURCE_ID)
+                        ?.setGeoJson(markers.toFeatureCollection())
+                }
             }
         },
         modifier = modifier
     )
 }
+
+/**
+ * Markers → GeoJSON, each carrying its [MapMarkerKind] name as a feature property
+ * so one source can feed every layer and a change of kind is a data change rather
+ * than a layer rebuild.
+ */
+private fun List<MapMarker>.toFeatureCollection(): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        map { marker ->
+            Feature.fromGeometry(
+                Point.fromLngLat(marker.longitude, marker.latitude),
+                null,
+                marker.id
+            ).apply { addStringProperty(MARKER_KIND_PROPERTY, marker.kind.name) }
+        }
+    )
+
+/**
+ * One filtered circle layer per kind, rather than one layer with data-driven
+ * expressions for colour and radius.
+ *
+ * Two reasons: the draw order is then explicit — [MapMarkerKind.entries] order is
+ * the paint order, which is what keeps the user dot and the tapped station on top
+ * of a cluster of station dots — and the styling reads as plain Kotlin against the
+ * same theme tokens the status chips use, instead of a `match` expression that
+ * would have to be kept in step with the enum by hand.
+ */
+private fun MapMarkerKind.toCircleLayer(): CircleLayer {
+    val fill: Color
+    val radius: Float
+    val strokeColor: Color
+    val strokeWidth: Float
+    when (this) {
+        MapMarkerKind.STATION_ONLINE -> {
+            fill = StatusOnlineDot; radius = 5f
+            strokeColor = MapSurfaceFallback; strokeWidth = 1.5f
+        }
+        MapMarkerKind.STATION_OFFLINE -> {
+            fill = StatusOfflineDot; radius = 5f
+            strokeColor = MapSurfaceFallback; strokeWidth = 1.5f
+        }
+        // The tapped station: same hue as its status would give it is not enough to
+        // find in a cluster, so it is drawn larger with a white ring.
+        MapMarkerKind.SELECTED -> {
+            fill = AccentBlue; radius = 8f
+            strokeColor = TextPrimary; strokeWidth = 2.5f
+        }
+        MapMarkerKind.USER -> {
+            fill = TextPrimary; radius = 6f
+            strokeColor = AccentBlue; strokeWidth = 3f
+        }
+    }
+    return CircleLayer("$MARKER_LAYER_PREFIX${name.lowercase()}", MARKER_SOURCE_ID)
+        .withProperties(
+            PropertyFactory.circleColor(fill.toArgb()),
+            PropertyFactory.circleRadius(radius),
+            PropertyFactory.circleStrokeColor(strokeColor.toArgb()),
+            PropertyFactory.circleStrokeWidth(strokeWidth)
+        )
+        .withFilter(
+            Expression.eq(Expression.get(MARKER_KIND_PROPERTY), Expression.literal(name))
+        )
+}
+
+/** Single GeoJSON source every marker layer reads. */
+private const val MARKER_SOURCE_ID = "quake-markers"
+
+/** Feature property holding a [MapMarkerKind] name; the layers filter on it. */
+private const val MARKER_KIND_PROPERTY = "kind"
+
+/** Layer ids are derived from the kind, so they are stable and collision-free. */
+private const val MARKER_LAYER_PREFIX = "quake-marker-"
 
 /**
  * A [MapView] bound to the current lifecycle.

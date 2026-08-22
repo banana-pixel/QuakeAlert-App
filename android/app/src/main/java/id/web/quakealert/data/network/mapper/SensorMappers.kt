@@ -47,6 +47,12 @@ fun SensorNode.toStationItem(): SensorStationItem = SensorStationItem(
     location = locationName,
     chipLabel = sensorModel,
     status = if (online) SensorStatus.ONLINE else SensorStatus.OFFLINE,
+    // Null Island is treated as "no fix", not as a location. The contract defaults
+    // both coordinates to 0.0 for a node provisioned without one, and a station dot
+    // 5000 km off West Africa is a lie the map would tell confidently; a station
+    // genuinely at 0,0 is in open ocean, so nothing real is lost.
+    latitude = latitude.takeUnless { hasNoFix() },
+    longitude = longitude.takeUnless { hasNoFix() },
     telemetry = SensorTelemetry(
         lastPing = "Last Ping : ${lastPing.orDash()}",
         rssi = "RSSI : ${rssiDbm?.toString().orDash()} dBm",
@@ -55,6 +61,9 @@ fun SensorNode.toStationItem(): SensorStationItem = SensorStationItem(
 )
 
 fun List<SensorNode>.toStationItems(): List<SensorStationItem> = map { it.toStationItem() }
+
+/** See the coordinate comment in [toStationItem]. */
+private fun SensorNode.hasNoFix(): Boolean = latitude == 0.0 && longitude == 0.0
 
 private fun String?.orDash(): String =
     this?.takeIf { it.isNotBlank() } ?: QuakeFormat.UNAVAILABLE

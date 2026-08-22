@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import id.web.quakealert.R
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.common.MapFocus
+import id.web.quakealert.ui.common.MapMarker
 import id.web.quakealert.ui.common.QuakeMap
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.ChipLabel
@@ -74,6 +75,14 @@ import id.web.quakealert.ui.theme.TextPrimary
  *   edge to edge and say nothing about coverage.
  * @param height the card's height. Defaults to the Sensors screen's full preview;
  *   the inline Settings map passes [Dimens.MapCardInlineHeight].
+ * @param markers dots pinned to the ground: the device position on both screens,
+ *   plus the station roll on Sensors. Passed through to [QuakeMap] rather than drawn
+ *   as overlays here, because an overlay is only in the right place at the exact
+ *   centre of the camera — which is true of the coverage circle and the pill, and
+ *   false of every station.
+ * @param focus overrides where the camera points. Null means "the device position
+ *   carried by [overview]", which is what both screens want until a station row is
+ *   tapped; the Sensors screen then passes the selected station's own framing.
  */
 @Composable
 fun SensorMapCard(
@@ -82,7 +91,9 @@ fun SensorMapCard(
     unitSystem: UnitSystem = UnitSystem.METRIC,
     showGeofence: Boolean = true,
     showRangeBadge: Boolean = true,
-    height: Dp = Dimens.MapCardHeight
+    height: Dp = Dimens.MapCardHeight,
+    markers: List<MapMarker> = emptyList(),
+    focus: MapFocus? = null
 ) {
     val cardShape = remember { RoundedCornerShape(Dimens.RadiusCard) }
     val animatedFraction by animateFloatAsState(
@@ -90,7 +101,7 @@ fun SensorMapCard(
         animationSpec = tween(durationMillis = 300),
         label = "GeofenceFraction"
     )
-    val focus = remember(overview.latitude, overview.longitude) {
+    val devicePosition = remember(overview.latitude, overview.longitude) {
         val latitude = overview.latitude
         val longitude = overview.longitude
         if (latitude != null && longitude != null) {
@@ -101,7 +112,8 @@ fun SensorMapCard(
     }
 
     QuakeMap(
-        focus = focus,
+        focus = focus ?: devicePosition,
+        markers = markers,
         // Bottom-end belongs to the settings shortcut on the Sensors screen, and
         // bottom-start to the range badge on both, so the credit takes the one
         // corner no overlay claims.

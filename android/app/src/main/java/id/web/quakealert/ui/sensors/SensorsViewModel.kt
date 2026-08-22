@@ -138,8 +138,14 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                 roll = fetchSensors()
                 val locationLabel = userLocation?.locationName?.takeIf { it.isNotBlank() }
                 _uiState.update { state ->
+                    val narrowed = state.filter.narrow(roll)
                     state.copy(
-                        sensors = state.filter.narrow(roll),
+                        sensors = narrowed,
+                        // A selection cannot survive a station leaving the roll:
+                        // the dot is gone, so keeping the id would point the camera
+                        // at nothing and mark a row that is no longer there.
+                        selectedStationId = state.selectedStationId
+                            ?.takeIf { id -> narrowed.any { it.id == id } },
                         // The map badge counts *reporting* stations in the whole
                         // roll, matching the server's `active_sensors_count`: an
                         // offline node is in the list but is not coverage, and a
@@ -249,7 +255,17 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
     fun applyFilter(filter: QuakeFilterState) {
         val current = _uiState.value.filter
         if (current == filter) return
-        _uiState.update { it.copy(filter = filter, sensors = filter.narrow(roll)) }
+        _uiState.update { state ->
+            val narrowed = filter.narrow(roll)
+            state.copy(
+                filter = filter,
+                sensors = narrowed,
+                // Same reason as in [load]: a status filter that hides the selected
+                // station must not leave the map pointed at it.
+                selectedStationId = state.selectedStationId
+                    ?.takeIf { id -> narrowed.any { it.id == id } }
+            )
+        }
         // Only the radius is answered by the server. A station-status change is a
         // question about the roll already in hand, so re-querying for it would blank
         // the list and spend a request to reach the same rows.
@@ -257,13 +273,27 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * Placeholder hook for tapping a station card. The tapped [item] is accepted
-     * now so the call site does not change once a station-detail destination
-     * exists; it is deliberately unused until then.
+     * Selects the tapped station, which recentres the map on its dot.
+     *
+     * Tapping the selected row again clears the selection and returns the camera to
+     * the device position — the same gesture out as in, so there is no dead end and
+     * no extra "clear" affordance to find.
+     *
+     * A station the server holds no coordinates for is not selectable: the row stays
+     * tappable, but selecting it would move the camera nowhere and light up a dot
+     * that was never drawn. Tapping one clears any existing selection instead, so
+     * the map is never left pointed at a different station than the one just tapped.
      */
-    @Suppress("UNUSED_PARAMETER")
     fun onSensorClicked(item: SensorStationItem) {
-        // Intentionally empty until a station-detail screen is implemented.
+        _uiState.update { state ->
+            state.copy(
+                selectedStationId = when {
+                    !item.hasPosition -> null
+                    state.selectedStationId == item.id -> null
+                    else -> item.id
+                }
+            )
+        }
     }
 
     private companion object {
