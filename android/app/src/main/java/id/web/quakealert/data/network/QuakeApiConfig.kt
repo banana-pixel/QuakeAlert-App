@@ -28,6 +28,8 @@ object QuakeApiConfig {
     const val PATH_USER_LOCATION: String = "$API_PREFIX/users/location"
     const val PATH_USER_FCM_TOKEN: String = "$API_PREFIX/users/fcm-token"
     const val PATH_USER_PSEUDONYM_REROLL: String = "$API_PREFIX/users/pseudonym/reroll"
+    const val PATH_CHAT_CHANNELS: String = "$API_PREFIX/chat/channels"
+    const val PATH_CHAT_MESSAGES: String = "$API_PREFIX/chat/messages"
 
     /** WebSocket path — mounted at the server root, outside [API_PREFIX]. */
     const val PATH_WS: String = "ws"

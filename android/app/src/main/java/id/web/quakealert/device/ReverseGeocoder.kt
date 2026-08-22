@@ -22,6 +22,23 @@ import kotlin.coroutines.resume
  * position sync must never be lost because a geocoder backend was unreachable.
  */
 /**
+ * A resolved place: what the server is told about where a fix landed.
+ *
+ * @param label the human-readable `location_name` (e.g. "Cimahi, West Java, ID").
+ * @param countryCode ISO-3166 alpha-2, or an empty string when the geocoder did
+ *   not fill it in.
+ * @param adminArea the admin-1 area (province/state), or an empty string. Sent
+ *   raw: the server normalises the pair into the regional chat channel key, and a
+ *   client that builds that key itself would ask for a room nobody else is in the
+ *   moment the server's normalisation changes.
+ */
+data class ResolvedPlace(
+    val label: String,
+    val countryCode: String,
+    val adminArea: String
+)
+
+/**
  * Turns a fix into a human-readable place name.
  *
  * An interface so callers can be tested without the platform `Geocoder`, which
@@ -29,8 +46,8 @@ import kotlin.coroutines.resume
  */
 interface PlaceNamer {
 
-    /** The place name for [coordinates], or null when the lookup fails. */
-    suspend fun label(coordinates: Coordinates): String?
+    /** The place for [coordinates], or null when the lookup fails. */
+    suspend fun resolve(coordinates: Coordinates): ResolvedPlace?
 }
 
 class ReverseGeocoder(context: Context) : PlaceNamer {
@@ -45,7 +62,7 @@ class ReverseGeocoder(context: Context) : PlaceNamer {
      * number, postcode) is both longer and more precise than a coverage-radius
      * label should be.
      */
-    override suspend fun label(coordinates: Coordinates): String? {
+    override suspend fun resolve(coordinates: Coordinates): ResolvedPlace? {
         if (!Geocoder.isPresent()) return null
 
         val geocoder = Geocoder(appContext, Locale.getDefault())
@@ -65,7 +82,7 @@ class ReverseGeocoder(context: Context) : PlaceNamer {
             null
         }
 
-        return address?.toLabel()
+        return address?.toResolvedPlace()
     }
 
     /**
@@ -104,17 +121,29 @@ class ReverseGeocoder(context: Context) : PlaceNamer {
 
     /**
      * "Cimahi, West Java, ID" — locality, admin area, country code, skipping parts
-     * the geocoder did not fill in (ocean and desert fixes routinely have none).
+     * the geocoder did not fill in (ocean and desert fixes routinely have none),
+     * plus the country and admin-1 parts on their own.
+     *
+     * Null when nothing usable came back: the caller then sends no place at all,
+     * which the server reads as "leave the stored one alone" rather than as an
+     * instruction to forget it.
      */
-    private fun Address.toLabel(): String? = listOfNotNull(
-        locality ?: subAdminArea,
-        adminArea,
-        countryCode
-    ).filter { it.isNotBlank() }
-        .distinct()
-        .joinToString(", ")
-        .take(MAX_LABEL_LENGTH)
-        .ifBlank { null }
+    private fun Address.toResolvedPlace(): ResolvedPlace? {
+        val label = listOfNotNull(
+            locality ?: subAdminArea,
+            adminArea,
+            countryCode
+        ).filter { it.isNotBlank() }
+            .distinct()
+            .joinToString(", ")
+            .take(MAX_LABEL_LENGTH)
+        if (label.isBlank()) return null
+        return ResolvedPlace(
+            label = label,
+            countryCode = countryCode.orEmpty().trim(),
+            adminArea = adminArea.orEmpty().trim().take(MAX_ADMIN_AREA_LENGTH)
+        )
+    }
 
     private companion object {
         const val TAG = "ReverseGeocoder"
@@ -123,5 +152,8 @@ class ReverseGeocoder(context: Context) : PlaceNamer {
 
         /** `location_name` is capped at 150 characters by the OpenAPI contract. */
         const val MAX_LABEL_LENGTH = 150
+
+        /** `admin_area` is capped at 100 characters by the same contract. */
+        const val MAX_ADMIN_AREA_LENGTH = 100
     }
 }

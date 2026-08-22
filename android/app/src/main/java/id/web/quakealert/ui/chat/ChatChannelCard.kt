@@ -36,10 +36,14 @@ import id.web.quakealert.ui.theme.TextPrimary
 /**
  * Pinned channel/network header card for the Chat screen (Figma node 1:934):
  * a fixed-height stadium card with a teal→olive horizontal gradient fill and a
- * 1dp white-10% stroke. Shows a leading globe glyph + channel name and an
- * "N users online" subtitle, with a trailing switch-channel icon button.
+ * 1dp white-10% stroke. Shows a leading globe glyph + channel name and a subtitle
+ * naming who the room reaches, with a trailing switch-channel icon button.
  *
- * @param channel active channel summary (name + online count).
+ * The switch icon is hidden — not merely disabled — when there is nowhere to switch
+ * to: a user with no synced position has the global room only, and a control that
+ * does nothing when tapped reads as a bug.
+ *
+ * @param channel active channel summary.
  * @param onSwitchChannel invoked when the trailing switch icon is tapped.
  */
 @Composable
@@ -82,27 +86,29 @@ fun ChatChannelCard(
                 )
                 Text(text = channel.channelName, style = CardTitle)
             }
-            Text(text = channel.onlineLabel, style = CardSubtitle)
+            Text(text = channel.subtitle, style = CardSubtitle)
         }
 
         // Switch-channel action: the glyph keeps its 22dp Figma token while
         // minimumInteractiveComponentSize lifts the touch box to the 48dp minimum,
         // and the tap carries the standard ripple (previously suppressed with
         // indication = null).
-        Box(
-            modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .size(Dimens.ChatChannelSwitchIconSize)
-                .clip(RoundedCornerShape(Dimens.RadiusSmall))
-                .clickable(role = Role.Button, onClick = onSwitchChannel),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_switch_horizontal),
-                contentDescription = "Switch channel",
-                tint = TextPrimary,
-                modifier = Modifier.size(Dimens.ChatChannelSwitchIconSize)
-            )
+        if (channel.canSwitch) {
+            Box(
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .size(Dimens.ChatChannelSwitchIconSize)
+                    .clip(RoundedCornerShape(Dimens.RadiusSmall))
+                    .clickable(role = Role.Button, onClick = onSwitchChannel),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_switch_horizontal),
+                    contentDescription = "Switch channel",
+                    tint = TextPrimary,
+                    modifier = Modifier.size(Dimens.ChatChannelSwitchIconSize)
+                )
+            }
         }
     }
 }
@@ -112,7 +118,11 @@ fun ChatChannelCard(
 private fun ChatChannelCardPreview() {
     QuakeAlertTheme {
         ChatChannelCard(
-            channel = ChatChannelInfo(channelName = "West Java Mesh", usersOnline = 12),
+            channel = ChatChannelInfo(
+                channelName = "Jawa Barat",
+                subtitle = "People in your area",
+                canSwitch = true
+            ),
             onSwitchChannel = {},
             modifier = Modifier.padding(16.dp)
         )

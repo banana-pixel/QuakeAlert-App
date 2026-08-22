@@ -2,6 +2,7 @@ package id.web.quakealert.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -48,6 +50,7 @@ import id.web.quakealert.ui.theme.TextSecondary
 @Composable
 fun ChatBubble(
     message: ChatMessage,
+    onRetry: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isMine = message.author == ChatAuthor.ME
@@ -76,6 +79,13 @@ fun ChatBubble(
                 horizontal = Dimens.ChatBubblePaddingHorizontal,
                 vertical = Dimens.ChatBubblePaddingVertical
             )
+            .then(
+                if (message.sendState == ChatSendState.FAILED) {
+                    Modifier.clickable(role = Role.Button, onClick = onRetry)
+                } else {
+                    Modifier
+                }
+            )
 
         Column(
             modifier = bubbleModifier,
@@ -90,8 +100,20 @@ fun ChatBubble(
             }
             Text(text = message.body, style = CardTitle, fontWeight = FontWeight.Normal)
 
-            // Timestamp locked to the bottom-end corner inside the bubble.
-            Row(modifier = Modifier.align(Alignment.End)) {
+            // Timestamp locked to the bottom-end corner inside the bubble, with the
+            // delivery state beside it for a message still on its way out. A failed
+            // send says what to do about it rather than only that it failed, and the
+            // whole bubble is the retry target — a 12sp word is not a touch target.
+            Row(
+                modifier = Modifier.align(Alignment.End),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.ChatBubbleContentGap),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                when (message.sendState) {
+                    ChatSendState.SENDING -> Timestamp("Sending...")
+                    ChatSendState.FAILED -> Timestamp("Not sent. Tap to retry")
+                    ChatSendState.SENT -> Unit
+                }
                 Timestamp(message.time)
             }
         }
@@ -155,6 +177,16 @@ private fun ChatBubblePreview() {
             )
             ChatBubble(
                 ChatMessage("2", ChatAuthor.ME, "You", "Yes, felt a light tremor. Everyone safe here.", "09:39")
+            )
+            ChatBubble(
+                ChatMessage(
+                    id = "3",
+                    author = ChatAuthor.ME,
+                    senderName = "You",
+                    body = "Road is blocked near the market.",
+                    time = "09:40",
+                    sendState = ChatSendState.FAILED
+                )
             )
         }
     }

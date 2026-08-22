@@ -167,6 +167,31 @@ class QuakeApiUrlTest {
         assertEquals(0.0, SafetyPolicy.minPgaForMmi(1), 0.0)
     }
 
+    @Test
+    fun `builds the chat history query with a clamped limit and a time cursor`() {
+        val url = QuakeApiClient.chatMessagesUrl(
+            channelId = "ID-jawa-barat",
+            limit = 500,
+            before = Instant.parse("2026-08-22T09:41:00Z")
+        )
+
+        assertEquals("ID-jawa-barat", url.queryParameter("channel_id"))
+        // The server answers 400 above 100 rather than clamping, so the client does.
+        assertEquals(QuakeApiClient.MAX_CHAT_LIMIT.toString(), url.queryParameter("limit"))
+        // Paging is a time cursor, not an offset: an active room shifts offsets between
+        // two requests, which would skip or double rows exactly when it is busy.
+        assertEquals("2026-08-22T09:41:00Z", url.queryParameter("before"))
+    }
+
+    @Test
+    fun `omits a blank channel so the server applies its own default room`() {
+        val url = QuakeApiClient.chatMessagesUrl(channelId = "  ")
+
+        assertNull(url.queryParameter("channel_id"))
+        assertNull(url.queryParameter("before"))
+        assertEquals(QuakeApiClient.DEFAULT_CHAT_LIMIT.toString(), url.queryParameter("limit"))
+    }
+
     private companion object {
         val BANDUNG = UserLocation(latitude = -6.9175, longitude = 107.6191)
     }

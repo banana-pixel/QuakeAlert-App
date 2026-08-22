@@ -8,6 +8,7 @@ import id.web.quakealert.data.network.QuakeApiClient
 import id.web.quakealert.device.Coordinates
 import id.web.quakealert.device.LocationSource
 import id.web.quakealert.device.PlaceNamer
+import id.web.quakealert.device.ResolvedPlace
 import id.web.quakealert.device.ReverseGeocoder
 import id.web.quakealert.device.hasLocationPermission
 import id.web.quakealert.device.locationSource
@@ -120,28 +121,41 @@ class UserLocationRepository(
         // `PUT /users/location` replaces: omitting the label clears whatever the
         // server held. So a failed lookup falls back to the label already stored for
         // this same spot rather than sending null and wiping it.
-        val label = geocoder.label(fix) ?: stored?.locationName?.takeIf { plan.reuseStoredLabel }
+        val place = geocoder.resolve(fix)
+        val label = place?.label ?: stored?.locationName?.takeIf { plan.reuseStoredLabel }
 
-        return upload(latitude = fix.latitude, longitude = fix.longitude, label = label)
+        // The country/admin pair has no such fallback: it is sent only when this
+        // lookup produced it. Absent, the server keeps the region it already holds
+        // (docs/CLIENT_SPEC.md §4.2) — a stale label is a cosmetic wrong, but a
+        // guessed region would move the user into someone else's chat channel.
+        return upload(
+            latitude = fix.latitude,
+            longitude = fix.longitude,
+            label = label,
+            place = place
+        )
     }
 
     /**
      * The one `PUT /users/location` in this class.
      *
-     * The position is all that travels. The alert radius is fixed by
-     * [id.web.quakealert.domain.SafetyPolicy] and identical on the server, so there
-     * is no preference left to reconcile — which is why the only thing recorded
+     * The position and the place it resolved to are all that travels. The alert
+     * radius is fixed by [id.web.quakealert.domain.SafetyPolicy] and identical on
+     * the server, so there is no preference left to reconcile — which is why the only thing recorded
      * locally on success is the sync timestamp (the accepted position is cached by
      * [QuakeApiClient] itself).
      */
     private suspend fun upload(
         latitude: Double,
         longitude: Double,
-        label: String?
+        label: String?,
+        place: ResolvedPlace?
     ): LocationSyncResult = apiClient.updateLocation(
         latitude = latitude,
         longitude = longitude,
-        locationName = label
+        locationName = label,
+        countryIso = place?.countryCode,
+        adminArea = place?.adminArea
     ).fold(
         onSuccess = {
             settings.setLastSyncAtMs(now())

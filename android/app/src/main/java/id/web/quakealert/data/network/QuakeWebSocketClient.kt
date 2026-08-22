@@ -2,8 +2,12 @@ package id.web.quakealert.data.network
 
 import android.util.Log
 import id.web.quakealert.data.auth.AuthRepository
+import id.web.quakealert.data.network.mapper.toDomain
 import id.web.quakealert.data.network.mapper.toDomainOrNull
 import id.web.quakealert.data.network.model.WsAlertMessageDto
+import id.web.quakealert.data.network.model.WsChatMessageDto
+import id.web.quakealert.data.network.model.WsFrameTypeDto
+import id.web.quakealert.domain.ChatMessageEntry
 import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.domain.WsAlertMessage
 import kotlinx.coroutines.CancellationException
@@ -11,10 +15,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.shareIn
@@ -62,10 +68,40 @@ class QuakeWebSocketClient(
 ) {
 
     /**
+     * Backing flow for [chatMessages]. Dropping the oldest on overflow matches the
+     * server's own priority rule: a chat frame may be lost under pressure, never an
+     * alert, because a lost message reappears through `GET /chat/messages` while a
+     * lost warning has no way back.
+     */
+    private val _chatMessages = MutableSharedFlow<ChatMessageEntry>(
+        replay = 0,
+        extraBufferCapacity = BUFFER_CAPACITY,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+
+    /**
      * Backing state for [connectionState], written from the points in the
      * reconnect loop that already know about every transition.
      */
     private val _connectionState = MutableStateFlow(ServerConnectionState.DISCONNECTED)
+
+    /**
+     * Chat frames from the same socket, in arrival order.
+     *
+     * A separate flow rather than a second connection, and separate from [alerts]
+     * rather than one union type, for one reason each:
+     *
+     *  - one socket, because alerts and chat then share a single auth and a single
+     *     reconnect (docs/CLIENT_SPEC.md §5.4);
+     *  - a separate flow, because [alerts] replays its last value so a recreated
+     *     Warning screen learns a quake is in progress. A chat message must never be
+     *     able to occupy that replay slot.
+     *
+     * `replay = 0`: history comes from `GET /chat/messages`, which is the source of
+     * truth. The socket is the fast path, so a frame that arrives while nothing is
+     * collecting is simply the page load's job instead.
+     */
+    val chatMessages: SharedFlow<ChatMessageEntry> = _chatMessages.asSharedFlow()
 
     /** Live alert frames, newest last, with the most recent one replayed. */
     val alerts: SharedFlow<WsAlertMessage> = channelFlow {
@@ -210,6 +246,21 @@ class QuakeWebSocketClient(
      * frame may be the one that matters.
      */
     private fun ProducerScope<WsAlertMessage>.emit(text: String) {
+        // Sorted by `type` before anything is decoded in full. Decoding a chat frame
+        // as an alert would otherwise succeed — every alert field has a default — and
+        // be reported below as a dropped alert of unknown type.
+        val frameType = runCatching { json.decodeFromString<WsFrameTypeDto>(text) }
+            .getOrNull()
+            ?.type
+        if (frameType == null) {
+            Log.w(TAG, "dropping unparseable websocket frame")
+            return
+        }
+        if (frameType.equals(TYPE_CHAT_MESSAGE, ignoreCase = true)) {
+            emitChat(text)
+            return
+        }
+
         val dto = runCatching { json.decodeFromString<WsAlertMessageDto>(text) }.getOrNull()
         if (dto == null) {
             Log.w(TAG, "dropping unparseable websocket frame")
@@ -226,6 +277,26 @@ class QuakeWebSocketClient(
         trySend(message)
     }
 
+    /**
+     * Decodes one `CHAT_MESSAGE` frame into [chatMessages].
+     *
+     * `isOwn` is resolved here from the identity the live socket authenticated with
+     * ([AuthRepository.peekUserId], a cache read — this runs on OkHttp's reader
+     * thread and cannot suspend). Getting it right is what lets the chat screen
+     * *replace* its optimistic bubble when its own message comes back rather than
+     * showing it twice.
+     */
+    private fun emitChat(text: String) {
+        val dto = runCatching { json.decodeFromString<WsChatMessageDto>(text) }.getOrNull()
+        if (dto == null || dto.messageId.isBlank()) {
+            Log.w(TAG, "dropping unusable chat frame")
+            return
+        }
+        // tryEmit, not emit: the reader thread cannot suspend. The buffer drops the
+        // oldest frame under pressure, so this always succeeds.
+        _chatMessages.tryEmit(dto.toDomain(ownUserId = authRepository.peekUserId()))
+    }
+
     /** Outcome of a single connection attempt. */
     private class Outcome(
         /** True if the socket ever reached OPEN — the signal to reset the backoff. */
@@ -240,6 +311,9 @@ class QuakeWebSocketClient(
         const val HEADER_AUTHORIZATION = "Authorization"
         const val HTTP_UNAUTHORIZED = 401
         const val CLOSE_NORMAL = 1000
+
+        /** Envelope discriminator for a chat frame (server dispatch.ChatMessage). */
+        const val TYPE_CHAT_MESSAGE = "CHAT_MESSAGE"
 
         /** Grace period so a rotation does not tear the socket down and rebuild it. */
         const val STOP_TIMEOUT_MS = 5_000L

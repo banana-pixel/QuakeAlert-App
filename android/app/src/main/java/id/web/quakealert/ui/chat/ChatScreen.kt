@@ -11,17 +11,29 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.web.quakealert.R
 import id.web.quakealert.domain.ServerConnectionState
+import id.web.quakealert.ui.common.GenericErrorCopy
 import id.web.quakealert.ui.common.QuakeAppBar
+import id.web.quakealert.ui.common.QuakeEmptyState
+import id.web.quakealert.ui.common.QuakeErrorState
+import id.web.quakealert.ui.common.QuakeLoadingState
 import id.web.quakealert.ui.common.fadingEdges
+import id.web.quakealert.ui.theme.CardSubtitle
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.QuakeAlertTheme
+import id.web.quakealert.ui.theme.TextSecondary
 
 /**
  * Stateful entry point that connects [ChatViewModel] to the stateless
@@ -46,6 +58,9 @@ fun ChatRoute(
         onDraftChanged = viewModel::onDraftChanged,
         onSendClicked = viewModel::onSendClicked,
         onSwitchChannelClicked = viewModel::onSwitchChannelClicked,
+        onRetry = viewModel::onRetry,
+        onRetrySend = viewModel::onRetrySend,
+        onLoadOlder = viewModel::onLoadOlder,
         listState = listState,
         modifier = modifier
     )
@@ -71,6 +86,9 @@ fun ChatScreen(
     onDraftChanged: (String) -> Unit,
     onSendClicked: () -> Unit,
     onSwitchChannelClicked: () -> Unit,
+    onRetry: () -> Unit = {},
+    onRetrySend: (String) -> Unit = {},
+    onLoadOlder: () -> Unit = {},
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState()
 ) {
@@ -89,28 +107,95 @@ fun ChatScreen(
             modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
         )
 
-        // --- Scrolling message list, bounded by header and input bar ---------
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .fadingEdges(),
-            contentPadding = PaddingValues(
-                top = Dimens.ChatListTopPadding,
-                bottom = Dimens.ChatListBottomPadding
-            ),
-            verticalArrangement = Arrangement.spacedBy(Dimens.ChatMessageSpacing)
-        ) {
-            items(
-                items = uiState.items,
-                key = { it.id },
-                contentType = { it::class }
-            ) { item ->
-                when (item) {
-                    is ChatListItem.Message -> ChatBubble(message = item.message)
-                    is ChatListItem.DateSeparator ->
-                        ChatDateSeparatorRow(separator = item.separator)
+        // One line naming the only limitation the user can act on: no regional room
+        // until a position has been synced. Stated rather than left as an absence,
+        // because a feature that is half there looks broken without the reason.
+        uiState.notice?.let { notice ->
+            Text(
+                text = notice,
+                style = CardSubtitle,
+                color = TextSecondary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = Dimens.ChatListTopPadding)
+            )
+        }
+
+        // Page upwards from the scroll position rather than from the first item's
+        // composition: derivedStateOf recomputes only when the leading index crosses
+        // the threshold, so onLoadOlder fires once per page instead of once per frame.
+        val canLoadOlder = uiState.hasOlder && !uiState.isLoadingOlder && !uiState.isLoading
+        val shouldLoadOlder by remember(listState, uiState.items.size, canLoadOlder) {
+            derivedStateOf {
+                val firstVisible = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index
+                canLoadOlder && firstVisible != null && firstVisible <= LOAD_OLDER_THRESHOLD
+            }
+        }
+        LaunchedEffect(shouldLoadOlder) {
+            if (shouldLoadOlder) onLoadOlder()
+        }
+
+        // --- Body: loading / error / empty / the conversation ----------------
+        val bodyModifier = Modifier
+            .weight(1f)
+            .fillMaxWidth()
+
+        when {
+            uiState.isLoading && uiState.items.isEmpty() ->
+                QuakeLoadingState(modifier = bodyModifier, message = LOADING_MESSAGE)
+
+            uiState.isError -> QuakeErrorState(
+                copy = uiState.errorCopy ?: GenericErrorCopy,
+                onRetry = onRetry,
+                modifier = bodyModifier
+            )
+
+            // An empty room is a valid answer, not a failure: retention is 7 days, so
+            // a quiet week really does leave nothing to show.
+            uiState.isEmpty -> QuakeEmptyState(
+                icon = R.drawable.ic_nav_chat,
+                message = "No messages yet",
+                subtitle = "Be the first to say what it is like where you are.",
+                modifier = bodyModifier
+            )
+
+            else -> LazyColumn(
+                state = listState,
+                modifier = bodyModifier.fadingEdges(),
+                contentPadding = PaddingValues(
+                    top = Dimens.ChatListTopPadding,
+                    bottom = Dimens.ChatListBottomPadding
+                ),
+                verticalArrangement = Arrangement.spacedBy(Dimens.ChatMessageSpacing)
+            ) {
+                // Above the oldest bubble, so the affordance sits where the content it
+                // is fetching will appear.
+                if (uiState.isLoadingOlder) {
+                    item(key = "loading-older", contentType = "loading-older") {
+                        Text(
+                            text = LOADING_OLDER_MESSAGE,
+                            style = CardSubtitle,
+                            color = TextSecondary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                items(
+                    items = uiState.items,
+                    key = { it.id },
+                    contentType = { it::class }
+                ) { item ->
+                    when (item) {
+                        is ChatListItem.Message -> ChatBubble(
+                            message = item.message,
+                            onRetry = { onRetrySend(item.message.id) }
+                        )
+
+                        is ChatListItem.DateSeparator ->
+                            ChatDateSeparatorRow(separator = item.separator)
+                    }
                 }
             }
         }
@@ -151,3 +236,16 @@ private fun ChatScreenPreview() {
         )
     }
 }
+
+/** Copy under the spinner while a room's first page is in flight. */
+private const val LOADING_MESSAGE = "Loading messages..."
+
+/** Copy shown above the oldest bubble while an upward page is in flight. */
+private const val LOADING_OLDER_MESSAGE = "Loading older messages..."
+
+/**
+ * How close to the top of the list a scroll must come before the next older page is
+ * requested. Two rows of lead time, so the page lands before the user reaches the
+ * end of what is loaded.
+ */
+private const val LOAD_OLDER_THRESHOLD = 2

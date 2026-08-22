@@ -68,6 +68,17 @@ class AuthRepository(
     fun peekToken(): String? = cachedSession?.token
 
     /**
+     * The cached `user_id` without touching disk, for a caller already on a thread
+     * that cannot suspend — the WebSocket reader, which has to decide whether an
+     * incoming chat frame is this device's own echo.
+     *
+     * Reads the same cache as [peekToken], so it names the identity the live socket
+     * was authenticated with rather than whatever DataStore holds a moment later.
+     * Null until [ensureToken] has run, which every socket handshake does first.
+     */
+    fun peekUserId(): String? = cachedSession?.userId?.takeIf(String::isNotBlank)
+
+    /**
      * Returns a usable bearer token, bootstrapping a new anonymous identity when
      * none is cached or the cached one has expired.
      *

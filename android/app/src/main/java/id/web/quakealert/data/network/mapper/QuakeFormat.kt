@@ -25,6 +25,9 @@ internal object QuakeFormat {
     /** e.g. "07:19:18 WIB" — `zzz` renders the device zone's short name. */
     private val TIME = DateTimeFormatter.ofPattern("HH:mm:ss zzz", Locale.US)
 
+    /** e.g. "09:41" — chat bubbles, where seconds and a zone name are noise. */
+    private val CHAT_TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.US)
+
     /**
      * Placeholder for a value the server contract does not carry.
      *
@@ -37,6 +40,15 @@ internal object QuakeFormat {
     fun date(instant: Instant, zone: ZoneId): String = DATE.format(instant.atZone(zone))
 
     fun time(instant: Instant, zone: ZoneId): String = TIME.format(instant.atZone(zone))
+
+    /**
+     * Send time inside a chat bubble, e.g. "09:41".
+     *
+     * Minutes only, and no zone suffix: a chat bubble is read in the room it was
+     * sent to, so the seconds and the zone name that a quake read-out needs would
+     * only be noise here.
+     */
+    fun chatTime(instant: Instant, zone: ZoneId): String = CHAT_TIME.format(instant.atZone(zone))
 
     /** PGA in the canonical unit, e.g. "61.5 gal". Never converted to `g` here. */
     fun pga(pgaGal: Double): String = String.format(Locale.US, "%.1f gal", pgaGal)

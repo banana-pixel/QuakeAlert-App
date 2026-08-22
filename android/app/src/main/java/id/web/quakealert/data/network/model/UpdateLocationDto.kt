@@ -22,7 +22,24 @@ import kotlinx.serialization.Serializable
 data class UpdateLocationRequestDto(
     @SerialName("latitude") val latitude: Double,
     @SerialName("longitude") val longitude: Double,
-    @SerialName("location_name") val locationName: String? = null
+    @SerialName("location_name") val locationName: String? = null,
+    /**
+     * ISO-3166 alpha-2 country of the fix, from the same reverse-geocode as
+     * [locationName]. Sent with the position rather than through an endpoint of its
+     * own because the region is a fact *about* that position.
+     */
+    @SerialName("country_iso") val countryIso: String? = null,
+    /**
+     * Admin-1 area (province/state) of the fix, raw. The server normalises the
+     * pair into the regional chat channel key — a client that builds the key
+     * itself would ask for a room nobody else is in the moment that normalisation
+     * changes.
+     *
+     * Omitting the pair means "leave the stored region alone", which is why both
+     * fields are null rather than empty when the geocode failed: a transient
+     * lookup failure must not evict someone from their regional channel.
+     */
+    @SerialName("admin_area") val adminArea: String? = null
 )
 
 /**
@@ -38,6 +55,11 @@ data class UpdateLocationResponseDto(
     @SerialName("latitude") val latitude: Double = 0.0,
     @SerialName("longitude") val longitude: Double = 0.0,
     @SerialName("location_name") val locationName: String? = null,
+    /**
+     * The regional chat channel that applies after this update, or null when the
+     * area could not be normalised — that user has the global channel only.
+     */
+    @SerialName("region_code") val regionCode: String? = null,
     @SerialName("updated_at") val updatedAt: String = ""
 )
 

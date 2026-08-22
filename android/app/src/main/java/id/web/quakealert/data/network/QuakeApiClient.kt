@@ -3,11 +3,18 @@ package id.web.quakealert.data.network
 import id.web.quakealert.data.auth.AuthRepository
 import id.web.quakealert.data.local.SessionStore
 import id.web.quakealert.data.network.mapper.toDomain
+import id.web.quakealert.data.network.model.ChatChannelsResponseDto
+import id.web.quakealert.data.network.model.ChatMessageDto
+import id.web.quakealert.data.network.model.ChatMessagesResponseDto
+import id.web.quakealert.data.network.model.CreateChatMessageRequestDto
 import id.web.quakealert.data.network.model.EventsResponseDto
 import id.web.quakealert.data.network.model.RerollPseudonymResponseDto
 import id.web.quakealert.data.network.model.SensorsResponseDto
 import id.web.quakealert.data.network.model.UpdateFcmTokenRequestDto
 import id.web.quakealert.data.network.model.UpdateLocationRequestDto
+import id.web.quakealert.data.network.model.UpdateLocationResponseDto
+import id.web.quakealert.domain.ChatChannel
+import id.web.quakealert.domain.ChatMessageEntry
 import id.web.quakealert.domain.EarthquakeEvent
 import id.web.quakealert.domain.SensorNode
 import id.web.quakealert.domain.UserLocation
@@ -147,30 +154,55 @@ class QuakeApiClient(
      * position is cached locally on success so distance read-outs survive a cold
      * start without waiting for a fresh GPS fix.
      *
-     * The position is the *only* thing synced. The alert radius is fixed by
-     * [id.web.quakealert.domain.SafetyPolicy] and identical on the server, so there
-     * is nothing about it left to agree on — which also means these coordinates are
-     * the only reason the server knows to wake this device at all.
+     * The position and the place it resolved to are all that travels. The alert
+     * radius is fixed by [id.web.quakealert.domain.SafetyPolicy] and identical on
+     * the server, so there is nothing about it left to agree on — which also means
+     * these coordinates are the only reason the server knows to wake this device at
+     * all.
+     *
+     * @param countryIso ISO-3166 alpha-2 of the fix, and @param adminArea its
+     *   admin-1 area. Sent as a pair or not at all: the server derives the regional
+     *   chat channel from them, and a half-sent pair cannot name a room. Omitting
+     *   both leaves whatever region the server already holds — a reverse-geocode
+     *   that failed is not evidence the user changed province.
+     * @return the regional chat channel that applies after the update, or null when
+     *   the server could not name one. Not used to *build* a channel key anywhere:
+     *   the client asks `GET /chat/channels` for that.
      */
     suspend fun updateLocation(
         latitude: Double,
         longitude: Double,
-        locationName: String? = null
-    ): Result<Unit> = guarded {
+        locationName: String? = null,
+        countryIso: String? = null,
+        adminArea: String? = null
+    ): Result<String?> = guarded {
+        // Both or neither, so the server is never asked to derive a channel key
+        // from half a place.
+        val country = countryIso?.takeIf { it.isNotBlank() }
+        val admin = adminArea?.takeIf { it.isNotBlank() }
+        val place = if (country != null && admin != null) country to admin else null
         val payload = UpdateLocationRequestDto(
             latitude = latitude,
             longitude = longitude,
-            locationName = locationName?.takeIf { it.isNotBlank() }
+            locationName = locationName?.takeIf { it.isNotBlank() },
+            countryIso = place?.first,
+            adminArea = place?.second
         )
         val request = Request.Builder()
             .url(QuakeApiConfig.url(QuakeApiConfig.PATH_USER_LOCATION))
             .put(json.encodeToString(payload).toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
-        perform(request = request, fallback = "Could not update your location")
+        val body = perform(request = request, fallback = "Could not update your location")
         sessionStore.saveUserLocation(
             UserLocation(latitude = latitude, longitude = longitude, locationName = locationName)
         )
+        // Read after the position is cached, and tolerant of an unparseable echo:
+        // the position is already stored by the time the body is decoded, so failing
+        // the sync over the channel name would throw away the part that matters.
+        runCatching { json.decodeFromString<UpdateLocationResponseDto>(body).regionCode }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
     }
 
     /**
@@ -211,6 +243,86 @@ class QuakeApiClient(
         if (pseudonym.isNotBlank()) sessionStore.savePseudonym(pseudonym)
         pseudonym
     }
+
+    /**
+     * `GET /api/v1/chat/channels` — the rooms this identity may read, `global` first.
+     *
+     * Asked rather than derived. The regional key is the server's normalisation of
+     * the place sent with the last position sync, so a client that built the key
+     * itself would request a room nobody else is in the moment that normalisation
+     * changes (docs/CHAT_DESIGN.md §3).
+     */
+    suspend fun fetchChatChannels(): Result<List<ChatChannel>> = guarded {
+        val url = QuakeApiConfig.url(QuakeApiConfig.PATH_CHAT_CHANNELS).toHttpUrl()
+
+        val body = perform(request = getRequest(url), fallback = "Could not load chat channels")
+        json.decodeFromString<ChatChannelsResponseDto>(body).channels.toDomain()
+    }
+
+    /**
+     * `GET /api/v1/chat/messages` — one page of a channel, **newest first**.
+     *
+     * @param before pages *upwards*: pass the `createdAt` of the oldest message
+     *   already held. A time cursor rather than an offset because a busy room shifts
+     *   offsets between two requests, which would skip or double rows exactly when
+     *   the conversation is liveliest (docs/CLIENT_SPEC.md §4.6).
+     * @param limit clamped to the contract's 1..100.
+     * @return the page in the order the server sent it (descending). Ordering for
+     *   display belongs to the mapper, which also has to insert date separators.
+     */
+    suspend fun fetchChatMessages(
+        channelId: String,
+        limit: Int = DEFAULT_CHAT_LIMIT,
+        before: Instant? = null,
+        ownUserId: String? = null
+    ): Result<List<ChatMessageEntry>> = guarded {
+        val url = chatMessagesUrl(channelId = channelId, limit = limit, before = before)
+
+        val body = perform(request = getRequest(url), fallback = "Could not load messages")
+        val ownId = ownUserId ?: sessionStore.readSession()?.userId
+        json.decodeFromString<ChatMessagesResponseDto>(body).messages.toDomain(ownUserId = ownId)
+    }
+
+    /**
+     * `POST /api/v1/chat/messages` — sends one message and returns it as stored.
+     *
+     * Sending goes over REST, not the socket: REST is durable and repeatable, while
+     * the socket only fans out what is already persisted. [clientMessageId] is the
+     * idempotency key and is required here rather than optional — a client that
+     * timed out cannot tell whether its first attempt landed, and a duplicate in a
+     * public room cannot be withdrawn.
+     *
+     * Returns the server's own row, so the optimistic bubble is replaced by the
+     * real `message_id` and `created_at` instead of two bubbles appearing.
+     */
+    suspend fun sendChatMessage(
+        channelId: String,
+        body: String,
+        clientMessageId: String
+    ): Result<ChatMessageEntry> = guarded {
+        val payload = CreateChatMessageRequestDto(
+            channelId = channelId,
+            message = body,
+            clientMessageId = clientMessageId
+        )
+        val request = Request.Builder()
+            .url(QuakeApiConfig.url(QuakeApiConfig.PATH_CHAT_MESSAGES))
+            .post(json.encodeToString(payload).toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        val responseBody = perform(request = request, fallback = "Could not send your message")
+        val ownId = sessionStore.readSession()?.userId
+        json.decodeFromString<ChatMessageDto>(responseBody).toDomain(ownUserId = ownId)
+    }
+
+    /**
+     * This device's `user_id`, or null before the identity bootstrap has run.
+     *
+     * Exposed because "is this message mine" is answered by comparing `sender_id`
+     * against it, and the chat screen needs the answer for socket frames that arrive
+     * without going through [sendChatMessage].
+     */
+    suspend fun currentUserId(): String? = sessionStore.readSession()?.userId
 
     private fun getRequest(url: HttpUrl): Request = Request.Builder().url(url).get().build()
 
@@ -285,6 +397,13 @@ class QuakeApiClient(
         /** `min_pga` ceiling on `/events`; above it the server answers 400. */
         const val MAX_MIN_PGA_GAL = 2_000.0
 
+        /** `limit` on `/chat/messages`: server default 30, ceiling 100. */
+        const val DEFAULT_CHAT_LIMIT = 30
+        const val MAX_CHAT_LIMIT = 100
+
+        /** Body cap on `/chat/messages`, counted in **characters**, as the server does. */
+        const val MAX_CHAT_BODY_LENGTH = 500
+
         /**
          * `since`/`until` are RFC3339 in the contract. [DateTimeFormatter.ISO_INSTANT]
          * always emits UTC with a `Z`, so no device time zone leaks into the query.
@@ -350,6 +469,32 @@ class QuakeApiClient(
          * measures from the position the server holds — so only `range_km` appears,
          * clamped to this endpoint's narrower 1..500 ceiling.
          */
+        /**
+         * Assembles the `GET /api/v1/chat/messages` URL.
+         *
+         * `before` is formatted with [RFC3339] — the same UTC-only formatter the
+         * event filters use, so no device time zone leaks into a paging cursor and
+         * the second page cannot start hours off.
+         */
+        internal fun chatMessagesUrl(
+            channelId: String,
+            limit: Int = DEFAULT_CHAT_LIMIT,
+            before: Instant? = null
+        ): HttpUrl =
+            QuakeApiConfig.url(QuakeApiConfig.PATH_CHAT_MESSAGES).toHttpUrl().newBuilder()
+                .apply {
+                    // Omitted rather than sent blank: the server defaults an absent
+                    // channel_id to `global`, but an empty one is still a value.
+                    channelId.takeIf { it.isNotBlank() }
+                        ?.let { addQueryParameter("channel_id", it) }
+                    addQueryParameter(
+                        "limit",
+                        limit.coerceIn(MIN_LIMIT, MAX_CHAT_LIMIT).toString()
+                    )
+                    before?.let { addQueryParameter("before", RFC3339.format(it)) }
+                }
+                .build()
+
         internal fun sensorsUrl(rangeKm: Int? = null): HttpUrl =
             QuakeApiConfig.url(QuakeApiConfig.PATH_SENSORS).toHttpUrl().newBuilder()
                 .apply {
