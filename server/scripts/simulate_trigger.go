@@ -33,7 +33,7 @@ func main() {
 	secrets := [3]string{os.Args[1], os.Args[2], os.Args[3]}
 
 	nodes := [3]struct {
-		ID      string
+		ID       string
 		Lat, Lon float64
 	}{
 		{"NODE-AAAAAAAA", -6.91, 107.61},
@@ -42,7 +42,7 @@ func main() {
 	}
 
 	// Earthquake parameters: PGA=150 gal gives MMI VI (Strong)
-	pga := 150.0        // gal
+	pga := 150.0 // gal
 	durMs := int64(3500)
 	ts := time.Now().UnixMilli()
 

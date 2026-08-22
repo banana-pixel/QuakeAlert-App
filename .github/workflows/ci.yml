@@ -1,0 +1,121 @@
+# Continuous integration for the QuakeAlert monorepo.
+#
+# Two independent jobs, because the two halves of the system fail for unrelated
+# reasons and a Go compile error should not hide an Android lint regression. Each
+# is scoped by `paths` at the workflow level only loosely: a contract change under
+# contracts/ must run both, since ADR-0004 makes the OpenAPI document the source
+# both sides are meant to agree with.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push supersedes an in-flight run on the same ref. Release builds here
+  # take minutes, and reviewing a stale red tick is worse than waiting.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Go server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Single source of truth: the version in go.mod, so CI cannot drift
+          # from what the module declares.
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Verify formatting
+        # gofmt exits 0 whether or not it found anything, so the file list is the
+        # signal. Printed before failing, otherwise the log says only "failed".
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            gofmt -d .
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        # -race because the consensus engine, the MQTT subscriber and the
+        # WebSocket hub all share state across goroutines; a data race there is a
+        # missed or duplicated earthquake alert, which is the failure this project
+        # exists to avoid.
+        run: go test -race -count=1 ./...
+
+  android:
+    name: Android app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # Matches the toolchain Gradle resolves locally (Adoptium 21). AGP 9
+          # needs 17 or newer; pinning avoids a runner default moving under us.
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest
+
+      - name: Lint
+        run: ./gradlew --no-daemon lintDebug
+
+      - name: Assemble debug
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Assemble release (R8)
+        # No signing credentials are exposed to pull requests, so this produces an
+        # unsigned APK on purpose. The point is to prove the release build still
+        # passes R8: a missing keep rule is invisible in a debug build and shows up
+        # as a blank map or an unparseable response in production.
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Upload R8 mapping
+        # A release stack trace is unreadable without this. Kept for the default
+        # retention so a crash reported days later can still be de-obfuscated.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-mapping
+          path: android/app/build/outputs/mapping/release/
+          if-no-files-found: warn
+
+      - name: Upload test and lint reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: |
+            android/app/build/reports/
+            android/app/build/test-results/
+          if-no-files-found: ignore
