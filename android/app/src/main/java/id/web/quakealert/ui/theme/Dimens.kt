@@ -215,6 +215,17 @@ object Dimens {
     val SegmentPillPaddingVertical = 14.dp
     /** Pill corner radius (Figma 12px). */
     val SegmentPillRadius = 12.dp
+    /**
+     * Width of the whole control, so every segmented setting on the screen has the
+     * same geometry no matter how long its labels or its card title are.
+     *
+     * A fixed width rather than [androidx.compose.foundation.layout.fillMaxWidth]:
+     * the control sits in the trailing slot of a [id.web.quakealert.ui.common.QuakeCard]
+     * whose title column is weighted, and in a Row `fillMaxWidth` takes the card's
+     * *whole* width, which crushed the title to nothing. Sized to hold "Imperial",
+     * the longest label, with its pill padding intact.
+     */
+    val SegmentControlWidth = 172.dp
 
 
     // Sync-now refresh action — dark rounded container behind the icon

@@ -1,6 +1,10 @@
 package id.web.quakealert.ui.settings
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,17 +17,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import id.web.quakealert.R
 import id.web.quakealert.ui.theme.AboutButtonFill
 import id.web.quakealert.ui.theme.AboutCardBorder
@@ -104,31 +113,79 @@ fun InfoPill(
  * control on the "Sync Location Now" card. Rendered as the flat 32dp Figma vector
  * with no container fill, per the design.
  *
+ * A sync spins this glyph rather than swapping it for a progress indicator. The swap
+ * is what made the map inside the card jump: the button carries a 48dp touch box and
+ * the indicator was 32dp, so starting a sync narrowed the trailing slot by 16dp, the
+ * weighted title column beside it grew by the same amount, and the map re-laid out
+ * mid-gesture. Animating one control in place cannot change the card's measurements
+ * at all — and the spinning refresh glyph reads as "this control is working" more
+ * directly than an unrelated ring does.
+ *
  * Accessibility: the glyph keeps its 32dp token while
- * [minimumInteractiveComponentSize] lifts the touch box to the 48dp minimum, and
- * the tap carries the standard ripple bounded to the circular clip.
+ * [minimumInteractiveComponentSize] lifts the touch box to the 48dp minimum, and the
+ * tap carries the standard ripple bounded to the circular clip. While a sync runs the
+ * control announces that state and stops accepting taps, so a second sync cannot be
+ * queued on top of the first.
+ *
+ * @param isSyncing whether a position sync is in flight.
  */
 @Composable
 fun SyncRefreshButton(
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isSyncing: Boolean = false
 ) {
+    // Restarted from 0 on each sync rather than run forever and hidden: an infinite
+    // transition that is always composed keeps a frame callback alive for the whole
+    // time Settings is open, which on this screen is a battery cost for nothing.
+    val spin = remember { Animatable(0f) }
+    LaunchedEffect(isSyncing) {
+        if (isSyncing) {
+            spin.animateTo(
+                targetValue = SPIN_TURNS,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(
+                        durationMillis = SPIN_DURATION_MS,
+                        easing = LinearEasing
+                    )
+                )
+            )
+        } else {
+            // Snapped, not animated back: unwinding to zero would read as the sync
+            // being undone.
+            spin.snapTo(0f)
+        }
+    }
+
     Box(
         modifier = modifier
             .minimumInteractiveComponentSize()
             .size(Dimens.SyncRefreshIconSize)
             .clip(RoundedCornerShape(Dimens.SyncRefreshIconSize))
-            .clickable(role = Role.Button, onClick = onClick),
+            .clickable(role = Role.Button, enabled = !isSyncing, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             painter = painterResource(id = R.drawable.ic_refresh_cw),
-            contentDescription = "Sync location now",
-            tint = TextPrimary,
-            modifier = Modifier.size(Dimens.SyncRefreshIconSize)
+            contentDescription = if (isSyncing) "Syncing location" else "Sync location now",
+            tint = if (isSyncing) TextSecondary else TextPrimary,
+            modifier = Modifier
+                .size(Dimens.SyncRefreshIconSize)
+                // Read inside graphicsLayer so each frame invalidates the draw phase
+                // only; the card is never re-measured while the glyph turns.
+                .graphicsLayer { rotationZ = spin.value * DEGREES_PER_TURN }
         )
     }
 }
+
+/** One full turn of the refresh glyph, in degrees. */
+private const val DEGREES_PER_TURN = 360f
+
+/** Turns per animation cycle, so the repeat seam lands back at the start. */
+private const val SPIN_TURNS = 1f
+
+/** How long one turn takes. Brisk enough to read as work, slow enough not to blur. */
+private const val SPIN_DURATION_MS = 900
 
 /**
  * Horizontal segmented toggle control (Figma node 1:872 Coverage / 1:912
@@ -137,11 +194,17 @@ fun SyncRefreshButton(
  * [SegmentActiveFill] and the rest use [SegmentInactiveFill]. Every pill carries
  * the same 2px white-30% stroke and 12dp radius.
  *
- * The row fills its width and the pills share it equally (via [RowScope.weight]),
- * so every control on the screen has the same geometry regardless of how long its
- * labels are. Sizing the row to its widest label instead — which is what it used to
- * do — made "EN / ID" collapse to two cramped boxes beside a full-width
- * "Metric / Imperial", as though the two settings were different kinds of control.
+ * The row is [Dimens.SegmentControlWidth] wide and the pills share it equally (via
+ * [RowScope.weight]), so "EN / ID" and "Metric / Imperial" have byte-identical
+ * geometry and padding instead of one collapsing to two cramped boxes beside the
+ * other.
+ *
+ * The width is fixed rather than `fillMaxWidth()`. This control lives in the
+ * trailing slot of a [id.web.quakealert.ui.common.QuakeCard], which is a Row whose
+ * title column is weighted: `fillMaxWidth` there resolves against the card's whole
+ * width, not the space left over, so the pills took the entire row and squeezed the
+ * "Units" and "Language" titles down to a sliver. A fixed width also means the two
+ * controls match each other even though their titles differ in length.
  *
  * @param options the selectable values.
  * @param selected the currently selected value.
@@ -157,7 +220,7 @@ fun <T> QuakeSegmentedControl(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.width(Dimens.SegmentControlWidth),
         horizontalArrangement = Arrangement.spacedBy(Dimens.SegmentRowGap),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -198,7 +261,12 @@ private fun SegmentPill(
             text = label,
             style = ChipLabel,
             color = TextPrimary,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            // The pill is a fixed share of a fixed control, so a label that cannot
+            // fit is ellipsised rather than wrapped: two lines of text would make
+            // one pill taller than its neighbour.
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
