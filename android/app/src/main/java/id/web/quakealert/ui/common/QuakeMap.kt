@@ -26,6 +26,7 @@ import id.web.quakealert.ui.theme.MicroCaption
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 
 /**
@@ -158,7 +159,16 @@ private fun rememberMapView(): MapView {
         // Application.onCreate so a build that never shows a map never loads the
         // native library.
         MapLibre.getInstance(context)
-        MapView(context)
+        // Texture mode, not the default GLSurfaceView. A SurfaceView punches its own
+        // hole through the window and is composited by the system, so it cannot be
+        // drawn into an offscreen render layer — and every map in this app sits in
+        // one: the scroll containers apply a RenderEffect while the stretch
+        // overscroll animates, and fadingEdges() composites its content offscreen to
+        // mask the edges. The map vanished for exactly as long as that lasted, which
+        // is the blink seen when overscrolling. A TextureView draws inside the view
+        // hierarchy and composes correctly with both, for a fill-rate cost a small
+        // static basemap does not notice.
+        MapView(context, MapLibreMapOptions.createFromAttributes(context).textureMode(true))
     }
     val lifecycleOwner = LocalLifecycleOwner.current
 

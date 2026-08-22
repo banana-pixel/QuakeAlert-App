@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -111,7 +112,7 @@ private val MainDestinationSaver: Saver<MainDestination, String> = Saver(
  * State survival (rotation + process death) is owned here rather than by the tabs:
  *  - the selected tab is held in [rememberSaveable] via [MainDestinationSaver], so
  *    a rotation or a process restart reopens the tab the user was on;
- *  - each destination's scroll position lives in a [rememberLazyListState] created
+ *  - each destination's scroll position lives in a scroll state created
  *    *outside* [AnimatedContent] and passed down. `rememberLazyListState` is itself
  *    saveable, so those positions survive a rotation and process death — and,
  *    because they are not created inside the swapped-out content, they also survive
@@ -156,7 +157,10 @@ fun MainScreen(
     val sensorsListState = rememberLazyListState()
     val warningListState = rememberLazyListState()
     val chatListState = rememberLazyListState()
-    val settingsListState = rememberLazyListState()
+    // Settings scrolls a plain Column, not a lazy list: its sections are a fixed
+    // set, and a LazyColumn would dispose the Sync Location card's MapView every
+    // time it left the viewport.
+    val settingsScrollState = rememberScrollState()
 
     val toastState = rememberQuakeToastState()
 
@@ -226,7 +230,7 @@ fun MainScreen(
 
                             MainDestination.SETTINGS -> SettingsRoute(
                                 connectionState = connectionState,
-                                listState = settingsListState
+                                scrollState = settingsScrollState
                             )
                         }
 

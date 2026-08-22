@@ -4,7 +4,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,9 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -72,8 +72,6 @@ import id.web.quakealert.ui.theme.SectionHeaderPillFill
 import id.web.quakealert.ui.theme.TextPrimary
 import id.web.quakealert.ui.theme.TextSecondary
 
-
-
 /**
  * Stateful entry point wiring [SettingsViewModel] to the stateless
  * [SettingsScreen]. Kept thin so the presentation layer stays testable.
@@ -81,7 +79,7 @@ import id.web.quakealert.ui.theme.TextSecondary
  * External-link navigation lives here rather than in the ViewModel: opening a URI
  * needs the composition-local [LocalUriHandler], not app state.
  *
- * @param listState settings-list scroll position, hoisted to
+ * @param scrollState settings-list scroll position, hoisted to
  *   [id.web.quakealert.ui.main.MainScreen] so it survives tab switches, rotation
  *   and process death.
  */
@@ -89,7 +87,7 @@ import id.web.quakealert.ui.theme.TextSecondary
 fun SettingsRoute(
     connectionState: ServerConnectionState,
     modifier: Modifier = Modifier,
-    listState: LazyListState = rememberLazyListState(),
+    scrollState: ScrollState = rememberScrollState(),
     viewModel: SettingsViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -187,7 +185,7 @@ fun SettingsRoute(
         onGithubClick = { openLink(AboutLinks.GITHUB_PAGES) },
         onEmailClick = { openLink(AboutLinks.EMAIL) },
         onDonateClick = { openLink(AboutLinks.DONATE) },
-        listState = listState,
+        scrollState = scrollState,
         modifier = modifier
     )
 }
@@ -257,7 +255,7 @@ private fun Context.openBatteryOptimizationSettings() {
  *  6. "About": the "More About Us" card raising the [AboutModalDialog] overlay.
  *
  * All state and events are hoisted to the caller ([SettingsRoute] /
- * [SettingsViewModel]), [listState] included.
+ * [SettingsViewModel]), [scrollState] included.
  */
 @Composable
 fun SettingsScreen(
@@ -284,7 +282,7 @@ fun SettingsScreen(
     onEmailClick: () -> Unit,
     onDonateClick: () -> Unit,
     modifier: Modifier = Modifier,
-    listState: LazyListState = rememberLazyListState()
+    scrollState: ScrollState = rememberScrollState()
 ) {
     Column(
         modifier = modifier
@@ -293,228 +291,201 @@ fun SettingsScreen(
     ) {
         QuakeAppBar(title = "Settings", connectionState = connectionState)
 
-        LazyColumn(
-            state = listState,
+        Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .fadingEdges(),
-            contentPadding = PaddingValues(
-                top = Dimens.SettingsHeaderGap,
-                bottom = Dimens.SettingsListBottomPadding
-            ),
+                .fadingEdges()
+                // Deliberately not a LazyColumn. The sections are a fixed, small
+                // set with no unbounded items(...), so laziness buys nothing here
+                // and costs the one thing that matters: a LazyColumn disposes the
+                // item scrolled out of bounds, which destroyed the Sync Location
+                // card's MapView and rebuilt its GL surface on the way back.
+                .verticalScroll(scrollState)
+                // The scrolled equivalent of the list's contentPadding: inside
+                // the scroll so it travels with the content, not the viewport.
+                .padding(
+                    top = Dimens.SettingsHeaderGap,
+                    bottom = Dimens.SettingsListBottomPadding
+                ),
             verticalArrangement = Arrangement.spacedBy(Dimens.SettingsSectionSpacing)
         ) {
             // --- Location & Coverage --------------------------------------
-            item(key = "header_location") {
-                CenteredSectionBadge(title = "Location & Coverage")
-            }
+            CenteredSectionBadge(title = "Location & Coverage")
 
-            item(key = "card_location") {
-                QuakeCard(
-                    title = "Sync Location Now",
-                    detail = {
-                        QuakePill(text = uiState.lastSyncPillLabel)
-                        // The map moved inside this card (plan item 9): what a sync
-                        // produces is a position, so the confirmation of it belongs
-                        // next to the control that asks for one rather than in a
-                        // separate card the user has to connect it to. Short, and
-                        // without the coverage circle — at 130dp the circle would
-                        // fill the frame and say nothing about coverage.
-                        SensorMapCard(
-                            overview = SensorMapOverview(
-                                locationLabel = uiState.locationPillLabel,
-                                // No radius and no count reach this card, because it
-                                // does not show them: range and sensor coverage are
-                                // the Sensors screen's subject, and printing them
-                                // here read as though Settings owned the search
-                                // radius. What this map claims is only *where* the
-                                // last fix landed.
-                                rangeKm = null,
-                                sensorCount = 0,
-                                geofenceFraction = uiState.geofenceFraction,
-                                latitude = uiState.latitude,
-                                longitude = uiState.longitude
-                            ),
-                            unitSystem = uiState.unitSystem,
-                            showGeofence = false,
-                            showRangeBadge = false,
-                            height = Dimens.MapCardInlineHeight,
-                            modifier = Modifier.padding(top = Dimens.SettingCardTitleGap)
-                        )
-                    }
-                ) {
-                    // One control in both states, never a swap: a differently sized
-                    // indicator would change the trailing slot's width and shift the
-                    // map above it the moment the user tapped.
-                    SyncRefreshButton(
-                        onClick = onSyncLocationNow,
-                        isSyncing = uiState.isSyncing
+            QuakeCard(
+                title = "Sync Location Now",
+                detail = {
+                    QuakePill(text = uiState.lastSyncPillLabel)
+                    // The map moved inside this card (plan item 9): what a sync
+                    // produces is a position, so the confirmation of it belongs
+                    // next to the control that asks for one rather than in a
+                    // separate card the user has to connect it to. Short, and
+                    // without the coverage circle — at 130dp the circle would
+                    // fill the frame and say nothing about coverage.
+                    SensorMapCard(
+                        overview = SensorMapOverview(
+                            locationLabel = uiState.locationPillLabel,
+                            // No radius and no count reach this card, because it
+                            // does not show them: range and sensor coverage are
+                            // the Sensors screen's subject, and printing them
+                            // here read as though Settings owned the search
+                            // radius. What this map claims is only *where* the
+                            // last fix landed.
+                            rangeKm = null,
+                            sensorCount = 0,
+                            geofenceFraction = uiState.geofenceFraction,
+                            latitude = uiState.latitude,
+                            longitude = uiState.longitude
+                        ),
+                        unitSystem = uiState.unitSystem,
+                        showGeofence = false,
+                        showRangeBadge = false,
+                        height = Dimens.MapCardInlineHeight,
+                        modifier = Modifier.padding(top = Dimens.SettingCardTitleGap)
                     )
                 }
+            ) {
+                // One control in both states, never a swap: a differently sized
+                // indicator would change the trailing slot's width and shift the
+                // map above it the moment the user tapped.
+                SyncRefreshButton(
+                    onClick = onSyncLocationNow,
+                    isSyncing = uiState.isSyncing
+                )
             }
 
-            item(key = "card_autosync") {
-                QuakeCard(title = "Auto Sync Location") {
-                    QuakeSwitch(
-                        checked = uiState.autoSyncLocation,
-                        onCheckedChange = onAutoSyncToggled
-                    )
-                }
+            QuakeCard(title = "Auto Sync Location") {
+                QuakeSwitch(
+                    checked = uiState.autoSyncLocation,
+                    onCheckedChange = onAutoSyncToggled
+                )
             }
-
 
             // --- Alert & Notification -------------------------------------
-            item(key = "header_alert") {
-                CenteredSectionBadge(title = "Alert & Notification")
+            CenteredSectionBadge(title = "Alert & Notification")
+
+            QuakeCard(
+                title = "Earthquake Alerts",
+                detail = {
+                    // Only shown when the two disagree: the user asked for
+                    // alerts and the OS is dropping them.
+                    if (uiState.notificationsEnabled && !uiState.notificationPermissionGranted) {
+                        QuakePill(text = "Blocked by system settings")
+                    }
+                }
+            ) {
+                QuakeSwitch(
+                    checked = uiState.notificationsEnabled,
+                    onCheckedChange = onNotificationsToggled
+                )
             }
 
-            item(key = "card_notifications") {
-                QuakeCard(
-                    title = "Earthquake Alerts",
-                    detail = {
-                        // Only shown when the two disagree: the user asked for
-                        // alerts and the OS is dropping them.
-                        if (uiState.notificationsEnabled && !uiState.notificationPermissionGranted) {
-                            QuakePill(text = "Blocked by system settings")
+            QuakeCard(
+                title = "Test Alert Sound",
+                onClick = onTestAlertSound
+            )
+
+            QuakeCard(
+                title = "Delivery Checklist",
+                detail = {
+                    QuakePill(
+                        text = if (uiState.allPermissionsReady) {
+                            "All set: alerts can reach you"
+                        } else {
+                            "${uiState.permissionsReadyCount} of " +
+                                "${uiState.permissionsTotal} ready"
                         }
-                    }
-                ) {
-                    QuakeSwitch(
-                        checked = uiState.notificationsEnabled,
-                        onCheckedChange = onNotificationsToggled
+                    )
+                    PermissionsHubCardBody(
+                        notificationGranted = uiState.notificationPermissionGranted,
+                        locationGranted = uiState.locationPermissionGranted,
+                        batteryUnrestricted = uiState.batteryUnrestricted,
+                        onFixNotifications = onFixNotifications,
+                        onFixLocation = onFixLocation,
+                        onFixBattery = onBatterySettings,
+                        modifier = Modifier.padding(top = Dimens.SettingCardTitleGap)
                     )
                 }
-            }
-
-            item(key = "card_test_alert") {
-                QuakeCard(
-                    title = "Test Alert Sound",
-                    onClick = onTestAlertSound
-                )
-            }
-
-            item(key = "card_permissions") {
-                QuakeCard(
-                    title = "Delivery Checklist",
-                    detail = {
-                        QuakePill(
-                            text = if (uiState.allPermissionsReady) {
-                                "All set: alerts can reach you"
-                            } else {
-                                "${uiState.permissionsReadyCount} of " +
-                                    "${uiState.permissionsTotal} ready"
-                            }
-                        )
-                        PermissionsHubCardBody(
-                            notificationGranted = uiState.notificationPermissionGranted,
-                            locationGranted = uiState.locationPermissionGranted,
-                            batteryUnrestricted = uiState.batteryUnrestricted,
-                            onFixNotifications = onFixNotifications,
-                            onFixLocation = onFixLocation,
-                            onFixBattery = onBatterySettings,
-                            modifier = Modifier.padding(top = Dimens.SettingCardTitleGap)
-                        )
-                    }
-                )
-            }
+            )
 
             // --- Account & Privacy ----------------------------------------
-            item(key = "header_account") {
-                CenteredSectionBadge(title = "Account & Privacy")
-            }
+            CenteredSectionBadge(title = "Account & Privacy")
 
-            item(key = "card_identity") {
-                QuakeCard(
-                    title = "Anonymous Profile",
-                    detail = {
-                        IdentityRow(
-                            label = "Pseudonym",
-                            value = uiState.pseudonym,
-                            onCopy = onCopyValue
-                        )
-                        IdentityRow(
-                            label = "User ID",
-                            value = uiState.userId,
-                            onCopy = onCopyValue
-                        )
-                        SettingsActionButton(
-                            label = if (uiState.isRerolling) "Rerolling…" else "Reroll Pseudonym",
-                            onClick = onRerollPseudonym,
-                            enabled = !uiState.isRerolling
-                        )
-                        SettingsActionButton(
-                            label = if (uiState.isResetting) "Resetting…" else "Reset Profile",
-                            onClick = onResetProfileRequested,
-                            enabled = !uiState.isResetting,
-                            destructive = true
-                        )
-                    }
+            QuakeCard(
+                title = "Anonymous Profile",
+                detail = {
+                    IdentityRow(
+                        label = "Pseudonym",
+                        value = uiState.pseudonym,
+                        onCopy = onCopyValue
+                    )
+                    IdentityRow(
+                        label = "User ID",
+                        value = uiState.userId,
+                        onCopy = onCopyValue
+                    )
+                    SettingsActionButton(
+                        label = if (uiState.isRerolling) "Rerolling…" else "Reroll Pseudonym",
+                        onClick = onRerollPseudonym,
+                        enabled = !uiState.isRerolling
+                    )
+                    SettingsActionButton(
+                        label = if (uiState.isResetting) "Resetting…" else "Reset Profile",
+                        onClick = onResetProfileRequested,
+                        enabled = !uiState.isResetting,
+                        destructive = true
+                    )
+                }
+            )
+
+            // --- Appearance & Look ----------------------------------------
+            CenteredSectionBadge(title = "Appearance & Look")
+
+            // Disabled while the app ships dark-theme only: the switch is
+            // greyed out and the card carries a "Coming Soon" badge so the
+            // control reads as deliberately unavailable rather than broken.
+            QuakeCard(
+                title = "Light Mode (Beta)",
+                detail = { QuakePill(text = "Coming Soon") }
+            ) {
+                QuakeSwitch(
+                    checked = uiState.lightMode,
+                    onCheckedChange = onLightModeToggled,
+                    enabled = false
                 )
             }
 
-
-            // --- Appearance & Look ----------------------------------------
-            item(key = "header_appearance") {
-                CenteredSectionBadge(title = "Appearance & Look")
+            QuakeCard(title = "Units") {
+                QuakeSegmentedControl(
+                    options = UnitSystem.entries,
+                    selected = uiState.unitSystem,
+                    labelOf = { it.label },
+                    onSelect = onUnitSelected
+                )
             }
 
-            item(key = "card_light_mode") {
-                // Disabled while the app ships dark-theme only: the switch is
-                // greyed out and the card carries a "Coming Soon" badge so the
-                // control reads as deliberately unavailable rather than broken.
-                QuakeCard(
-                    title = "Light Mode (Beta)",
-                    detail = { QuakePill(text = "Coming Soon") }
-                ) {
-                    QuakeSwitch(
-                        checked = uiState.lightMode,
-                        onCheckedChange = onLightModeToggled,
-                        enabled = false
-                    )
-                }
-            }
-
-            item(key = "card_units") {
-                QuakeCard(title = "Units") {
-                    QuakeSegmentedControl(
-                        options = UnitSystem.entries,
-                        selected = uiState.unitSystem,
-                        labelOf = { it.label },
-                        onSelect = onUnitSelected
-                    )
-                }
-            }
-
-
-            item(key = "card_language") {
-                QuakeCard(
-                    title = "Language",
-                    // Persisted but not applied: the strings ship in English only.
-                    detail = { QuakePill(text = "Coming Soon") }
-                ) {
-                    QuakeSegmentedControl(
-                        options = AppLanguage.entries,
-                        selected = uiState.language,
-                        labelOf = { it.label },
-                        onSelect = onLanguageSelected
-                    )
-                }
+            QuakeCard(
+                title = "Language",
+                // Persisted but not applied: the strings ship in English only.
+                detail = { QuakePill(text = "Coming Soon") }
+            ) {
+                QuakeSegmentedControl(
+                    options = AppLanguage.entries,
+                    selected = uiState.language,
+                    labelOf = { it.label },
+                    onSelect = onLanguageSelected
+                )
             }
 
             // --- About ----------------------------------------------------
-            item(key = "header_about") {
-                CenteredSectionBadge(title = "About")
-            }
+            CenteredSectionBadge(title = "About")
 
-            item(key = "card_about") {
-                AboutCard(
-                    credit = uiState.appCredit,
-                    version = uiState.appVersion,
-                    onMoreAboutUs = onMoreAboutUs
-                )
-            }
-
+            AboutCard(
+                credit = uiState.appCredit,
+                version = uiState.appVersion,
+                onMoreAboutUs = onMoreAboutUs
+            )
 
         }
     }
@@ -604,8 +575,6 @@ private fun CenteredSectionBadge(
         }
     }
 }
-
-
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
