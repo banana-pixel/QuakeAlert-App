@@ -5,7 +5,7 @@ import id.web.quakealert.data.local.SessionStore
 import id.web.quakealert.data.local.StoredSession
 import id.web.quakealert.data.network.ApiException
 import id.web.quakealert.data.network.QuakeApiConfig
-import id.web.quakealert.data.network.await
+import id.web.quakealert.data.network.awaitResponse
 import id.web.quakealert.data.network.decodeApiError
 import id.web.quakealert.data.network.model.AuthResponseDto
 import kotlinx.coroutines.flow.Flow
@@ -107,16 +107,16 @@ class AuthRepository(
             .post(ByteArray(0).toRequestBody(null, 0, 0))
             .build()
 
-        val body: String
-        clientProvider().newCall(request).await().use { response ->
-            body = response.body?.string().orEmpty()
+        val body = clientProvider().newCall(request).awaitResponse { response ->
+            val payload = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw ApiException.from(
                     httpCode = response.code,
-                    error = json.decodeApiError(body),
+                    error = json.decodeApiError(payload),
                     fallback = "Could not create an anonymous profile (HTTP ${response.code})."
                 )
             }
+            payload
         }
 
         val dto = json.decodeFromString<AuthResponseDto>(body)

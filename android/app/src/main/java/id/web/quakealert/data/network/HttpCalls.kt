@@ -1,7 +1,9 @@
 package id.web.quakealert.data.network
 
 import id.web.quakealert.data.network.model.ApiErrorDto
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import okhttp3.Call
@@ -51,6 +53,21 @@ internal suspend fun Call.await(): Response = suspendCancellableCoroutine { cont
         }
     })
 }
+
+/**
+ * Awaits [Call] and hands the response to [block] on [Dispatchers.IO], closing it
+ * afterwards.
+ *
+ * The dispatcher is the point of this helper, not a detail. [await] resumes on
+ * whatever dispatcher the caller is on, and every caller here is ultimately a
+ * `viewModelScope` coroutine, so that is the main thread; `Response.body.string()`
+ * then reads the socket, which for a chunked response is a real blocking read and
+ * `StrictMode` answers it with `NetworkOnMainThreadException`. Doing the whole
+ * response-handling block on IO means a caller cannot reintroduce that by reading
+ * the body one line lower down.
+ */
+internal suspend fun <T> Call.awaitResponse(block: (Response) -> T): T =
+    withContext(Dispatchers.IO) { await().use(block) }
 
 /**
  * Parses the uniform `{ code, message }` error body, returning null when the

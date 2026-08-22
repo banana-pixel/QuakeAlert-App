@@ -250,7 +250,7 @@ class QuakeApiClient(
     }
 
     private suspend fun performOnce(request: Request, fallback: String): String =
-        client.newCall(request).await().use { response ->
+        client.newCall(request).awaitResponse { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 throw ApiException.from(
