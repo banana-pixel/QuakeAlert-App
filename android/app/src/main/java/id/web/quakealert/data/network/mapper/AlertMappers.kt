@@ -63,7 +63,7 @@ fun WsAlertMessage.toHistoryItem(
         location = locationName,
         date = QuakeFormat.date(occurredAt, zone),
         time = QuakeFormat.time(occurredAt, zone),
-        distanceKm = userLocation.distanceKmTo(centroidLat, centroidLon)?.roundToInt() ?: 0,
+        distanceKm = userLocation.distanceKmTo(centroidLat, centroidLon)?.roundToInt(),
         relativeTime = QuakeFormat.relativeTime(occurredAt, now),
         pgaLabel = QuakeFormat.pga(pgaGal),
         durationLabel = QuakeFormat.UNAVAILABLE,

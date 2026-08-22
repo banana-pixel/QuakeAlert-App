@@ -36,6 +36,7 @@ import androidx.compose.ui.window.DialogProperties
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.history.MmiSeverity
 import id.web.quakealert.ui.history.QuakeHistoryItem
+import id.web.quakealert.ui.history.distanceLabel
 import id.web.quakealert.ui.history.label
 import id.web.quakealert.ui.history.timestampLabel
 import id.web.quakealert.ui.theme.BorderLight
@@ -447,7 +448,7 @@ private fun SpatialInfoCard(
     ) {
         SpatialInfoRow(
             label = "Distance from you",
-            value = "${unitSystem.formatDistance(event.distanceKm)} Away"
+            value = event.distanceLabel(unitSystem)
         )
 
         Box(

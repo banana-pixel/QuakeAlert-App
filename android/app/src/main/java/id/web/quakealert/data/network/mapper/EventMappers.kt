@@ -47,10 +47,11 @@ fun List<EventDto>.toDomain(): List<EarthquakeEvent> = map { it.toDomain() }
  *    as [QuakeFormat.UNAVAILABLE]. `resolved_at - created_at` is *not* a substitute:
  *    resolution is driven by the server's 90 s quiet-period cooldown, so deriving
  *    duration from it would show ~90 s for every quake.
- *  - `distanceKm` — needs the user's own position. When it is unknown (nothing has
- *    called `PUT /users/location` yet) this falls back to 0, which the card renders
- *    as "0 km Away". That is a display gap to close on the UI side, either by
- *    hiding the pill or showing a dash for an unknown position.
+ *  - `distanceKm` — needs the user's own position, so it is null until something has
+ *    called `PUT /users/location`. Null rather than 0: every card on a first launch
+ *    used to read "0 km Away", which says *at the epicentre*. The display side prints
+ *    it through [id.web.quakealert.ui.history.distanceLabel], which names the absence
+ *    instead.
  *
  * @param userLocation last known device position, or null when it has never been set.
  * @param zone device time zone; UTC instants are converted only here.
@@ -67,7 +68,7 @@ fun EarthquakeEvent.toHistoryItem(
     location = locationName,
     date = QuakeFormat.date(createdAt, zone),
     time = QuakeFormat.time(createdAt, zone),
-    distanceKm = userLocation.distanceKmTo(latitude, longitude)?.roundToInt() ?: 0,
+    distanceKm = userLocation.distanceKmTo(latitude, longitude)?.roundToInt(),
     relativeTime = QuakeFormat.relativeTime(createdAt, now),
     pgaLabel = QuakeFormat.pga(pgaGal),
     durationLabel = QuakeFormat.UNAVAILABLE,

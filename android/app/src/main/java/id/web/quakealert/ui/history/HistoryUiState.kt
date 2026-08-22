@@ -42,9 +42,12 @@ val MmiSeverity.label: String
  * @param location human-readable epicentre (e.g. "Bandung, West Java, ID").
  * @param date formatted date (e.g. "20 Jun 2026").
  * @param time formatted time incl. zone (e.g. "07:19:18 WIB").
- * @param distanceKm distance from the user in kilometres (canonical data; the
- *   displayed "20 km Away" / "12 mi Away" pill is formatted per
- *   [UnitSystem] at the display boundary).
+ * @param distanceKm distance from the user in kilometres, or null when the device
+ *   has never synced a position (canonical data; the displayed "20 km Away" /
+ *   "12 mi Away" pill is formatted per [UnitSystem] at the display boundary by
+ *   [distanceLabel]). Null rather than 0, because 0 km reads as *at the epicentre*
+ *   — the single most alarming value the card could print for a fact we simply do
+ *   not have.
  * @param relativeTime coarse age of the event (e.g. "2 months ago"), detail only.
  * @param pgaLabel peak ground acceleration incl. unit (e.g. "61.5 gal"), detail only.
  * @param durationLabel shaking duration incl. unit (e.g. "7 sec"), detail only.
@@ -65,7 +68,7 @@ data class QuakeHistoryItem(
     val location: String,
     val date: String,
     val time: String,
-    val distanceKm: Int,
+    val distanceKm: Int?,
     val relativeTime: String,
     val pgaLabel: String,
     val durationLabel: String,
@@ -73,6 +76,15 @@ data class QuakeHistoryItem(
     val latitude: Double,
     val longitude: Double
 )
+
+/**
+ * The distance pill's text, in the user's unit, or the honest absence.
+ *
+ * One implementation for the list card, the detail overlay and the share sheet, so
+ * the three cannot disagree about a quake whose distance is unknown.
+ */
+fun QuakeHistoryItem.distanceLabel(unitSystem: UnitSystem): String =
+    distanceKm?.let { "${unitSystem.formatDistance(it)} Away" } ?: "Distance unknown"
 
 /**
  * Combined date + time line shown in the detail overlay's banner (Figma node
@@ -92,7 +104,7 @@ fun QuakeHistoryItem.toShareText(unitSystem: UnitSystem): String = buildString {
     appendLine(timestampLabel)
     appendLine("PGA (Max): $pgaLabel")
     appendLine("Duration: $durationLabel")
-    appendLine("Distance from me: ${unitSystem.formatDistance(distanceKm)} Away")
+    appendLine("Distance from me: ${distanceKm?.let { unitSystem.formatDistance(it) } ?: "unknown"}")
     append("Centroid: $coordinates")
 }
 

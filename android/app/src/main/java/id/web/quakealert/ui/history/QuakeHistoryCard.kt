@@ -188,7 +188,7 @@ private fun DetailsColumn(
             // Shared QuakePill capsule — same fill/stroke/shape as the Sensor
             // telemetry pills.
             QuakePill(
-                text = "${unitSystem.formatDistance(item.distanceKm)} Away",
+                text = item.distanceLabel(unitSystem),
                 modifier = Modifier.weight(1f)
             )
             ShareButton(onClick = onShareClicked)

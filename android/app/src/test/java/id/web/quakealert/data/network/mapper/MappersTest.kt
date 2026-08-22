@@ -4,10 +4,12 @@ import id.web.quakealert.data.network.model.EventDto
 import id.web.quakealert.data.network.model.EventsResponseDto
 import id.web.quakealert.data.network.model.SensorDto
 import id.web.quakealert.data.network.model.WsAlertMessageDto
+import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.domain.AlertType
 import id.web.quakealert.domain.EventStatus
 import id.web.quakealert.domain.UserLocation
 import id.web.quakealert.ui.history.MmiSeverity
+import id.web.quakealert.ui.history.distanceLabel
 import id.web.quakealert.ui.sensors.SensorStatus
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -104,6 +106,33 @@ class MappersTest {
         // No duration in the REST contract; the card shows a dash, never a guess.
         assertEquals(QuakeFormat.UNAVAILABLE, item.durationLabel)
         assertEquals(0, item.distanceKm)
+    }
+
+    @Test
+    fun `an unsynced position leaves the distance unknown rather than zero`() {
+        val item = eventDto().toDomain().toHistoryItem(
+            userLocation = null,
+            zone = jakarta,
+            now = Instant.parse("2026-06-20T00:29:18Z")
+        )
+
+        // Not 0: "0 km Away" reads as *at the epicentre*, which is the most
+        // alarming thing the card could say about a fact we do not have.
+        assertNull(item.distanceKm)
+        assertEquals("Distance unknown", item.distanceLabel(UnitSystem.METRIC))
+        assertEquals("Distance unknown", item.distanceLabel(UnitSystem.IMPERIAL))
+    }
+
+    @Test
+    fun `a known distance is printed in the chosen unit`() {
+        val item = eventDto().toDomain().toHistoryItem(
+            userLocation = UserLocation(latitude = -6.20880, longitude = 106.84560),
+            zone = jakarta,
+            now = Instant.parse("2026-06-20T00:19:18Z")
+        )
+
+        assertTrue(item.distanceLabel(UnitSystem.METRIC).endsWith(" km Away"))
+        assertTrue(item.distanceLabel(UnitSystem.IMPERIAL).endsWith(" mi Away"))
     }
 
     @Test
