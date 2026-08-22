@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,6 +86,64 @@ func TestUpdateLocation_DerivesTheRegionalChannel(t *testing.T) {
 	}
 	if resp.RegionCode == nil || *resp.RegionCode != "ID-jawa-barat" {
 		t.Fatalf("region_code respons = %v, mau ID-jawa-barat", resp.RegionCode)
+	}
+}
+
+func TestUpdateLocation_RegistersTheRegionalChannelName(t *testing.T) {
+	// Tanpa langkah ini baris katalog tidak pernah ada, dan header chat berbunyi
+	// "ID-jawa-barat" alih-alih "Jawa Barat": kunci kanal sudah di-slug dan tidak
+	// bisa dibalik, jadi inilah satu-satunya momen nama itu ada di server.
+	repo := &fakeRepo{locUpdated: time.Unix(1_781_913_558, 0).UTC()}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+
+	body := `{"latitude":-6.9175,"longitude":107.6191,` +
+		`"country_iso":"ID","admin_area":"  Jawa   Barat "}`
+	rec := do(h, authedRequest(http.MethodPut, "/api/v1/users/location", body, testSecret, "u-1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200: %s", rec.Code, rec.Body.String())
+	}
+	if repo.ensuredChan != "ID-jawa-barat" || repo.ensuredKind != store.ChannelKindRegional {
+		t.Fatalf("kanal terdaftar = %q/%q, mau ID-jawa-barat/REGIONAL", repo.ensuredChan, repo.ensuredKind)
+	}
+	if repo.ensuredName != "Jawa Barat" {
+		t.Fatalf("nama tampilan = %q, mau %q", repo.ensuredName, "Jawa Barat")
+	}
+}
+
+func TestUpdateLocation_UnnameableRegionRegistersNothing(t *testing.T) {
+	// Slug kosong berarti tidak ada kanal regional sama sekali; mendaftarkan baris
+	// permanen berjudul kunci kanal akan menang atas ejaan benar dari klien
+	// berikutnya (penulis pertama yang menang).
+	repo := &fakeRepo{locUpdated: time.Unix(1_781_913_558, 0).UTC()}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+
+	body := `{"latitude":-6.9175,"longitude":107.6191,"country_iso":"ID","admin_area":"日本語"}`
+	rec := do(h, authedRequest(http.MethodPut, "/api/v1/users/location", body, testSecret, "u-1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200", rec.Code)
+	}
+	if repo.ensureCalls != 0 {
+		t.Fatalf("EnsureChatChannel dipanggil %d kali, mau 0", repo.ensureCalls)
+	}
+}
+
+func TestRegionDisplayName_KeepsTheGeocoderSpelling(t *testing.T) {
+	// Title-case akan merusak "DKI Jakarta"; geocoder sudah mengirim ejaan resmi.
+	cases := map[string]string{
+		"  Jawa   Barat ": "Jawa Barat",
+		"DKI Jakarta":     "DKI Jakarta",
+		"   ":             "",
+	}
+	for in, want := range cases {
+		if got := RegionDisplayName(in); got != want {
+			t.Fatalf("RegionDisplayName(%q) = %q, mau %q", in, got, want)
+		}
+	}
+	long := RegionDisplayName(strings.Repeat("a", maxDisplayNameLen+20))
+	if len(long) > maxDisplayNameLen {
+		t.Fatalf("nama tampilan %d karakter, maksimal %d", len(long), maxDisplayNameLen)
 	}
 }
 

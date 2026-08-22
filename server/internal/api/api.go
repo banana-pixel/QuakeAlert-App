@@ -643,7 +643,39 @@ func (s *Server) syncChatRegion(
 		s.log.Warn("gagal menyimpan region chat user", "err", err)
 		return "", false
 	}
+	s.ensureRegionalChannelName(ctx, regionCode, req.AdminArea)
 	return regionCode, true
+}
+
+// ensureRegionalChannelName mendaftarkan kanal regional beserta nama yang bisa
+// dibaca manusia, pada satu-satunya momen nama itu ada: permintaan lokasi
+// membawa admin1 mentah, sedangkan kunci kanal sudah di-slug dan tidak bisa
+// dibalik.
+//
+// Tanpa ini baris katalog tidak pernah dibuat, dan ListChatChannels jatuh ke
+// display_name = channel_id — sehingga header chat berbunyi "ID-jawa-tengah"
+// alih-alih "Jawa Tengah".
+//
+// Penulis pertama yang menang (ON CONFLICT ... DO UPDATE channel_id = channel_id),
+// jadi ejaan berbeda dari ponsel lain tidak bisa mengganti judul ruang yang sudah
+// dilihat anggotanya. Kegagalan hanya dicatat: lokasi sudah tersimpan, dan judul
+// kanal bukan alasan untuk menggagalkan sinkronisasi posisi.
+func (s *Server) ensureRegionalChannelName(ctx context.Context, regionCode, admin1 string) {
+	if regionCode == "" {
+		return
+	}
+	displayName := RegionDisplayName(admin1)
+	if displayName == "" {
+		// Tidak ada nama yang layak: biarkan fallback kunci kanal bekerja, jangan
+		// menyimpan baris permanen berjudul "ID-jawa-tengah" yang menang atas
+		// ejaan benar dari klien berikutnya.
+		return
+	}
+	if _, err := s.repo.EnsureChatChannel(
+		ctx, regionCode, store.ChannelKindRegional, displayName,
+	); err != nil {
+		s.log.Warn("gagal mendaftarkan kanal regional", "channel_id", regionCode, "err", err)
+	}
 }
 
 // --- Update FCM token handler ---

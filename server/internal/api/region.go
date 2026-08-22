@@ -3,6 +3,7 @@ package api
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Batas kunci kanal regional. channel_id adalah VARCHAR(50), dan kode negara
@@ -10,6 +11,8 @@ import (
 const (
 	maxRegionCodeLen = 50
 	maxAdmin1SlugLen = maxRegionCodeLen - 3
+	// chat_channels.display_name adalah VARCHAR(80).
+	maxDisplayNameLen = 80
 )
 
 // RegionCode menyusun kunci kanal regional dari hasil reverse-geocode klien:
@@ -66,4 +69,34 @@ func isASCIILetters(s string) bool {
 		}
 	}
 	return true
+}
+
+// RegionDisplayName menyiapkan nama tampilan kanal regional dari admin1 mentah
+// yang dikirim klien: "Jawa Barat" -> "Jawa Barat", bukan "ID-jawa-barat".
+//
+// Ini satu-satunya momen ejaan yang bisa dibaca manusia ada di sisi server —
+// kunci kanal sudah di-slug dan tidak bisa dibalik ("dki-jakarta" tidak dapat
+// dipulihkan menjadi "DKI Jakarta"). Karena itu nama disimpan saat lokasi
+// disinkronkan, bukan diturunkan ulang saat daftar kanal dibaca.
+//
+// Kapitalisasi TIDAK dipaksakan: geocoder sudah mengirim ejaan resmi, dan
+// title-case akan merusak bentuk seperti "DKI Jakarta". Yang dilakukan hanya
+// merapikan spasi dan memotong sesuai lebar kolom.
+//
+// Mengembalikan string kosong bila tidak ada yang layak dipakai; pemanggil lalu
+// memakai kunci kanal sebagai judul, sama seperti perilaku sebelumnya.
+func RegionDisplayName(admin1 string) string {
+	name := strings.Join(strings.Fields(admin1), " ")
+	if name == "" {
+		return ""
+	}
+	if len(name) > maxDisplayNameLen {
+		// Dipotong pada batas rune agar tidak menghasilkan UTF-8 rusak.
+		cut := name[:maxDisplayNameLen]
+		for len(cut) > 0 && !utf8.ValidString(cut) {
+			cut = cut[:len(cut)-1]
+		}
+		name = strings.TrimSpace(cut)
+	}
+	return name
 }

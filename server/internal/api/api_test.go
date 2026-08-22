@@ -59,6 +59,10 @@ type fakeRepo struct {
 	regionCode    string
 	regionSets    int
 	regionSetErr  error
+	ensuredChan   string
+	ensuredKind   string
+	ensuredName   string
+	ensureCalls   int
 	chatIdentity  *store.UserChatIdentity
 	chatIdentErr  error
 	chatChannels  []store.ChatChannel
@@ -129,7 +133,11 @@ func (f *fakeRepo) GetUserChatIdentity(_ context.Context, _ string) (*store.User
 func (f *fakeRepo) ListChatChannels(_ context.Context, _ string) ([]store.ChatChannel, error) {
 	return f.chatChannels, f.chatChanErr
 }
-func (f *fakeRepo) EnsureChatChannel(_ context.Context, _, _, displayName string) (string, error) {
+func (f *fakeRepo) EnsureChatChannel(
+	_ context.Context, channelID, kind, displayName string,
+) (string, error) {
+	f.ensureCalls++
+	f.ensuredChan, f.ensuredKind, f.ensuredName = channelID, kind, displayName
 	return displayName, nil
 }
 func (f *fakeRepo) ListChatMessages(
