@@ -389,9 +389,18 @@ fun SettingsScreen(
                 )
             }
 
+            // Same wording as the onboarding pair, so a control the user met once is
+            // recognisable here rather than reading as a second, different test.
             QuakeCard(
                 title = "Test Alert Sound",
-                onClick = onTestAlertSound
+                onClick = onTestAlertSound,
+                detail = {
+                    Text(
+                        text = "Plays the siren, to check it is loud enough to wake you",
+                        style = CardSubtitle,
+                        color = TextSecondary
+                    )
+                }
             )
 
             QuakeCard(
