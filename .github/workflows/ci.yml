@@ -30,9 +30,9 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # Single source of truth: the version in go.mod, so CI cannot drift
           # from what the module declares.
@@ -71,16 +71,16 @@ jobs:
       run:
         working-directory: android
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           # Matches the toolchain Gradle resolves locally (Adoptium 21). AGP 9
           # needs 17 or newer; pinning avoids a runner default moving under us.
           java-version: '21'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
@@ -104,7 +104,7 @@ jobs:
         # A release stack trace is unreadable without this. Kept for the default
         # retention so a crash reported days later can still be de-obfuscated.
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: r8-mapping
           path: android/app/build/outputs/mapping/release/
@@ -112,7 +112,7 @@ jobs:
 
       - name: Upload test and lint reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-reports
           path: |
