@@ -63,7 +63,7 @@ fun WarningRoute(
             runCatching {
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "QuakeAlert — ${item.location}")
+                    putExtra(Intent.EXTRA_SUBJECT, "QuakeAlert: ${item.location}")
                     putExtra(Intent.EXTRA_TEXT, item.toShareText(uiState.unitSystem))
                 }
                 context.startActivity(Intent.createChooser(send, "Share earthquake details"))
@@ -336,7 +336,7 @@ private fun ColumnScope.IdleBody(
  * locally, and a user reading it during a quake needs to know it is trustworthy.
  */
 private const val OFFLINE_MESSAGE =
-    "Offline — alerts are paused. The guidance below works without a connection."
+    "Offline: alerts are paused. The guidance below works without a connection."
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable

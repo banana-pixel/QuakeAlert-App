@@ -217,7 +217,7 @@ class WarningUiStateTest {
         distanceKm = 3,
         relativeTime = "20 minutes ago",
         pgaLabel = "61.5 gal",
-        durationLabel = "—",
+        durationLabel = "-",
         coordinates = "-6.91750, 107.61910",
         latitude = -6.91750,
         longitude = 107.61910

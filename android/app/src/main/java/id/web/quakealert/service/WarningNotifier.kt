@@ -129,7 +129,7 @@ object WarningNotifier {
         // "Distance unknown" rather than a fabricated number — the gate fails open on
         // an unknown position, so this is a real case and not a defensive branch.
         val proximity = distanceKm?.let { "$it km away" } ?: "distance unknown"
-        return "Intensity ${message.mmi} near $where — $proximity. Drop, cover, hold on."
+        return "Intensity ${message.mmi} near $where ($proximity). Drop, cover, hold on."
     }
 
     private fun canPost(context: Context): Boolean =

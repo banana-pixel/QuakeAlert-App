@@ -25,8 +25,14 @@ internal object QuakeFormat {
     /** e.g. "07:19:18 WIB" — `zzz` renders the device zone's short name. */
     private val TIME = DateTimeFormatter.ofPattern("HH:mm:ss zzz", Locale.US)
 
-    /** Placeholder for a value the server contract does not carry. */
-    const val UNAVAILABLE: String = "—"
+    /**
+     * Placeholder for a value the server contract does not carry.
+     *
+     * A hyphen rather than an em dash: this is printed inside composed rows
+     * ("RSSI : - dBm"), and the app's user-visible copy holds no em dashes at all,
+     * so a lone one here would be the only place the character appeared on screen.
+     */
+    const val UNAVAILABLE: String = "-"
 
     fun date(instant: Instant, zone: ZoneId): String = DATE.format(instant.atZone(zone))
 

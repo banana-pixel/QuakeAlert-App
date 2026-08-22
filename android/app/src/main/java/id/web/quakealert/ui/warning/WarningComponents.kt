@@ -530,7 +530,7 @@ fun RecentSeismicActivityCard(
  */
 private const val ACTIVITY_DISCLAIMER =
     "Counts come from QuakeAlert's own stations and depend on how many are near you. " +
-        "They describe shaking already recorded — not a forecast of what comes next."
+        "They describe shaking already recorded. They are not a forecast of what comes next."
 
 /** Hairline between two [ActivityStatRow]s. */
 @Composable

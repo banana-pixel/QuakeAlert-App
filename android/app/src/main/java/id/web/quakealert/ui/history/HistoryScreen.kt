@@ -87,7 +87,7 @@ fun HistoryRoute(
             runCatching {
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "QuakeAlert — ${item.location}")
+                    putExtra(Intent.EXTRA_SUBJECT, "QuakeAlert: ${item.location}")
                     putExtra(Intent.EXTRA_TEXT, item.toShareText(uiState.unitSystem))
                 }
                 context.startActivity(Intent.createChooser(send, "Share earthquake details"))

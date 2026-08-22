@@ -164,7 +164,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
      * showing the dialog, so a second tap on the button would do nothing visible.
      */
     fun onLocationPermissionDenied() {
-        post("Location permission denied — enable it in system Settings to sync")
+        post("Location permission denied. Enable it in system Settings to sync.")
     }
 
     /**
@@ -288,9 +288,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private fun LocationSyncResult.toMessage(): String = when (this) {
         is LocationSyncResult.Updated -> "Location updated"
-        is LocationSyncResult.Unchanged -> "Location unchanged — you have not moved"
+        is LocationSyncResult.Unchanged -> "Location unchanged. You have not moved."
         LocationSyncResult.PermissionDenied -> "Location permission is needed to sync"
-        LocationSyncResult.NoFix -> "Could not get a location fix — try again outdoors"
+        LocationSyncResult.NoFix -> "Could not get a location fix. Try again outdoors."
         is LocationSyncResult.Failed -> failureMessage("Could not update your location", cause)
     }
 

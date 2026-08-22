@@ -87,7 +87,7 @@ val QuakeHistoryItem.timestampLabel: String
  * both entry points emit byte-identical text.
  */
 fun QuakeHistoryItem.toShareText(unitSystem: UnitSystem): String = buildString {
-    appendLine("Earthquake — $location")
+    appendLine("Earthquake: $location")
     appendLine("MMI $intensity (${severity.label})")
     appendLine(timestampLabel)
     appendLine("PGA (Max): $pgaLabel")

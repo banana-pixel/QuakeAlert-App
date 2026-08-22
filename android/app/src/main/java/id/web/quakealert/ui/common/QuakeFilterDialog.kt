@@ -136,8 +136,8 @@ fun QuakeFilterDialog(
                     // different question than the one on screen.
                     Text(
                         text = "Sensors are listed within " +
-                            "${unitSystem.formatDistance(QuakeApiClient.MAX_SENSOR_RANGE_KM)} — " +
-                            "the furthest that tab can search.",
+                            "${unitSystem.formatDistance(QuakeApiClient.MAX_SENSOR_RANGE_KM)}. " +
+                            "That is the furthest that tab can search.",
                         style = CardSubtitle.copy(color = MmiOrange)
                     )
                 }

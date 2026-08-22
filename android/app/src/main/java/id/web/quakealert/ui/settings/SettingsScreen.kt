@@ -403,7 +403,7 @@ fun SettingsScreen(
                     detail = {
                         QuakePill(
                             text = if (uiState.allPermissionsReady) {
-                                "All set — alerts can reach you"
+                                "All set: alerts can reach you"
                             } else {
                                 "${uiState.permissionsReadyCount} of " +
                                     "${uiState.permissionsTotal} ready"
