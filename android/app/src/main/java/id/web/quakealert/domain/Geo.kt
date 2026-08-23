@@ -47,6 +47,23 @@ data class UserLocation(
 )
 
 /**
+ * A stored place name together with the point it was resolved for.
+ *
+ * Separate from [UserLocation] because the two answer different questions: that
+ * one is *where the user is*, this one is *what the last successful lookup called
+ * a particular spot*. Keeping the label's own coordinates is what lets the app
+ * tell "the stored name still describes this fix" apart from "the device has not
+ * moved since the last fix" — conflating the two is how a name resolved once in
+ * one province stayed attached to a position in another for the life of an
+ * install, because every stationary sync re-sent it.
+ */
+data class PlaceLabel(
+    val label: String,
+    val latitude: Double,
+    val longitude: Double
+)
+
+/**
  * Distance in kilometres from [this] location to the given coordinates, or null
  * when the user's position is unknown.
  *

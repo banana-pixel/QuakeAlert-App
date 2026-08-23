@@ -59,6 +59,14 @@ const maxFCMTokenLen = 255
 // user_profiles.location_name (migrasi 000002).
 const maxLocationNameLen = 150
 
+// regionInvalidateKm adalah jarak perpindahan yang membuat region_code lama
+// tidak lagi dipertahankan ketika permintaan tidak membawa country_iso/admin_area.
+// 25 km: jauh di luar drift GPS dan perjalanan harian di dalam satu provinsi,
+// tetapi masih di dalam provinsi terkecil — jadi ambang ini tidak mengeluarkan
+// siapa pun dari ruang chat wilayahnya sendiri, dan tidak menahan siapa pun di
+// ruang chat wilayah yang sudah ia tinggalkan.
+const regionInvalidateKm = 25.0
+
 // stationIDPattern mencerminkan ProvisionRequest.station_id pada
 // contracts/openapi/openapi.yaml (^NODE-[0-9A-F]{8}$).
 var stationIDPattern = regexp.MustCompile(`^NODE-[0-9A-F]{8}$`)
@@ -128,7 +136,7 @@ type Repo interface {
 	GetUserLocation(ctx context.Context, userID string) (*store.UserLocation, error)
 	UpdatePseudonym(ctx context.Context, userID, pseudonym string) (time.Time, error)
 	CreateUserProfile(ctx context.Context, userID, pseudonym string) (time.Time, error)
-	UpdateUserLocation(ctx context.Context, userID string, lat, lon float64, locationName string) (time.Time, error)
+	UpdateUserLocation(ctx context.Context, userID string, lat, lon float64, locationName string) (store.LocationUpdate, error)
 	UpdateUserFCMToken(ctx context.Context, userID, token string) (time.Time, error)
 	ListEvents(ctx context.Context, limit, offset int, filter *store.EventFilter) ([]store.Event, error)
 	SetUserRegion(ctx context.Context, userID, regionCode string) error
@@ -629,7 +637,7 @@ func (s *Server) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "location_name maksimal 150 karakter")
 		return
 	}
-	updatedAt, err := s.repo.UpdateUserLocation(
+	update, err := s.repo.UpdateUserLocation(
 		r.Context(), userID, *req.Latitude, *req.Longitude, req.LocationName)
 	if errors.Is(err, store.ErrUserNotFound) {
 		writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "profil user tidak ditemukan")
@@ -641,13 +649,13 @@ func (s *Server) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	regionCode, regionKnown := s.syncChatRegion(r.Context(), userID, req)
+	regionCode, regionKnown := s.syncChatRegion(r.Context(), userID, req, update.MovedKm)
 
 	resp := updateLocationResponse{
 		UserID:    userID,
 		Latitude:  *req.Latitude,
 		Longitude: *req.Longitude,
-		UpdatedAt: updatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: update.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 	// Hanya dilaporkan bila benar-benar tersimpan, dan null bila wilayahnya tidak
 	// dapat dinormalisasi — klien yang melihat kunci kanal di sini berhak
@@ -683,13 +691,27 @@ func (s *Server) HandleUpdateLocation(w http.ResponseWriter, r *http.Request) {
 // penyimpanan atau pembacaannya gagal, sehingga respons tidak menjanjikan kanal
 // yang belum tentu milik pemanggil.
 func (s *Server) syncChatRegion(
-	ctx context.Context, userID string, req updateLocationRequest,
+	ctx context.Context, userID string, req updateLocationRequest, movedKm *float64,
 ) (string, bool) {
 	if strings.TrimSpace(req.CountryISO) == "" && strings.TrimSpace(req.AdminArea) == "" {
 		identity, err := s.repo.GetUserChatIdentity(ctx, userID)
 		if err != nil {
 			s.log.Warn("gagal membaca region chat user", "err", err)
 			return "", false
+		}
+		// Dibiarkan hanya selama posisinya masih masuk akal untuk region itu.
+		// Sekali user berpindah sejauh regionInvalidateKm tanpa membawa wilayah
+		// baru, region lama bukan lagi "tertinggal satu sinkronisasi" — ia
+		// menahan orang di ruang chat provinsi yang sudah ia tinggalkan, selama
+		// umur profilnya, karena tidak ada jalur lain yang pernah menimpanya.
+		if identity.RegionCode != "" && movedKm != nil && *movedKm > regionInvalidateKm {
+			if err := s.repo.SetUserRegion(ctx, userID, ""); err != nil {
+				s.log.Warn("gagal mengosongkan region chat user", "err", err)
+				return "", false
+			}
+			s.log.Info("region chat dikosongkan karena posisi berpindah jauh tanpa wilayah",
+				"user_id", userID, "moved_km", *movedKm)
+			return "", true
 		}
 		return identity.RegionCode, true
 	}

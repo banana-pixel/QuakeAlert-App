@@ -5,6 +5,7 @@ import android.util.Log
 import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.local.SessionStore
 import id.web.quakealert.data.network.QuakeApiClient
+import id.web.quakealert.data.network.mapper.QuakeFormat
 import id.web.quakealert.device.Coordinates
 import id.web.quakealert.device.LocationSource
 import id.web.quakealert.device.PlaceNamer
@@ -120,7 +121,13 @@ class UserLocationRepository(
             ?: return LocationSyncResult.NoFix
 
         val stored = sessionStore.readUserLocation()
-        val plan = planSync(stored = stored, fix = fix, force = force)
+        val storedLabel = sessionStore.readPlaceLabel()
+        val plan = planSync(
+            stored = stored,
+            labelledAt = storedLabel?.let { Coordinates(it.latitude, it.longitude) },
+            fix = fix,
+            force = force
+        )
 
         if (stored != null && !plan.upload) {
             // The position on the server is still correct, so the sync did succeed —
@@ -129,22 +136,45 @@ class UserLocationRepository(
             return LocationSyncResult.Unchanged(stored)
         }
 
-        // `PUT /users/location` replaces: omitting the label clears whatever the
-        // server held. So a failed lookup falls back to the label already stored for
-        // this same spot rather than sending null and wiping it.
         val place = geocoder.resolve(fix)
-        val label = place?.label ?: stored?.locationName?.takeIf { plan.reuseStoredLabel }
+        // Three sources, in order of how much they know about *this* spot:
+        //  1. a lookup that just succeeded;
+        //  2. the stored name, but only while it still describes this fix — the
+        //     stored name alone is not evidence of that, which is the bug this
+        //     ordering fixes;
+        //  3. the coordinates themselves. `PUT /users/location` replaces, so
+        //     sending nothing would clear the label and drop the pill to "not set",
+        //     hiding a position the app does hold — while leaving the previous label
+        //     standing would keep printing a place the user is not in. A coordinate
+        //     is never the wrong place.
+        val reusable = storedLabel?.label?.takeIf { plan.reuseStoredLabel }
+        val label = place?.label
+            ?: reusable
+            ?: QuakeFormat.coordinates(fix.latitude, fix.longitude)
 
         // The country/admin pair has no such fallback: it is sent only when this
-        // lookup produced it. Absent, the server keeps the region it already holds
-        // (docs/CLIENT_SPEC.md §4.2) — a stale label is a cosmetic wrong, but a
-        // guessed region would move the user into someone else's chat channel.
-        return upload(
+        // lookup produced it. Guessing one would move the user into someone else's
+        // chat channel. Keeping an old one does the same thing, which is why the
+        // server now drops the stored region when a position moves this far with no
+        // pair to re-derive it from (docs/CLIENT_SPEC.md §4.2).
+        val result = upload(
             latitude = fix.latitude,
             longitude = fix.longitude,
             label = label,
             place = place
         )
+
+        // Bind the label to the point it describes — but only once the server has
+        // accepted that point, and only for a label that was derived from this fix
+        // rather than carried over from an earlier one.
+        if (result is LocationSyncResult.Updated && reusable == null) {
+            sessionStore.savePlaceLabel(
+                label = label,
+                latitude = fix.latitude,
+                longitude = fix.longitude
+            )
+        }
+        return result
     }
 
     /**
@@ -236,9 +266,14 @@ internal data class SyncPlan(
 
     /**
      * Whether the stored `location_name` still describes this fix, and so may stand
-     * in for a failed reverse-geocode. False once the device has actually moved:
-     * `PUT /users/location` replaces, and labelling a new city with the old name is
-     * worse than sending none.
+     * in for a failed reverse-geocode.
+     *
+     * Measured from the point the *label* was resolved at, not from the previous
+     * fix. Those two used to be conflated, and the difference is the whole bug: a
+     * device sitting still re-sent whatever name it held on every sync, so a name
+     * resolved once in the wrong province was written back to the server forever
+     * and could only ever be displaced by a lookup that succeeded — on a device
+     * whose lookups were failing silently.
      */
     val reuseStoredLabel: Boolean
 )
@@ -250,6 +285,7 @@ internal data class SyncPlan(
  */
 internal fun planSync(
     stored: UserLocation?,
+    labelledAt: Coordinates?,
     fix: Coordinates,
     force: Boolean,
     minMoveKm: Double = MIN_MOVE_KM
@@ -258,7 +294,16 @@ internal fun planSync(
         haversineKm(it.latitude, it.longitude, fix.latitude, fix.longitude)
     }
     val nearby = movedKm != null && movedKm < minMoveKm
+    // Independent of the upload decision, and measured against a different point:
+    // a null [labelledAt] means nothing is known about where the stored name
+    // applies, which has to read as "not reusable".
+    val labelDistanceKm = labelledAt?.let {
+        haversineKm(it.latitude, it.longitude, fix.latitude, fix.longitude)
+    }
     // A forced sync uploads regardless: the user pressed a button and expects a
     // round trip. An unforced one uploads unless the server already holds this spot.
-    return SyncPlan(upload = force || stored == null || !nearby, reuseStoredLabel = nearby)
+    return SyncPlan(
+        upload = force || stored == null || !nearby,
+        reuseStoredLabel = labelDistanceKm != null && labelDistanceKm < minMoveKm
+    )
 }

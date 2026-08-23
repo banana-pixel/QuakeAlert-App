@@ -63,7 +63,15 @@ class ReverseGeocoder(context: Context) : PlaceNamer {
      * label should be.
      */
     override suspend fun resolve(coordinates: Coordinates): ResolvedPlace? {
-        if (!Geocoder.isPresent()) return null
+        // Logged, like every other outcome below: a wrong or missing place name is
+        // diagnosed from which of these five paths ran, and three of them used to
+        // return null in complete silence. The coordinates are never logged — the
+        // position is the most sensitive thing this app holds — but the answer is,
+        // because that is the value the user can see on screen anyway.
+        if (!Geocoder.isPresent()) {
+            Log.w(TAG, "no geocoder backend on this device; no place name available")
+            return null
+        }
 
         val geocoder = Geocoder(appContext, Locale.getDefault())
         val address = try {
@@ -82,7 +90,17 @@ class ReverseGeocoder(context: Context) : PlaceNamer {
             null
         }
 
-        return address?.toResolvedPlace()
+        if (address == null) {
+            Log.w(TAG, "reverse geocode returned no address")
+            return null
+        }
+        val place = address.toResolvedPlace()
+        if (place == null) {
+            Log.w(TAG, "reverse geocode returned an address with no usable place name")
+            return null
+        }
+        Log.i(TAG, "reverse geocoded to \"${place.label}\" (admin=\"${place.adminArea}\")")
+        return place
     }
 
     /**
@@ -99,6 +117,9 @@ class ReverseGeocoder(context: Context) : PlaceNamer {
                 MAX_RESULTS,
                 object : Geocoder.GeocodeListener {
                     override fun onGeocode(addresses: MutableList<Address>) {
+                        if (addresses.isEmpty()) {
+                            Log.w(TAG, "geocoder backend answered with an empty list")
+                        }
                         continuation.resume(addresses.firstOrNull())
                     }
 

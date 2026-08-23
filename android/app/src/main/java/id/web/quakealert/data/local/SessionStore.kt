@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import id.web.quakealert.domain.PlaceLabel
 import id.web.quakealert.domain.UserLocation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -102,15 +103,55 @@ class SessionStore(context: Context) {
         dataStore.edit { prefs -> prefs[KEY_PSEUDONYM] = pseudonym }
     }
 
-    /** Caches the position last accepted by `PUT /api/v1/users/location`. */
+    /**
+     * Caches the position last accepted by `PUT /api/v1/users/location`.
+     *
+     * The label's own coordinates are left alone when a name is written: the name
+     * sent with a position is not necessarily a name resolved *for* that position
+     * — it may be one carried over from an earlier fix — so only
+     * [savePlaceLabel] may claim a label describes a given point. Clearing the
+     * name does clear them, so an origin can never outlive the label it belongs to.
+     */
     suspend fun saveUserLocation(location: UserLocation) {
         dataStore.edit { prefs ->
             prefs[KEY_LATITUDE] = location.latitude
             prefs[KEY_LONGITUDE] = location.longitude
             val name = location.locationName
-            if (name != null) prefs[KEY_LOCATION_NAME] = name else prefs.remove(KEY_LOCATION_NAME)
+            if (name != null) {
+                prefs[KEY_LOCATION_NAME] = name
+            } else {
+                prefs.remove(KEY_LOCATION_NAME)
+                prefs.remove(KEY_LOCATION_NAME_LATITUDE)
+                prefs.remove(KEY_LOCATION_NAME_LONGITUDE)
+            }
         }
     }
+
+    /**
+     * Records a place name together with the point it was resolved for.
+     *
+     * Called only by the sync path, and only for a name that genuinely describes
+     * [latitude]/[longitude] — a fresh reverse-geocode, or the coordinate string
+     * used when no lookup succeeded. A name reused from an earlier fix must not go
+     * through here, or it would be re-bound to a spot nobody ever looked up.
+     */
+    suspend fun savePlaceLabel(label: String, latitude: Double, longitude: Double) {
+        dataStore.edit { prefs ->
+            prefs[KEY_LOCATION_NAME] = label
+            prefs[KEY_LOCATION_NAME_LATITUDE] = latitude
+            prefs[KEY_LOCATION_NAME_LONGITUDE] = longitude
+        }
+    }
+
+    /**
+     * The stored place name with the point it describes, or null when there is no
+     * name or its origin was never recorded.
+     *
+     * A name with no origin reads as null on purpose: it came from a build that did
+     * not track one, so nothing is known about where it applies, and "unknown" has
+     * to mean "not reusable" rather than "reusable anywhere".
+     */
+    suspend fun readPlaceLabel(): PlaceLabel? = dataStore.data.first().toPlaceLabel()
 
     private fun Preferences.toSession(): StoredSession? {
         val token = this[KEY_TOKEN]?.takeIf { it.isNotBlank() } ?: return null
@@ -120,6 +161,13 @@ class SessionStore(context: Context) {
             pseudonym = this[KEY_PSEUDONYM].orEmpty(),
             expiresAtMs = this[KEY_EXPIRES_AT]
         )
+    }
+
+    private fun Preferences.toPlaceLabel(): PlaceLabel? {
+        val label = this[KEY_LOCATION_NAME]?.takeIf { it.isNotBlank() } ?: return null
+        val lat = this[KEY_LOCATION_NAME_LATITUDE] ?: return null
+        val lon = this[KEY_LOCATION_NAME_LONGITUDE] ?: return null
+        return PlaceLabel(label = label, latitude = lat, longitude = lon)
     }
 
     private fun Preferences.toUserLocation(): UserLocation? {
@@ -138,5 +186,10 @@ class SessionStore(context: Context) {
         val KEY_LATITUDE = doublePreferencesKey("user_latitude")
         val KEY_LONGITUDE = doublePreferencesKey("user_longitude")
         val KEY_LOCATION_NAME = stringPreferencesKey("user_location_name")
+
+        // Where KEY_LOCATION_NAME was resolved. Absent on installs that predate
+        // this, which the read treats as "origin unknown".
+        val KEY_LOCATION_NAME_LATITUDE = doublePreferencesKey("user_location_name_lat")
+        val KEY_LOCATION_NAME_LONGITUDE = doublePreferencesKey("user_location_name_lon")
     }
 }

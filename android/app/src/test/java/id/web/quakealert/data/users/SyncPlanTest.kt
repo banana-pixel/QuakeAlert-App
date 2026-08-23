@@ -33,9 +33,20 @@ class SyncPlanTest {
     /** ~0.1 km from [bandung]: the same spot, GPS jitter aside. */
     private val jitterFix = Coordinates(latitude = -6.9184, longitude = 107.6191)
 
+    /** Where the stored label was resolved, when that was here. */
+    private val bandungLabelOrigin = Coordinates(
+        latitude = bandung.latitude,
+        longitude = bandung.longitude
+    )
+
     @Test
     fun `uploads when nothing is stored yet`() {
-        val plan = planSync(stored = null, fix = jakartaFix, force = false)
+        val plan = planSync(
+            stored = null,
+            labelledAt = null,
+            fix = jakartaFix,
+            force = false
+        )
 
         assertTrue("a server with no position must be told one", plan.upload)
         // There is no stored label to fall back on, so a failed geocode must send
@@ -45,7 +56,12 @@ class SyncPlanTest {
 
     @Test
     fun `skips the upload when the device has barely moved`() {
-        val plan = planSync(stored = bandung, fix = jitterFix, force = false)
+        val plan = planSync(
+            stored = bandung,
+            labelledAt = bandungLabelOrigin,
+            fix = jitterFix,
+            force = false
+        )
 
         assertFalse("GPS jitter must not spend a request", plan.upload)
         assertTrue("the stored label still describes this spot", plan.reuseStoredLabel)
@@ -53,7 +69,12 @@ class SyncPlanTest {
 
     @Test
     fun `uploads when the device has moved beyond the threshold`() {
-        val plan = planSync(stored = bandung, fix = jakartaFix, force = false)
+        val plan = planSync(
+            stored = bandung,
+            labelledAt = bandungLabelOrigin,
+            fix = jakartaFix,
+            force = false
+        )
 
         assertTrue(plan.upload)
         assertFalse("\"Bandung\" must not be reattached to a Jakarta fix", plan.reuseStoredLabel)
@@ -61,7 +82,12 @@ class SyncPlanTest {
 
     @Test
     fun `a forced sync uploads even when the device has not moved`() {
-        val plan = planSync(stored = bandung, fix = jitterFix, force = true)
+        val plan = planSync(
+            stored = bandung,
+            labelledAt = bandungLabelOrigin,
+            fix = jitterFix,
+            force = true
+        )
 
         // Sync Now must produce a round trip: a silent no-op reads as a broken button.
         assertTrue(plan.upload)
@@ -75,8 +101,53 @@ class SyncPlanTest {
         // proves the comparison is against minMoveKm rather than a baked-in constant.
         val movedKm = 0.1
 
-        assertFalse(planSync(bandung, jitterFix, force = false, minMoveKm = movedKm * 2).upload)
-        assertTrue(planSync(bandung, jitterFix, force = false, minMoveKm = movedKm / 2).upload)
+        assertFalse(
+            planSync(bandung, bandungLabelOrigin, jitterFix, force = false, minMoveKm = movedKm * 2)
+                .upload
+        )
+        assertTrue(
+            planSync(bandung, bandungLabelOrigin, jitterFix, force = false, minMoveKm = movedKm / 2)
+                .upload
+        )
+    }
+
+    /**
+     * The case that produced the bug, and the one the old rule assumed away: the
+     * device is standing exactly where the last fix was, so it "has not moved" — but
+     * the name it is holding was resolved 117 km away. Reusing it here is what wrote
+     * a Central Java town onto a Bandung position on every stationary sync.
+     */
+    @Test
+    fun `a label resolved somewhere else is not reusable for a fix that has not moved`() {
+        val plan = planSync(
+            stored = bandung,
+            labelledAt = jakartaFix,
+            fix = jitterFix,
+            force = false
+        )
+
+        assertFalse("the device has not moved, so there is nothing to upload", plan.upload)
+        assertFalse(
+            "a name resolved in Jakarta does not describe a Bandung fix",
+            plan.reuseStoredLabel
+        )
+    }
+
+    /**
+     * An install from before the label's origin was recorded knows nothing about
+     * where its stored name applies, and unknown has to mean unusable — otherwise
+     * the upgrade would carry the very label this change exists to displace.
+     */
+    @Test
+    fun `a label with no recorded origin is never reused`() {
+        assertFalse(
+            planSync(
+                stored = bandung,
+                labelledAt = null,
+                fix = jitterFix,
+                force = false
+            ).reuseStoredLabel
+        )
     }
 
     @Test

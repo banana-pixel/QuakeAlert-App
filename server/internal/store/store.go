@@ -417,9 +417,22 @@ func (s *Store) CreateUserProfile(ctx context.Context, userID, pseudonym string)
 	return createdAt, nil
 }
 
+// LocationUpdate adalah hasil UpdateUserLocation.
+type LocationUpdate struct {
+	// UpdatedAt adalah last_active yang baru di-set NOW().
+	UpdatedAt time.Time
+
+	// MovedKm adalah jarak dari posisi SEBELUMNYA ke posisi baru, nil bila user
+	// belum pernah punya posisi. Dibaca dalam statement yang sama karena
+	// nilainya hanya ada sesaat sebelum UPDATE menimpanya, dan pemanggil butuh
+	// itu untuk memutuskan apakah region_code lama masih layak dipertahankan.
+	MovedKm *float64
+}
+
 // UpdateUserLocation menyetel last_location (GEOGRAPHY(Point,4326)) user dari
 // (lat, lon) — perhatikan ST_MakePoint memakai urutan (lon, lat) — beserta label
-// lokasi opsional, lalu mengembalikan last_active yang di-set NOW().
+// lokasi opsional, lalu mengembalikan last_active yang di-set NOW() dan jarak
+// perpindahannya.
 //
 // Semantik PUT (replace): locationName kosong disimpan sebagai NULL, jadi klien
 // yang mengirim body tanpa location_name memang MENGOSONGKAN label lama.
@@ -428,23 +441,34 @@ func (s *Store) CreateUserProfile(ctx context.Context, userID, pseudonym string)
 // ditentukan sistem (dispatch.AlertRadiusKm), bukan preferensi per user, jadi
 // tidak ada nilai dari klien yang perlu disimpan di sini.
 // Mengembalikan ErrUserNotFound bila user_id tidak ada.
-func (s *Store) UpdateUserLocation(ctx context.Context, userID string, lat, lon float64, locationName string) (time.Time, error) {
+func (s *Store) UpdateUserLocation(ctx context.Context, userID string, lat, lon float64, locationName string) (LocationUpdate, error) {
+	// CTE prev membaca last_location pada snapshot SEBELUM UPDATE, jadi jaraknya
+	// terhitung tanpa round trip kedua dan tanpa celah di antara dua statement.
 	const q = `
-		UPDATE user_profiles
+		WITH prev AS (
+		    SELECT user_id, last_location FROM user_profiles WHERE user_id = $1
+		)
+		UPDATE user_profiles p
 		SET last_location = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
 		    location_name = NULLIF($4, ''),
 		    last_active   = NOW()
-		WHERE user_id = $1
-		RETURNING last_active`
-	var updatedAt time.Time
-	err := s.pool.QueryRow(ctx, q, userID, lon, lat, locationName).Scan(&updatedAt)
+		FROM prev
+		WHERE p.user_id = prev.user_id
+		RETURNING p.last_active,
+		          ST_Distance(
+		              prev.last_location,
+		              ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
+		          ) / 1000.0`
+	var out LocationUpdate
+	err := s.pool.QueryRow(ctx, q, userID, lon, lat, locationName).
+		Scan(&out.UpdatedAt, &out.MovedKm)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return time.Time{}, ErrUserNotFound
+		return LocationUpdate{}, ErrUserNotFound
 	}
 	if err != nil {
-		return time.Time{}, fmt.Errorf("update user location: %w", err)
+		return LocationUpdate{}, fmt.Errorf("update user location: %w", err)
 	}
-	return updatedAt, nil
+	return out, nil
 }
 
 // UpdateUserFCMToken menyimpan registration token FCM perangkat user (dipakai

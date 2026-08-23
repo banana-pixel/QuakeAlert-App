@@ -362,6 +362,11 @@ func TestUpdateLocation_KeepsTheRegionWhenNoPlaceIsSent(t *testing.T) {
 	// Reverse-geocode yang gagal di ponsel adalah kondisi sesaat, bukan bukti
 	// bahwa user pindah provinsi. Sinkronisasi tanpa wilayah karena itu tidak
 	// boleh mengeluarkannya dari ruang chat wilayahnya.
+	//
+	// locMovedKm sengaja nil: profil belum punya posisi sebelumnya, jadi jarak
+	// pindahnya tidak diketahui — dan yang tidak diketahui tidak boleh
+	// membatalkan keanggotaan. Kasus "pindah sedikit" ada di
+	// TestUpdateLocation_SmallMoveKeepsTheRegion.
 	repo := &fakeRepo{
 		locUpdated:   time.Unix(1_781_913_558, 0).UTC(),
 		chatIdentity: &store.UserChatIdentity{Pseudonym: "AnonimTenang", RegionCode: "ID-jawa-barat"},
@@ -383,6 +388,108 @@ func TestUpdateLocation_KeepsTheRegionWhenNoPlaceIsSent(t *testing.T) {
 	}
 	if resp.RegionCode == nil || *resp.RegionCode != "ID-jawa-barat" {
 		t.Fatalf("region_code respons = %v, mau kanal yang tersimpan", resp.RegionCode)
+	}
+}
+
+func TestUpdateLocation_SmallMoveKeepsTheRegion(t *testing.T) {
+	// Perjalanan harian di dalam provinsi yang sama, tanpa wilayah karena geocoder
+	// gagal: keanggotaan kanal tidak boleh ikut hilang.
+	moved := 8.0
+	repo := &fakeRepo{
+		locUpdated:   time.Unix(1_781_913_558, 0).UTC(),
+		locMovedKm:   &moved,
+		chatIdentity: &store.UserChatIdentity{Pseudonym: "AnonimTenang", RegionCode: "ID-jawa-barat"},
+	}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+
+	body := `{"latitude":-6.9175,"longitude":107.6191}`
+	rec := do(h, authedRequest(http.MethodPut, "/api/v1/users/location", body, testSecret, "u-1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200: %s", rec.Code, rec.Body.String())
+	}
+	if repo.regionSets != 0 {
+		t.Fatalf("SetUserRegion dipanggil %d kali, mau 0", repo.regionSets)
+	}
+	var resp updateLocationResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.RegionCode == nil || *resp.RegionCode != "ID-jawa-barat" {
+		t.Fatalf("region_code respons = %v, mau kanal yang tersimpan", resp.RegionCode)
+	}
+}
+
+// Inti bug yang diperbaiki: region_code dulunya write-once. Sekali sebuah profil
+// mendapat region dari satu geocode yang berhasil, tidak ada jalur lain yang bisa
+// menimpanya — jadi user yang pindah provinsi sementara geocoder-nya gagal tetap
+// membaca dan menulis di ruang chat provinsi yang sudah ia tinggalkan, selamanya.
+func TestUpdateLocation_BigMoveWithoutAPlaceClearsTheRegion(t *testing.T) {
+	moved := regionInvalidateKm + 1
+	repo := &fakeRepo{
+		locUpdated:   time.Unix(1_781_913_558, 0).UTC(),
+		locMovedKm:   &moved,
+		chatIdentity: &store.UserChatIdentity{Pseudonym: "AnonimTenang", RegionCode: "ID-jawa-tengah"},
+	}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+
+	body := `{"latitude":-6.9175,"longitude":107.6191}`
+	rec := do(h, authedRequest(http.MethodPut, "/api/v1/users/location", body, testSecret, "u-1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200: %s", rec.Code, rec.Body.String())
+	}
+	if repo.regionSets != 1 || repo.regionCode != "" {
+		t.Fatalf("region = %q setelah %d penulisan, mau dikosongkan sekali",
+			repo.regionCode, repo.regionSets)
+	}
+	var resp updateLocationResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.RegionCode != nil {
+		t.Fatalf("region_code respons = %v, mau null", *resp.RegionCode)
+	}
+}
+
+// Perpindahan jauh pada profil yang belum punya region tidak perlu penulisan apa
+// pun: tidak ada keanggotaan basi untuk dibatalkan.
+func TestUpdateLocation_BigMoveWithNoStoredRegionWritesNothing(t *testing.T) {
+	moved := regionInvalidateKm + 500
+	repo := &fakeRepo{
+		locUpdated:   time.Unix(1_781_913_558, 0).UTC(),
+		locMovedKm:   &moved,
+		chatIdentity: &store.UserChatIdentity{Pseudonym: "AnonimTenang"},
+	}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+
+	body := `{"latitude":-6.9175,"longitude":107.6191}`
+	rec := do(h, authedRequest(http.MethodPut, "/api/v1/users/location", body, testSecret, "u-1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200: %s", rec.Code, rec.Body.String())
+	}
+	if repo.regionSets != 0 {
+		t.Fatalf("SetUserRegion dipanggil %d kali, mau 0", repo.regionSets)
+	}
+}
+
+// Wilayah yang dikirim selalu menurunkan ulang region, sejauh apa pun pindahnya:
+// itu satu-satunya bukti langsung tentang provinsi user yang pernah dimiliki
+// server.
+func TestUpdateLocation_APlaceAlwaysRederivesTheRegion(t *testing.T) {
+	moved := regionInvalidateKm + 100
+	repo := &fakeRepo{
+		locUpdated:   time.Unix(1_781_913_558, 0).UTC(),
+		locMovedKm:   &moved,
+		chatIdentity: &store.UserChatIdentity{Pseudonym: "AnonimTenang", RegionCode: "ID-jawa-tengah"},
+	}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+
+	body := `{"latitude":-6.9175,"longitude":107.6191,"country_iso":"ID","admin_area":"Jawa Barat"}`
+	rec := do(h, authedRequest(http.MethodPut, "/api/v1/users/location", body, testSecret, "u-1"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200: %s", rec.Code, rec.Body.String())
+	}
+	if repo.regionCode != "ID-jawa-barat" {
+		t.Fatalf("region tersimpan = %q, mau ID-jawa-barat", repo.regionCode)
 	}
 }
 

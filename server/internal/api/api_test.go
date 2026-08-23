@@ -43,6 +43,10 @@ type fakeRepo struct {
 	locSetErr  error
 	locUpdated time.Time
 
+	// locMovedKm meniru jarak dari posisi sebelumnya yang dibaca store dalam
+	// statement UPDATE yang sama; nil = user belum pernah punya posisi.
+	locMovedKm *float64
+
 	// FCM
 	fcmToken  string
 	fcmErr    error
@@ -100,9 +104,9 @@ func (f *fakeRepo) CreateUserProfile(_ context.Context, userID, pseudonym string
 	f.profileID, f.profilePseudonym = userID, pseudonym
 	return f.profileCreatedAt, f.profileErr
 }
-func (f *fakeRepo) UpdateUserLocation(_ context.Context, userID string, lat, lon float64, name string) (time.Time, error) {
+func (f *fakeRepo) UpdateUserLocation(_ context.Context, userID string, lat, lon float64, name string) (store.LocationUpdate, error) {
 	f.locUserID, f.locLat, f.locLon, f.locName = userID, lat, lon, name
-	return f.locUpdated, f.locSetErr
+	return store.LocationUpdate{UpdatedAt: f.locUpdated, MovedKm: f.locMovedKm}, f.locSetErr
 }
 func (f *fakeRepo) UpdateUserFCMToken(_ context.Context, _, token string) (time.Time, error) {
 	f.fcmToken = token
