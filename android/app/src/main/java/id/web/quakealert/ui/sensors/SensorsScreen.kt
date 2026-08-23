@@ -146,6 +146,7 @@ fun SensorsScreen(
             // camera moves to is the row the user tapped.
             markers = uiState.mapMarkers(),
             focus = uiState.mapFocus(),
+            pillLabel = uiState.mapPillLabel(),
             modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
         )
 
@@ -246,7 +247,8 @@ fun SensorsScreen(
                     ) { item ->
                         SensorItemCard(
                             item = item,
-                            onClick = { onSensorClicked(item) }
+                            onClick = { onSensorClicked(item) },
+                            isSelected = item.id == uiState.selectedStationId
                         )
                     }
                 }

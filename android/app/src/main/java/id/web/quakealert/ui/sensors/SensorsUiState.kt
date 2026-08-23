@@ -249,6 +249,21 @@ fun SensorsUiState.mapFocus(): MapFocus? {
 }
 
 /**
+ * What the map card's location pill says: the selected station when there is one,
+ * otherwise the device position the camera is resting on.
+ *
+ * Derived here beside [mapFocus] for the same reason: the pill names what the camera is
+ * looking at, so the two must be computed from one fact. A pill left on the user's own
+ * place while the camera sits on a station was the whole complaint — the map moved and
+ * refused to say where to.
+ */
+fun SensorsUiState.mapPillLabel(): String {
+    val selected = sensors.firstOrNull { it.id == selectedStationId } ?: return overview.locationLabel
+    if (selected.latitude == null || selected.longitude == null) return overview.locationLabel
+    return "Station ${selected.stationId}"
+}
+
+/**
  * Feature id for the device dot. A fixed string rather than a station id, because
  * there is exactly one and it must never collide with a station's key.
  */

@@ -110,4 +110,21 @@ class SensorsMapMarkersTest {
         assertEquals(-6.9175, stale.mapFocus()!!.latitude, 1e-6)
         assertTrue(stale.mapMarkers().none { it.kind == MapMarkerKind.SELECTED })
     }
+    @Test
+    fun `the pill names the framed station and falls back to the device place`() {
+        // The pill and the camera answer the same question, so they are tested against
+        // the same states: a selection names its station, no selection names the place.
+        assertEquals("Station NODE-2", positioned.copy(selectedStationId = "NODE-2").mapPillLabel())
+        assertEquals("Bandung, West Java, ID", positioned.mapPillLabel())
+        // A selection the camera cannot move to must not be named either, or the pill
+        // would claim a station the map is not showing.
+        assertEquals(
+            "Bandung, West Java, ID",
+            positioned.copy(selectedStationId = "NODE-3").mapPillLabel()
+        )
+        assertEquals(
+            "Bandung, West Java, ID",
+            positioned.copy(selectedStationId = "NODE-GONE").mapPillLabel()
+        )
+    }
 }

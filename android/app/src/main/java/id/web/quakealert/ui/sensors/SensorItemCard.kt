@@ -1,5 +1,7 @@
 package id.web.quakealert.ui.sensors
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,10 +17,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -36,6 +41,7 @@ import id.web.quakealert.ui.theme.MicroCaption
 import id.web.quakealert.ui.theme.SensorChipBorder
 import id.web.quakealert.ui.theme.SensorChipFill
 import id.web.quakealert.ui.theme.SensorNodeIdText
+import id.web.quakealert.ui.theme.SensorSelectedFill
 import id.web.quakealert.ui.theme.StatusOfflineDot
 import id.web.quakealert.ui.theme.StatusOfflineFill
 import id.web.quakealert.ui.theme.StatusOnlineDot
@@ -56,22 +62,45 @@ import id.web.quakealert.ui.theme.TextPrimary
  * this card stays byte-consistent with the History card.
  *
  * All state and events are hoisted; tapping the card invokes [onClick].
+ *
+ * @param isSelected true for the row whose station the map is currently framing. Drawn
+ *   as a [SensorNodeIdText] stroke over a lifted fill, both animated, so the tap has a
+ *   visible answer on the list as well as on the map — without it the only feedback was
+ *   a camera move at the top of the screen, which is easy to miss and impossible to
+ *   attribute to a particular row. Announced through `semantics { selected }` as well,
+ *   because a colour change alone tells a screen reader nothing.
  */
 @Composable
 fun SensorItemCard(
     item: SensorStationItem,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isSelected: Boolean = false
 ) {
     val cardShape = remember { RoundedCornerShape(Dimens.RadiusCard) }
+    val fill by animateColorAsState(
+        targetValue = if (isSelected) SensorSelectedFill else CardSurface,
+        animationSpec = tween(durationMillis = SELECTION_ANIMATION_MS),
+        label = "SensorCardFill"
+    )
+    val stroke by animateColorAsState(
+        targetValue = if (isSelected) SensorNodeIdText else CardBorder,
+        animationSpec = tween(durationMillis = SELECTION_ANIMATION_MS),
+        label = "SensorCardStroke"
+    )
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(cardShape)
-            .background(CardSurface, cardShape)
-            .border(Dimens.BorderThin, CardBorder, cardShape)
+            .background(fill, cardShape)
+            .border(
+                width = if (isSelected) Dimens.BorderMedium else Dimens.BorderThin,
+                color = stroke,
+                shape = cardShape
+            )
             .clickable(onClick = onClick)
+            .semantics { selected = isSelected }
             .padding(
                 start = Dimens.CardPaddingStart,
                 top = Dimens.CardPaddingTop,
@@ -85,6 +114,12 @@ fun SensorItemCard(
         DetailsColumn(item = item, modifier = Modifier.weight(1f))
     }
 }
+
+/**
+ * How long the selected card takes to pick up its highlight. Short enough to read as
+ * the tap's own response rather than an animation of its own.
+ */
+private const val SELECTION_ANIMATION_MS = 200
 
 /** cpu-chip badge stacked above the sensor-module label (Figma node 1:1112). */
 @Composable

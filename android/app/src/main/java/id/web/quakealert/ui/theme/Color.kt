@@ -114,6 +114,14 @@ val GeofenceStroke = Color(0xFF1B536A)          // solid teal coverage ring #1B5
 // Highlighted station-id suffix ("NODE-...")
 val SensorNodeIdText = Color(0xFF7EB1C7)        // node-id accent #7EB1C7 (ts2 #7EB1C7)
 
+/**
+ * Fill of the sensor row whose station the map is framing. One step up from
+ * [CardSurface] rather than a tint of the node-id accent: the row is still a card in a
+ * list of cards, and the stroke does the identifying. Lifting the fill any further
+ * turned a selected row into a different component.
+ */
+val SensorSelectedFill = Color(0xFF2C3438)      // selected station row fill
+
 // ============================================================
 // Settings screen palette — QuakeAlert (Figma node 1:845)
 // ============================================================

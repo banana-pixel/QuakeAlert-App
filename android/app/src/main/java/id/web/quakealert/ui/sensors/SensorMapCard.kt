@@ -80,6 +80,10 @@ import id.web.quakealert.ui.theme.TextPrimary
  *   as overlays here, because an overlay is only in the right place at the exact
  *   centre of the camera — which is true of the coverage circle and the pill, and
  *   false of every station.
+ * @param pillLabel overrides the top-left pill's text. Defaults to the device place
+ *   carried by [overview], which is what the Settings map wants; the Sensors screen
+ *   passes [id.web.quakealert.ui.sensors.mapPillLabel] so the pill names the station the
+ *   camera has moved to instead of a place the camera is no longer over.
  * @param focus overrides where the camera points. Null means "the device position
  *   carried by [overview]", which is what both screens want until a station row is
  *   tapped; the Sensors screen then passes the selected station's own framing.
@@ -93,7 +97,8 @@ fun SensorMapCard(
     showRangeBadge: Boolean = true,
     height: Dp = Dimens.MapCardHeight,
     markers: List<MapMarker> = emptyList(),
-    focus: MapFocus? = null
+    focus: MapFocus? = null,
+    pillLabel: String = overview.locationLabel
 ) {
     val cardShape = remember { RoundedCornerShape(Dimens.RadiusCard) }
     val animatedFraction by animateFloatAsState(
@@ -151,7 +156,7 @@ fun SensorMapCard(
 
         // Top-left: user location pill.
         LocationPill(
-            label = overview.locationLabel,
+            label = pillLabel,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(Dimens.MapCardPadding)
