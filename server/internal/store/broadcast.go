@@ -74,18 +74,25 @@ func (s *Store) ListBroadcastsForUser(ctx context.Context, userID string, limit 
 		limit = MaxBroadcastLimit
 	}
 
+	// Retensi disisipkan sebagai konstanta, bukan parameter: pgx mengirim
+	// argumen integer sebagai int4 dan `$n || ' days'` menuntut text, sehingga
+	// bentuk berparameter gagal di runtime ("cannot find encode plan") — sebuah
+	// kegagalan yang hanya muncul saat kueri benar-benar dijalankan. Nilainya
+	// konstanta compile-time, jadi tidak ada masukan pengguna yang disatukan ke
+	// dalam SQL di sini.
+	//
 	// LEFT JOIN, bukan subquery wajib: user tanpa baris profil (atau tanpa
 	// region) tetap harus menerima seluruh siaran nasional.
-	const q = `
+	q := `
 		SELECT b.broadcast_id, b.title, b.body, COALESCE(b.region_code, ''), b.created_at
 		FROM broadcasts b
 		LEFT JOIN user_profiles u ON u.user_id = $1
-		WHERE b.created_at > NOW() - ($2 || ' days')::interval
+		WHERE b.created_at > NOW() - make_interval(days => ` + strconv.Itoa(broadcastRetentionDays) + `)
 		  AND (b.region_code IS NULL OR b.region_code = u.region_code)
 		ORDER BY b.created_at DESC
-		LIMIT $3`
+		LIMIT $2`
 
-	rows, err := s.pool.Query(ctx, q, userID, broadcastRetentionDays, limit)
+	rows, err := s.pool.Query(ctx, q, userID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query broadcasts: %w", err)
 	}
@@ -125,10 +132,10 @@ func (s *Store) FCMTokensInRegion(ctx context.Context, regionCode string) ([]str
 		WHERE region_code = $1
 		  AND fcm_token IS NOT NULL
 		  AND fcm_token <> ''
-		  AND last_active > NOW() - ($2 || ' days')::interval
+		  AND last_active > NOW() - make_interval(days => ` + strconv.Itoa(fcmTokenMaxIdle) + `)
 		LIMIT ` + strconv.Itoa(maxFCMTokensPerEvent)
 
-	rows, err := s.pool.Query(ctx, q, regionCode, fcmTokenMaxIdle)
+	rows, err := s.pool.Query(ctx, q, regionCode)
 	if err != nil {
 		return nil, fmt.Errorf("query fcm tokens region: %w", err)
 	}

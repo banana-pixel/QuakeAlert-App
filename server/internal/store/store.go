@@ -530,14 +530,14 @@ func (s *Store) FCMTokensWithin(ctx context.Context, lat, lon float64, rangeKm i
 			WHERE fcm_token IS NOT NULL
 			  AND fcm_token <> ''
 			  AND last_location IS NOT NULL
-			  AND last_active > NOW() - ($4 || ' days')::interval
+			  AND last_active > NOW() - make_interval(days => ` + strconv.Itoa(fcmTokenMaxIdle) + `)
 			  AND ST_DWithin(last_location, ` + centroid + `, $3)
 			ORDER BY fcm_token, dist_m
 		) t
 		ORDER BY dist_m
 		LIMIT ` + strconv.Itoa(maxFCMTokensPerEvent)
 
-	rows, err := s.pool.Query(ctx, q, lat, lon, float64(rangeKm)*1000.0, fcmTokenMaxIdle)
+	rows, err := s.pool.Query(ctx, q, lat, lon, float64(rangeKm)*1000.0)
 	if err != nil {
 		return nil, fmt.Errorf("query fcm tokens: %w", err)
 	}
