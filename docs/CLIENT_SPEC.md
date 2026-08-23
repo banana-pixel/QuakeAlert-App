@@ -255,6 +255,14 @@ Yang **tidak** dilakukan, beserta alasannya, supaya tidak dibuka ulang tanpa sen
 3. **Floating window (`SYSTEM_ALERT_WINDOW`) tidak dipakai.** Platform sudah memberi alat yang benar untuk ini: alert dikirim dengan **full-screen intent** ke `WarningActivity` pada kanal `IMPORTANCE_HIGH` `quakealert_emergency_alerts`, yang mengambil alih layar **termasuk di atas lockscreen** — hal yang justru tidak bisa dilakukan overlay. Sementara `SYSTEM_ALERT_WINDOW` butuh grant per-user lewat layar system settings, termasuk permission sensitif di kebijakan Play, dan sejak Android 12 overlay disembunyikan otomatis oleh dialog sistem. Jadi overlay menambah friksi izin dan risiko review untuk kemampuan yang lebih kecil dari yang sudah dipakai.
 4. **Kesehatan socket tidak ikut dicetak.** `connectionState` dibagikan `WhileSubscribed` dan menutup ketika UI hilang, jadi baris "offline" akan muncul untuk app yang di-background padahal alert-nya memang datang lewat push. Berlangganan dari notifikasi agar barisnya jujur berarti menahan koneksi 24 jam demi satu baris di shade.
 
+### 5.6 Nama episenter berasal dari label node (keputusan)
+
+`location_name` pada sebuah alert **bukan** hasil geocoding: `internal/consensus/engine.go` mengambilnya dari `iot_nodes.location_name` milik node terdekat ke centroid, dan field itu diisi saat `POST /api/v1/nodes/provision`. Artinya nama tempat yang dibaca pengguna di dalam alert adalah teks yang **diketik operator** saat memasang sensor.
+
+Konvensi wajib untuk field itu: **"Kecamatan, Kabupaten/Kota, Provinsi"** — tempat yang bisa dicari pembaca di peta (contoh: `"Lembang, Kab. Bandung Barat, Jawa Barat"`). Server menormalkan spasi, lalu menolak nilai kosong, lebih dari 150 karakter, yang memuat `NODE-` (station id bukan tempat), atau yang memuat 5+ karakter identik berurutan (`"Bandung AAAAAAAA"` — bentuk khas nilai uji). Penolakan datang sebagai `400 INVALID_ARGUMENT`.
+
+Validasi itu hanya menyaring bentuk yang jelas bukan nama tempat; ia **tidak** bisa membuktikan sebuah string benar-benar menyebut lokasi node. Jawaban tahan lama adalah memberi nama event dari **gazetteer atau tabel batas administratif** berbasis centroid, dengan label node hanya sebagai fallback. Itu butuh sumber data batas wilayah dan diputuskan bersamaan dengan pengetatan kepercayaan `POST /nodes/provision` (endpoint itu masih terbuka untuk pemanggil anonim), jadi dicatat di sini sebagai keputusan, bukan pekerjaan yang sudah selesai.
+
 ---
 
 ## 6. Error Code Mapping

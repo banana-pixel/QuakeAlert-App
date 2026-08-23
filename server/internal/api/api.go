@@ -63,6 +63,63 @@ const maxLocationNameLen = 150
 // contracts/openapi/openapi.yaml (^NODE-[0-9A-F]{8}$).
 var stationIDPattern = regexp.MustCompile(`^NODE-[0-9A-F]{8}$`)
 
+// hasCharRun melaporkan adanya 5+ karakter identik berurutan ("AAAAAAAA"):
+// tidak ada nama tempat Indonesia yang memuatnya, sementara itu bentuk paling
+// umum dari nilai uji/keyboard-mash yang lolos ke provisioning. Ditulis manual
+// karena RE2 (regexp) tidak punya backreference.
+func hasCharRun(s string, minRun int) bool {
+	run := 0
+	var prev rune
+	for i, r := range s {
+		if i > 0 && r == prev {
+			run++
+		} else {
+			run = 1
+		}
+		if run >= minRun {
+			return true
+		}
+		prev = r
+	}
+	return false
+}
+
+// minCharRun adalah panjang deret karakter identik yang sudah pasti bukan nama.
+const minCharRun = 5
+
+// nodeLocationName menormalkan dan memvalidasi iot_nodes.location_name.
+//
+// Field ini bukan metadata internal: internal/consensus/engine.go memberi nama
+// epicentre sebuah event dari location_name node terdekat ke centroid, jadi apa
+// pun yang diketik saat provisioning terbaca publik di dalam alert. Konvensi
+// yang didokumentasikan di docs/CLIENT_SPEC.md: "Kecamatan, Kabupaten/Kota,
+// Provinsi" — tempat yang bisa dicari pembaca di peta.
+//
+// Validasi ini hanya menyaring bentuk yang jelas bukan nama tempat; ia tidak
+// bisa membuktikan sebuah string adalah lokasi node yang sebenarnya. Jawaban
+// tahan lama untuk itu adalah gazetteer/tabel batas administratif berbasis
+// centroid, dicatat sebagai keputusan di docs/CLIENT_SPEC.md.
+func nodeLocationName(raw string) (string, error) {
+	// strings.Fields sekaligus memangkas ujung dan meratakan spasi ganda,
+	// tab dan newline menjadi satu spasi.
+	name := strings.Join(strings.Fields(raw), " ")
+	if name == "" {
+		return "", errors.New("location_name wajib")
+	}
+	if len(name) > maxLocationNameLen {
+		return "", fmt.Errorf("location_name maksimal %d karakter", maxLocationNameLen)
+	}
+	// Station id adalah identitas, bukan tempat: "Bandung NODE-AAAAAAAA" pernah
+	// sampai ke kartu alert lewat jalur ini.
+	if strings.Contains(strings.ToUpper(name), "NODE-") {
+		return "", errors.New("location_name tidak boleh memuat station_id")
+	}
+	if hasCharRun(name, minCharRun) {
+		return "", errors.New("location_name tampak bukan nama tempat")
+	}
+	return name, nil
+}
+
 // Repo adalah subset method store yang dibutuhkan API. Interface memudahkan
 // pengujian dengan fake store (tanpa Postgres nyata).
 type Repo interface {
@@ -213,12 +270,13 @@ func (s *Server) HandleProvision(w http.ResponseWriter, r *http.Request) {
 	if !s.decodeBody(w, r, &req) {
 		return
 	}
-	if req.SensorModel == "" || req.LocationName == "" {
+	if strings.TrimSpace(req.SensorModel) == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "sensor_model & location_name wajib")
 		return
 	}
-	if len(req.LocationName) > maxLocationNameLen {
-		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "location_name maksimal 150 karakter")
+	locationName, nameErr := nodeLocationName(req.LocationName)
+	if nameErr != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", nameErr.Error())
 		return
 	}
 	if req.Latitude < -90 || req.Latitude > 90 {
@@ -262,7 +320,7 @@ func (s *Server) HandleProvision(w http.ResponseWriter, r *http.Request) {
 	if err := s.repo.CreateNode(r.Context(), &store.NewNode{
 		StationID:    stationID,
 		SensorModel:  req.SensorModel,
-		LocationName: req.LocationName,
+		LocationName: locationName,
 		Lat:          req.Latitude,
 		Lon:          req.Longitude,
 		SecretEnc:    enc,

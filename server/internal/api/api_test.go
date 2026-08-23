@@ -1207,3 +1207,44 @@ func TestListEvents_FilterGabungan(t *testing.T) {
 		t.Fatalf("range_km pada respons = %v, mau 250", resp.RangeKm)
 	}
 }
+
+// nodeLocationName menjaga satu-satunya sumber nama epicentre yang dilihat
+// pengguna: consensus engine memakai location_name node terdekat ke centroid,
+// jadi nilai yang lolos di sini akan terbaca di dalam alert.
+func TestNodeLocationName(t *testing.T) {
+	cases := []struct {
+		nama  string
+		masuk string
+		mau   string // kosong = harus ditolak
+	}{
+		{"nama sesuai konvensi diterima apa adanya",
+			"Cimahi, Kota Cimahi, Jawa Barat", "Cimahi, Kota Cimahi, Jawa Barat"},
+		{"spasi ujung dipangkas dan spasi ganda diratakan",
+			"  Lembang,\tKab. Bandung Barat,\n Jawa Barat  ", "Lembang, Kab. Bandung Barat, Jawa Barat"},
+		{"kosong ditolak", "", ""},
+		{"hanya spasi ditolak", "   \t\n ", ""},
+		{"station id bukan nama tempat", "Bandung NODE-AAAAAAAA", ""},
+		{"station id huruf kecil juga ditolak", "Bandung node-aaaaaaaa", ""},
+		{"deret karakter identik ditolak", "Bandung AAAAAAAA", ""},
+		{"nama tempat wajar dengan huruf ganda tetap lolos",
+			"Sukabumi, Jawa Barat", "Sukabumi, Jawa Barat"},
+		{"lebih dari 150 karakter ditolak", strings.Repeat("ab", 80), ""},
+	}
+	for _, c := range cases {
+		t.Run(c.nama, func(t *testing.T) {
+			got, err := nodeLocationName(c.masuk)
+			if c.mau == "" {
+				if err == nil {
+					t.Fatalf("nodeLocationName(%q) = %q, mau error", c.masuk, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("nodeLocationName(%q) error: %v", c.masuk, err)
+			}
+			if got != c.mau {
+				t.Fatalf("nodeLocationName(%q) = %q, mau %q", c.masuk, got, c.mau)
+			}
+		})
+	}
+}
