@@ -38,7 +38,7 @@ type FCMMessage struct {
 // BuildAlertData membentuk map data-only sesuai kontrak dari AlertMessage.
 // pga_gal 2 desimal, centroid 4 desimal, timestamp ms epoch UTC sebagai string.
 func BuildAlertData(a *AlertMessage) map[string]string {
-	return map[string]string{
+	data := map[string]string{
 		"type":            a.Type,
 		"event_id":        a.EventID,
 		"mmi":             a.MMI,
@@ -49,6 +49,13 @@ func BuildAlertData(a *AlertMessage) map[string]string {
 		"location_name":   a.LocationName,
 		"timestamp":       strconv.FormatInt(a.Timestamp, 10),
 	}
+	// Hanya ditambahkan bila benar: payload gempa sungguhan tetap identik
+	// dengan kontrak yang sudah dipasang klien terdahulu, dan tidak ada
+	// "is_test": "false" yang bisa salah dibaca sebagai ada-nilainya.
+	if a.IsTest {
+		data["is_test"] = "true"
+	}
+	return data
 }
 
 // HTTPV1Sender adalah implementasi FCMSender via FCM HTTP v1 (Admin) memakai

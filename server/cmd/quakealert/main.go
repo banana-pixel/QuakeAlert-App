@@ -171,6 +171,7 @@ func run(log *slog.Logger) error {
 	// admin untuk ditembus sama sekali.
 	apiSrv.SetAdminAPIKey(cfg.AdminAPIKey)
 	apiSrv.SetBroadcastFanout(broadcastFanout{dispatcher: dispatcher})
+	apiSrv.SetTestAlertFanout(testAlertFanout{dispatcher: dispatcher})
 	hub.SetChannelResolver(func(r *http.Request) []string {
 		userID, ok := api.UserIDFromContext(r.Context())
 		if !ok {
@@ -347,6 +348,27 @@ func (f broadcastFanout) BroadcastAdmin(b api.AdminBroadcast) {
 		Body:        b.Body,
 		RegionCode:  b.RegionCode,
 		Timestamp:   b.CreatedAt.UnixMilli(),
+	})
+}
+
+// testAlertFanout mengadaptasi api.TestAlertFanout ke dispatcher. Jalur yang
+// berbeda dari broadcastFanout meski keduanya berakhir di dispatcher yang sama:
+// drill memakai envelope alert (agar layar peringatan yang diuji adalah yang
+// sesungguhnya) tetapi topic FCM sendiri, dan tidak menyentuh persistensi.
+type testAlertFanout struct{ dispatcher *dispatch.Dispatcher }
+
+func (f testAlertFanout) DispatchTestAlert(t api.TestAlert) {
+	f.dispatcher.DispatchTestAlert(&dispatch.AlertMessage{
+		Type:           dispatch.TypeAlert,
+		EventID:        t.EventID,
+		MMI:            t.MMI,
+		IntensityLabel: t.IntensityLabel,
+		PGAGal:         t.PGAGal,
+		CentroidLat:    t.Latitude,
+		CentroidLon:    t.Longitude,
+		LocationName:   t.LocationName,
+		Timestamp:      t.Timestamp.UnixMilli(),
+		NodeCount:      t.NodeCount,
 	})
 }
 

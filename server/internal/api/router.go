@@ -72,6 +72,10 @@ func (s *Server) Router(wsHandler http.HandlerFunc, log *slog.Logger) http.Handl
 		r.Group(func(r chi.Router) {
 			r.Use(AdminKeyMiddleware(s.adminKey, log))
 			r.Post("/api/v1/admin/broadcasts", s.HandleCreateBroadcast)
+			// Drill: satu kunci yang sama, tetapi jalur fanout yang sepenuhnya
+			// lain (topic test_alerts saja, tanpa konsensus dan tanpa baris
+			// earthquake_events). Lihat testalert.go.
+			r.Post("/api/v1/admin/test-alert", s.HandleCreateTestAlert)
 		})
 	} else {
 		log.Warn("ADMIN_API_KEY tidak di-set — endpoint siaran admin tidak didaftarkan")

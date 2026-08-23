@@ -188,6 +188,10 @@ type Server struct {
 	// adminKey kosong berarti rute /api/v1/admin/* tidak didaftarkan sama sekali
 	// (lihat SetAdminAPIKey).
 	adminKey []byte
+	// testAlerts menyiarkan peringatan latihan; nil berarti endpoint drill
+	// menjawab 503 alih-alih menerima yang tidak akan terkirim (lihat
+	// SetTestAlertFanout).
+	testAlerts TestAlertFanout
 }
 
 // NewServer membuat Server API. TokenTTL yang kosong diisi defaultTokenTTL.

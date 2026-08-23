@@ -48,6 +48,10 @@ type AlertMessage struct {
 	LocationName   string  `json:"location_name"`
 	Timestamp      int64   `json:"timestamp"` // ms epoch UTC
 	NodeCount      int     `json:"node_count"`
+	// IsTest menandai peringatan LATIHAN. omitempty, jadi payload gempa
+	// sungguhan tetap sama persis seperti sebelum flag ini ada — dan sebuah
+	// alert tanpa field ini tidak mungkin ditafsirkan sebagai drill.
+	IsTest bool `json:"is_test,omitempty"`
 }
 
 // chatBufferCeiling menjaga separuh buffer per-klien tetap kosong untuk alert.
