@@ -21,7 +21,7 @@
 
     <string name="emergency_during_title">While the ground is shaking</string>
     <string name="emergency_step_drop_title">1. Drop</string>
-    <string name="emergency_step_drop_detail">Get down on your hands and knees before the shaking knocks you down. Stay where you are — most injuries happen to people moving between rooms or running outside.</string>
+    <string name="emergency_step_drop_detail">Get down on your hands and knees before the shaking knocks you down. Stay where you are. Most injuries happen to people moving between rooms or running outside.</string>
     <string name="emergency_step_cover_title">2. Cover</string>
     <string name="emergency_step_cover_detail">Cover your head and neck with one arm. Get under a sturdy table if one is within reach, or against an interior wall away from windows, mirrors and anything tall.</string>
     <string name="emergency_step_hold_title">3. Hold on</string>
