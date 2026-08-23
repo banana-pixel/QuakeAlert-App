@@ -138,11 +138,46 @@ class WarningUiStateTest {
 
     // --- recent seismic activity ---------------------------------------------
 
+    /**
+     * The bug this wording exists to fix: the banner used to spend its whole line on
+     * the count, so the screen said "No Recent Earthquake" directly above "3 events
+     * nearby" and the newest event was reachable only by tapping through.
+     */
     @Test
-    fun `measured activity counts events and names the window`() {
+    fun `measured activity names the latest event before the count`() {
         val activity = measuredActivity(eventCount = 3)
-        assertEquals("3 events nearby in the past 30 days", activity.bannerLabel)
+        assertEquals(
+            "Latest: IV (moderate), 2 days ago \u00b7 3 nearby in 30 days",
+            activity.bannerLabel
+        )
+        assertEquals("No Active Earthquake", activity.bannerTitle)
         assertEquals("3 events", activity.countValue)
+    }
+
+    /** The only state in which "No Recent Earthquake" is a true sentence. */
+    @Test
+    fun `a measured quiet month is the only no-recent-earthquake headline`() {
+        val quiet = measuredActivity(eventCount = 0)
+        assertEquals("No Recent Earthquake", quiet.bannerTitle)
+        assertEquals(
+            "No quakes recorded near you in the past 30 days",
+            quiet.bannerLabel
+        )
+    }
+
+    /**
+     * An unmeasured neighbourhood must not be reported as a quiet one, so neither
+     * failure state may borrow the zero-event headline.
+     */
+    @Test
+    fun `an unmeasured neighbourhood never claims to be quiet`() {
+        assertEquals("No Active Earthquake", RecentSeismicActivity().bannerTitle)
+        assertEquals(
+            "No Active Earthquake",
+            measuredActivity(eventCount = 3)
+                .copy(availability = ActivityAvailability.UNAVAILABLE)
+                .bannerTitle
+        )
     }
 
     @Test
@@ -155,7 +190,10 @@ class WarningUiStateTest {
     fun `a capped count reads as a floor`() {
         val activity = measuredActivity(eventCount = 100, isCountCapped = true)
         assertEquals("100+ events", activity.countValue)
-        assertEquals("100+ events nearby in the past 30 days", activity.bannerLabel)
+        assertEquals(
+            "Latest: IV (moderate), 2 days ago \u00b7 100+ nearby in 30 days",
+            activity.bannerLabel
+        )
     }
 
     /**

@@ -210,7 +210,8 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
      *
      * A single event is enough: the feed is sorted `created_at DESC`, and only an
      * unresolved quake inside the recent window can justify opening on the emergency
-     * screen. An older or already-resolved event means the idle state.
+     * screen. An unresolved one that has aged out of that window still gets the
+     * recent-quake banner; a resolved one, or none at all, means the resting state.
      */
     private suspend fun fetchWarning(): LoadOutcome {
         val latest = apiClient.fetchEvents(limit = 1).getOrThrow().firstOrNull()
@@ -219,13 +220,26 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
         // cached on the quiet path too, not only when there is a quake to gate.
         val userLocation = apiClient.currentUserLocation()
         lastKnownLocation = userLocation
-        if (latest == null || !latest.isOngoing()) {
+        if (latest == null || latest.status != EventStatus.HAPPENING) {
             activeAlertDetails = null
             recentActivity = fetchRecentActivity(userLocation)
             return LoadOutcome.Resting(restingSnapshot(recentActivity))
         }
 
         activeAlertDetails = latest.toHistoryItem(userLocation)
+
+        // Unresolved, but older than the window the siren answers for. It is still an
+        // open quake, so it gets the recent-quake banner — which is exactly what that
+        // banner is for — rather than being represented by nothing but a number in the
+        // activity count, which is what the resting branch used to do with it.
+        if (!latest.isOngoing()) {
+            return LoadOutcome.DistantEmergency(
+                activeSnapshot(
+                    intensityLabel = latest.intensityBannerLabel(),
+                    timeAgo = QuakeFormat.relativeTime(latest.createdAt, Instant.now())
+                )
+            )
+        }
 
         // The same gate the realtime path uses. A cold start during a quake on the
         // other side of the country must open on the banner, not the siren.
@@ -672,7 +686,6 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
 
         /** Copy for the idle banner variants, matching the design (Figma 124:1297 / 124:1426). */
         const val TITLE_ACTIVE = "Recent Earthquake Alert"
-        const val TITLE_RESTING = "No Recent Earthquake"
         const val SECTION_ACTIVE = "Stay alert for aftershocks"
         const val SECTION_RESTING = "Stay prepared for an earthquake"
 
@@ -704,8 +717,11 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
         )
 
         fun restingSnapshot(activity: RecentSeismicActivity) = WarningSnapshot(
+            // Both halves come from the activity: the headline has to agree with the
+            // line under it, and only the activity knows whether "No Recent
+            // Earthquake" is a measured fact or an unmeasured guess.
             banner = SeismicActivityBanner(
-                title = TITLE_RESTING,
+                title = activity.bannerTitle,
                 activityLabel = activity.bannerLabel
             ),
             sectionTitle = SECTION_RESTING,

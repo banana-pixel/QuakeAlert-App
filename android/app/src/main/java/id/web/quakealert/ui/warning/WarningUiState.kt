@@ -136,15 +136,48 @@ data class RecentSeismicActivity(
     /** The hardest shaking, on the same three-way terms as [mostRecentValue]. */
     val strongestValue: String get() = measured(strongest ?: NONE_RECORDED)
 
+    /** The count with no noun, for the banner's second clause: "9" / "100+". */
+    private val countShort: String
+        get() = if (isCountCapped) "$eventCount+" else "$eventCount"
+
+    /**
+     * The resting banner's headline.
+     *
+     * "No Recent Earthquake" is only said in the one case where it is true: the
+     * network measured the neighbourhood and recorded nothing. With events on the
+     * books it would contradict the line printed directly beneath it, and with no
+     * measurement at all it would be a claim of quiet the app has not earned. Both
+     * of those say "No Active Earthquake" instead, which is the narrower thing this
+     * screen actually knows — no alert is running right now.
+     */
+    val bannerTitle: String
+        get() = if (availability == ActivityAvailability.MEASURED && eventCount == 0) {
+            TITLE_NONE_RECENT
+        } else {
+            TITLE_NONE_ACTIVE
+        }
+
     /**
      * The resting banner's one line. Radius is left out on purpose — the banner has
      * a single line to spend and the card states the radius exactly, in the user's
      * own unit, which the banner is built too early to know.
+     *
+     * The newest event leads it, because "when did the ground last move near me" is
+     * the question a user opens this screen with; the count follows as context. The
+     * banner renders two lines, so both clauses fit.
      */
     val bannerLabel: String
         get() = when (availability) {
-            ActivityAvailability.MEASURED ->
-                "$countText nearby in the past $windowDays days"
+            ActivityAvailability.MEASURED -> when {
+                eventCount == 0 ->
+                    "No quakes recorded near you in the past $windowDays days"
+                mostRecent != null ->
+                    "Latest: $mostRecent \u00b7 $countShort nearby in $windowDays days"
+                // A count with no newest event should not happen (both are read from
+                // the same page), so this keeps the old wording rather than inventing
+                // copy for a state that has no meaning.
+                else -> "$countText nearby in the past $windowDays days"
+            }
             ActivityAvailability.NO_POSITION -> "Sync your location to see nearby activity"
             ActivityAvailability.UNAVAILABLE -> "Recent activity unavailable"
         }
@@ -155,10 +188,14 @@ data class RecentSeismicActivity(
         ActivityAvailability.UNAVAILABLE -> UNAVAILABLE_VALUE
     }
 
-    private companion object {
-        const val NONE_RECORDED = "None recorded"
-        const val NEEDS_POSITION = "Needs your location"
-        const val UNAVAILABLE_VALUE = "Unavailable offline"
+    companion object {
+        /** Copy for the idle banner variants, matching the design (Figma 124:1426). */
+        const val TITLE_NONE_RECENT = "No Recent Earthquake"
+        const val TITLE_NONE_ACTIVE = "No Active Earthquake"
+
+        private const val NONE_RECORDED = "None recorded"
+        private const val NEEDS_POSITION = "Needs your location"
+        private const val UNAVAILABLE_VALUE = "Unavailable offline"
     }
 }
 
@@ -304,7 +341,7 @@ sealed interface WarningUiState {
         val isError: Boolean = false,
         val errorCopy: ErrorCopy? = null,
         val banner: WarningBanner = SeismicActivityBanner(
-            title = "No Recent Earthquake",
+            title = RecentSeismicActivity.TITLE_NONE_RECENT,
             // The pre-load read, and deliberately not a number: until the query
             // returns, the app does not know how many events are nearby, and printing
             // a placeholder count would be the same lie the old "High Risk" told.
