@@ -293,6 +293,43 @@ Frame WebSocket dan payload FCM `type: "ADMIN_BROADCAST"`:
 - `broadcast_id` adalah kunci dedup: frame WS dan notifikasi FCM dapat tiba berdua.
 - Payload push selalu `data`-only, seperti alert — kanal, ikon dan bunyinya ditentukan klien, bukan server.
 
+### 5.8 Peringatan latihan: dua pagar yang saling menutup (keputusan)
+
+`POST /api/v1/admin/test-alert` (header `X-Admin-Key`, sama seperti broadcast) menyiarkan sebuah **drill**: peringatan berbentuk `EARTHQUAKE_ALERT` yang menempuh seluruh jalur push dan seluruh state machine klien, tetapi **tidak melewati `internal/consensus` dan tidak menulis satu baris pun ke `earthquake_events`**. Riwayat gempa yang memuat gempa yang tidak pernah terjadi tidak dapat dipakai untuk mengevaluasi apa pun, termasuk sistem ini sendiri.
+
+Frame WS dan payload FCM identik dengan alert biasa, ditambah satu field:
+
+```json
+{
+  "type": "EARTHQUAKE_ALERT",
+  "event_id": "test-3f1c9a72b45d",
+  "mmi": "IV",
+  "intensity_label": "moderate",
+  "pga_gal": 61.5,
+  "centroid_lat": -6.9175,
+  "centroid_lon": 107.6191,
+  "location_name": "LATIHAN — bukan gempa sungguhan",
+  "node_count": 3,
+  "timestamp": 1781913558000,
+  "is_test": true
+}
+```
+
+Sebuah drill yang sampai ke masyarakat mengajari orang mengabaikan sirene, dan pelajaran itu tidak dapat ditarik kembali. Karena itu ada **dua pagar yang berdiri sendiri** — masing-masing cukup, dan keduanya ada supaya satu kesalahan konfigurasi tidak dapat membuka keduanya:
+
+1. **Topic FCM `test_alerts` saja.** `dispatch.DispatchTestAlert` tidak pernah jatuh ke `geo_alert_all`, berapa pun `pga_gal`-nya. Hanya build debug yang berlangganan topic ini (`data/push/PushRegistrar.kt`), jadi instalasi rilis tidak punya rute FCM ke sebuah drill sama sekali.
+2. **Klien membuang frame `is_test` pada build rilis.** Keputusannya ada di satu tempat, `data/network/mapper/AlertMappers.kt` (`toDomainOrNull`), karena itulah satu-satunya titik yang dilewati kedua transport — jalur FCM menyusun DTO lalu memanggilnya. Drill yang tiba lewat replay WebSocket atau push yang salah sasaran mati di sana.
+
+Aturan lain yang menyertainya:
+
+- `is_test` **omitempty** di wire dan kondisional di map FCM, sehingga payload gempa sungguhan tetap byte-identik untuk klien yang sudah terpasang. Default klien `false`: field yang absen, `"1"`, `"TRUE"` atau salah ketik semuanya dibaca sebagai **alert sungguhan**. Arah gagalnya disengaja — gempa sungguhan yang salah dibaca sebagai drill akan dibungkam pada build rilis.
+- `event_id` berawalan **`test-`**, bukan UUID basis data (tidak ada barisnya). Dedup klien tetap bekerja dan id yang terbaca di log atau laporan bug langsung mengaku dirinya latihan.
+- `mmi` dan `intensity_label` diturunkan dari `pga_gal` oleh **fungsi yang sama** dengan jalur konsensus (`consensus.Intensity`), jadi drill tidak dapat membawa kombinasi yang gempa sungguhan tidak pernah menghasilkan. `pga_gal` wajib 1..2000 gal; `latitude`/`longitude` wajib (klien menyaring berdasarkan jarak, jadi drill tanpa koordinat tidak menguji apa pun); `node_count` default 3 — ambang CONFIRMED, bentuk peringatan yang sedang dilatih.
+- **All-clear otomatis setelah 20 detik**: dispatcher mengirim `EVENT_RESOLVED` untuk `event_id` yang sama tanpa menyentuh state resolusi gempa sungguhan. Drill tidak pernah membutuhkan operator untuk mematikannya.
+- Build debug memakai `applicationId` bersufiks **`.debug`** sehingga terpasang **di samping** aplikasi produksi, bukan menggantikannya. Tanpa sufiks, memasang build penguji akan meninggalkan ponsel pengguna sungguhan berlangganan `test_alerts`. Firebase memetakan kredensial menurut `applicationId`, jadi paket bersufiks perlu entrinya sendiri di `app/google-services.json`; tanpa entri itu build drill sekadar tidak punya Firebase dan jatuh ke WebSocket.
+- Build debug menandai drill di **tiga tempat** yang dilihat penguji: pil "TEST - DRILL, NOT A REAL EARTHQUAKE" di kartu darurat, judul notifikasi "TEST - earthquake drill", dan baris "Last alert" berbunyi "Drill (test alert) near …". Penanda ini tidak melindungi masyarakat — kedua pagar di ataslah yang melakukannya — melainkan melindungi penguji dari mengira latihan sebagai kejadian sungguhan, yang justru sebabnya drill aman dijalankan.
+- Pengirimnya `deploy/scripts/test-alert.sh`, membaca `ADMIN_API_KEY` dari environment (bukan argv, agar tidak masuk daftar proses maupun histori shell) dan mengharapkan `202 Accepted`. `ADMIN_API_KEY` kosong berarti rute admin **tidak didaftarkan sama sekali** → 404, bukan 401.
+
 ---
 
 ## 6. Error Code Mapping

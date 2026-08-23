@@ -379,6 +379,13 @@ sealed interface WarningUiState {
      * @param isSosLightUnavailable true when the torch could not be turned on at
      *   all — no flash unit, or another app holds the camera. Surfaced so the
      *   control can say so instead of looking engaged over a dark LED.
+     * @param isTest true when this screen was raised by a drill
+     *   (`POST /api/v1/admin/test-alert`), which renders a "TEST" badge over the
+     *   card. Only ever true on a debug build — a release build drops a drill frame
+     *   before it becomes an alert
+     *   (id.web.quakealert.data.network.mapper.toDomainOrNull) — so the badge is not
+     *   what protects the public; it is what stops the *tester* mistaking a drill for
+     *   the real thing, which is the whole reason a drill is safe to run at all.
      */
     @Immutable
     data class ActiveAlert(
@@ -386,6 +393,7 @@ sealed interface WarningUiState {
         val intensityValue: String,
         val distanceKm: Int?,
         val locationName: String,
+        val isTest: Boolean = false,
         val isMuted: Boolean = false,
         val isSosLightOn: Boolean = false,
         val isSosLightUnavailable: Boolean = false,

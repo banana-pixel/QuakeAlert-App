@@ -1,5 +1,6 @@
 package id.web.quakealert.data.network.mapper
 
+import id.web.quakealert.BuildConfig
 import id.web.quakealert.data.network.model.WsAlertMessageDto
 import id.web.quakealert.domain.AlertType
 import id.web.quakealert.domain.UserLocation
@@ -18,9 +19,28 @@ import kotlin.math.roundToInt
  * failure here: the three known types drive three different UI behaviours, and a
  * fourth one guessed into the wrong bucket would either raise a false alarm or
  * clear a real one.
+ *
+ * Also returns null for a drill frame (`is_test`) unless [allowTestAlerts]. This is
+ * the client half of the two fences that keep a drill away from the public: the
+ * server publishes drills to the `test_alerts` FCM topic alone, which no release
+ * build subscribes to (id.web.quakealert.data.push.PushRegistrar), and a drill that
+ * reaches a release build anyway — replayed over the WebSocket, or delivered by a
+ * mis-targeted push — dies here. Either fence alone would do it; the point of two is
+ * that one configuration mistake cannot clear both. It sits in this function because
+ * this is the one place both transports pass through: the FCM path builds a
+ * [WsAlertMessageDto] and calls straight into it
+ * (id.web.quakealert.data.network.mapper.toWsAlertMessageOrNull).
+ *
+ * @param allowTestAlerts whether a drill may become an alert on this build. A
+ *   parameter rather than a bare `BuildConfig.DEBUG` read so both branches can be
+ *   asserted in a unit test — the release branch is the one that matters and it is
+ *   the one a debug-only test run could never otherwise exercise.
  */
-fun WsAlertMessageDto.toDomainOrNull(): WsAlertMessage? {
+fun WsAlertMessageDto.toDomainOrNull(
+    allowTestAlerts: Boolean = BuildConfig.DEBUG
+): WsAlertMessage? {
     val alertType = type.toAlertTypeOrNull() ?: return null
+    if (isTest && !allowTestAlerts) return null
     return WsAlertMessage(
         type = alertType,
         eventId = eventId,
@@ -31,7 +51,8 @@ fun WsAlertMessageDto.toDomainOrNull(): WsAlertMessage? {
         centroidLon = centroidLon,
         locationName = locationName,
         timestampMs = timestamp,
-        nodeCount = nodeCount
+        nodeCount = nodeCount,
+        isTest = isTest
     )
 }
 

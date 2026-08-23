@@ -762,7 +762,8 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
                 eventId = eventId,
                 intensityValue = intensityValueLabel(),
                 distanceKm = userLocation.distanceKmTo(centroidLat, centroidLon)?.roundToInt(),
-                locationName = locationName
+                locationName = locationName,
+                isTest = isTest
             )
     }
 }

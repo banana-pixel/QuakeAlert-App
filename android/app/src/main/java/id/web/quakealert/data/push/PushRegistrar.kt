@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
+import id.web.quakealert.BuildConfig
 import id.web.quakealert.data.network.QuakeApiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -62,6 +63,7 @@ class PushRegistrar(
         scope.launch {
             subscribeToAlertTopic()
             subscribeToUpdatesTopic()
+            subscribeToTestAlertsTopic()
             val token = currentToken() ?: return@launch
             uploadToken(token)
         }
@@ -105,6 +107,27 @@ class PushRegistrar(
             .onFailure { Log.w(TAG, "could not subscribe to $UPDATES_TOPIC", it) }
     }
 
+    /**
+     * Subscribes to `test_alerts` — **debug builds only**.
+     *
+     * This is the first of the two fences that keep a drill away from a real user. A
+     * release install never subscribes, so a drill published by
+     * `POST /api/v1/admin/test-alert` has no FCM route to it at all; the second fence
+     * is the mapper, which drops an `is_test` frame that arrives by any other means
+     * (id.web.quakealert.data.network.mapper.toDomainOrNull). Two independent fences
+     * because a drill that reaches the public would train people to ignore the siren,
+     * and one misconfiguration must not be enough to cause that.
+     *
+     * The `BuildConfig.DEBUG` check is here rather than at the call site so there is
+     * exactly one place in the app that decides who may receive a drill.
+     */
+    private suspend fun subscribeToTestAlertsTopic() {
+        if (!BuildConfig.DEBUG) return
+        runCatching { FirebaseMessaging.getInstance().subscribeToTopic(TEST_ALERTS_TOPIC).await() }
+            .onFailure { Log.w(TAG, "could not subscribe to $TEST_ALERTS_TOPIC", it) }
+        Log.i(TAG, "debug build subscribed to $TEST_ALERTS_TOPIC")
+    }
+
     private companion object {
         const val TAG = "PushRegistrar"
 
@@ -113,5 +136,8 @@ class PushRegistrar(
 
         /** `dispatch.UpdatesTopic` in server/internal/dispatch/broadcast.go. */
         const val UPDATES_TOPIC = "updates_all"
+
+        /** `dispatch.TestAlertsTopic` in server/internal/dispatch/testalert.go. */
+        const val TEST_ALERTS_TOPIC = "test_alerts"
     }
 }

@@ -90,7 +90,7 @@ fun ActiveAlertCard(
         verticalArrangement = Arrangement.SpaceBetween,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        AlertHeadline()
+        AlertHeadline(isTest = state.isTest)
 
         IntensityReadout(
             intensityValue = state.intensityValue,
@@ -109,14 +109,46 @@ fun ActiveAlertCard(
     }
 }
 
-/** Badge + headline block (Figma node 1:1059). */
+/**
+ * Badge + headline block (Figma node 1:1059), plus the drill marker.
+ *
+ * [isTest] adds a bordered "TEST" pill above the badge. It is not what keeps a drill
+ * away from the public — two fences upstream do that, and a release build never
+ * reaches this composable with [isTest] set
+ * (id.web.quakealert.data.network.mapper.toDomainOrNull). It is what stops the
+ * *tester* mistaking a drill for the real thing, which is the reason a drill is safe
+ * to run at all. It sits above the headline rather than replacing it so the card
+ * still looks like the screen under test; the word "DRILL" spells out what "TEST"
+ * means for anyone handed the phone mid-exercise.
+ */
 @Composable
-private fun AlertHeadline(modifier: Modifier = Modifier) {
+private fun AlertHeadline(isTest: Boolean, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(Dimens.EmergencyBadgeTitleGap),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        if (isTest) {
+            Text(
+                text = "TEST - DRILL, NOT A REAL EARTHQUAKE",
+                style = EmergencyControlLabel,
+                modifier = Modifier
+                    .background(
+                        SuggestedActionsFill,
+                        RoundedCornerShape(Dimens.EmergencyControlRadius)
+                    )
+                    .border(
+                        width = Dimens.EmergencyControlBorderWidth,
+                        color = EmergencyControlBorder,
+                        shape = RoundedCornerShape(Dimens.EmergencyControlRadius)
+                    )
+                    .padding(
+                        horizontal = Dimens.PillPaddingHorizontal,
+                        vertical = Dimens.PillPaddingVertical
+                    )
+            )
+        }
+
         Column(
             modifier = Modifier
                 .size(Dimens.EmergencyIconBadgeSize)
@@ -429,6 +461,18 @@ private fun ActiveAlertCardUnknownDistancePreview() {
                 locationName = "",
                 isSosLightUnavailable = true
             ),
+            onMuteClick = {},
+            onSosLightClick = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000, heightDp = 700)
+@Composable
+private fun ActiveAlertCardDrillPreview() {
+    QuakeAlertTheme {
+        ActiveAlertCard(
+            state = previewActiveAlert.copy(isTest = true),
             onMuteClick = {},
             onSosLightClick = {}
         )

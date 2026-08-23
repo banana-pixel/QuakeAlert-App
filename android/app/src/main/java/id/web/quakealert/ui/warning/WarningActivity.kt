@@ -168,7 +168,11 @@ class WarningActivity : ComponentActivity() {
         distanceKm = getIntExtra(EXTRA_DISTANCE_KM, UNKNOWN_DISTANCE).takeIf {
             it != UNKNOWN_DISTANCE
         },
-        locationName = getStringExtra(EXTRA_LOCATION_NAME).orEmpty()
+        locationName = getStringExtra(EXTRA_LOCATION_NAME).orEmpty(),
+        // Defaults to false, so an intent built before this extra existed — or one
+        // forged by anything else on the device — raises an ordinary alert rather
+        // than a screen that tells the user to ignore it.
+        isTest = getBooleanExtra(EXTRA_IS_TEST, false)
     )
 
     companion object {
@@ -176,6 +180,7 @@ class WarningActivity : ComponentActivity() {
         private const val EXTRA_INTENSITY = "intensity_value"
         private const val EXTRA_DISTANCE_KM = "distance_km"
         private const val EXTRA_LOCATION_NAME = "location_name"
+        private const val EXTRA_IS_TEST = "is_test"
         private const val UNKNOWN_DISTANCE = -1
 
         /**
@@ -184,19 +189,24 @@ class WarningActivity : ComponentActivity() {
          * `NEW_TASK` and `CLEAR_TOP` are both required: the notification launches this
          * from outside any task of ours, and a stale copy left behind by an earlier
          * quake must not sit under the new one.
+         *
+         * @param isTest marks a drill, which adds the "TEST" badge to the card. Only
+         *   ever true on a debug build; see [WarningUiState.ActiveAlert.isTest].
          */
         fun intent(
             context: Context,
             eventId: String,
             intensityValue: String,
             locationName: String,
-            distanceKm: Int?
+            distanceKm: Int?,
+            isTest: Boolean = false
         ): Intent = Intent(context, WarningActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra(EXTRA_EVENT_ID, eventId)
             putExtra(EXTRA_INTENSITY, intensityValue)
             putExtra(EXTRA_LOCATION_NAME, locationName)
             putExtra(EXTRA_DISTANCE_KM, distanceKm ?: UNKNOWN_DISTANCE)
+            putExtra(EXTRA_IS_TEST, isTest)
         }
     }
 }

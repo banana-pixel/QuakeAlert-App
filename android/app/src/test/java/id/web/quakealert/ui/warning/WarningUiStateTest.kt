@@ -4,6 +4,7 @@ import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.ui.history.MmiSeverity
 import id.web.quakealert.ui.history.QuakeHistoryItem
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -96,6 +97,19 @@ class WarningUiStateTest {
         assertTrue(folded.isMuted)
         assertTrue(folded.isSosLightOn)
         assertEquals(UnitSystem.IMPERIAL, folded.unitSystem)
+    }
+
+    @Test
+    fun `an alert is not a drill unless it says so, and stays one once it does`() {
+        // The default is what a stored event and every pre-drill code path construct,
+        // so it has to be the honest one: an alert with nothing said about it is real.
+        assertFalse(alert.isTest)
+
+        // And the marker must survive the unit fold, which runs on every emission.
+        // A drill that lost its badge halfway through would read as a real quake to
+        // the one person the badge exists for — the tester holding the phone.
+        val drill = alert.copy(isTest = true)
+        assertTrue(drill.withUnitSystem(UnitSystem.IMPERIAL).isTest)
     }
 
     @Test

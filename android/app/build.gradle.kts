@@ -99,6 +99,21 @@ android {
             // Emulator loopback to the Go server on the host (docs/CLIENT_SPEC.md §1).
             // Cleartext is permitted for this host only, via res/xml/network_security_config.xml.
             buildConfigField("String", "QUAKE_BASE_URL", "\"http://10.0.2.2:8080/\"")
+            // A distinct application id so a tester's drill build installs *beside*
+            // the production app instead of replacing it (docs/CLIENT_SPEC.md §5.8).
+            // Two reasons this matters more than convenience: the drill build is the
+            // only one that subscribes to the test_alerts FCM topic
+            // (data/push/PushRegistrar.kt), so replacing production with it would
+            // leave a real user's phone receiving drills; and a tester must be able
+            // to keep the real warning app installed while testing, because the
+            // drill build is not the one that will wake them at 3am.
+            //
+            // Firebase resolves credentials by application id, so the suffixed
+            // package needs its own entry in app/google-services.json — until it has
+            // one, the drill build simply has no Firebase and falls back to the
+            // WebSocket, exactly as a checkout without credentials does today.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
         }
         release {
             // ADR-0003: production transport is HTTPS/WSS only.

@@ -1,5 +1,6 @@
 package id.web.quakealert.data.network.mapper
 
+import id.web.quakealert.BuildConfig
 import id.web.quakealert.data.network.model.WsAlertMessageDto
 import id.web.quakealert.domain.WsAlertMessage
 
@@ -19,9 +20,13 @@ import id.web.quakealert.domain.WsAlertMessage
  * @param nowMs used when `timestamp` is missing or unparseable. A malformed
  *   timestamp becomes *now* rather than 0, because epoch-0 would fail
  *   [WsAlertMessage.isRecent] and silently discard what may be a live alert.
+ * @param allowTestAlerts forwarded to [toDomainOrNull], which drops a drill frame on
+ *   a release build. Threaded through rather than read there twice, so push and
+ *   socket cannot end up on different sides of the fence.
  */
 fun Map<String, String>.toWsAlertMessageOrNull(
-    nowMs: Long = System.currentTimeMillis()
+    nowMs: Long = System.currentTimeMillis(),
+    allowTestAlerts: Boolean = BuildConfig.DEBUG
 ): WsAlertMessage? {
     val type = this["type"]?.trim().orEmpty()
     if (type.isEmpty()) return null
@@ -40,6 +45,11 @@ fun Map<String, String>.toWsAlertMessageOrNull(
         timestamp = this["timestamp"]?.trim()?.toLongOrNull() ?: nowMs,
         // Absent from the push contract entirely; the type already carries the
         // confirmed-versus-advisory distinction that node count would imply.
-        nodeCount = this["node_count"]?.trim()?.toIntOrNull() ?: 0
-    ).toDomainOrNull()
+        nodeCount = this["node_count"]?.trim()?.toIntOrNull() ?: 0,
+        // Only the exact string the server sends counts as a drill. Anything else —
+        // "1", "TRUE", a typo, an absent key — reads as a real alert, which is the
+        // direction to fail in: a real quake mis-read as a drill would be dropped
+        // outright on a release build.
+        isTest = this["is_test"]?.trim() == "true"
+    ).toDomainOrNull(allowTestAlerts = allowTestAlerts)
 }

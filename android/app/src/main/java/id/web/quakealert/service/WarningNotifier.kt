@@ -92,14 +92,18 @@ object WarningNotifier {
                 eventId = message.eventId,
                 intensityValue = message.intensityValueLabel(),
                 locationName = message.locationName,
-                distanceKm = distanceKm
+                distanceKm = distanceKm,
+                isTest = message.isTest
             ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_alert_triangle)
-            .setContentTitle("Earthquake detected")
+            // A drill says so in the shade as well as on the screen. Only ever
+            // reachable on a debug build (the mapper drops an is_test frame
+            // otherwise), so this branch cannot change what a real user is told.
+            .setContentTitle(if (message.isTest) "TEST - earthquake drill" else "Earthquake detected")
             .setContentText(bodyText(message, distanceKm))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
@@ -138,6 +142,9 @@ object WarningNotifier {
      */
     private fun summaryText(message: WsAlertMessage, distanceKm: Int?): String {
         val where = message.locationName.takeIf { it.isNotBlank() } ?: "your area"
+        // Kept distinguishable weeks later: a "Last alert" line that cannot be told
+        // apart from a real one would misrepresent what the app has warned about.
+        if (message.isTest) return "Drill (test alert) near $where"
         val proximity = distanceKm?.let { ", $it km away" }.orEmpty()
         return "Intensity ${message.mmi} near $where$proximity"
     }

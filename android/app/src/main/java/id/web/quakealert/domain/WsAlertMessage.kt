@@ -34,6 +34,12 @@ enum class AlertType {
  *   epicentre.
  * @param centroidLon see [centroidLat].
  * @param timestampMs event time in milliseconds since the Unix epoch, UTC.
+ * @param isTest true only for a drill (`POST /api/v1/admin/test-alert`). Defaults to
+ *   false so a payload that carries no flag can never be mistaken for a drill — the
+ *   direction that matters, since treating a real quake as a test would suppress it.
+ *   Release builds never see one at all: the mapper drops such a frame before it
+ *   becomes a [WsAlertMessage]
+ *   (id.web.quakealert.data.network.mapper.toDomainOrNull).
  */
 data class WsAlertMessage(
     val type: AlertType,
@@ -45,7 +51,8 @@ data class WsAlertMessage(
     val centroidLon: Double,
     val locationName: String,
     val timestampMs: Long,
-    val nodeCount: Int
+    val nodeCount: Int,
+    val isTest: Boolean = false
 ) {
 
     /**

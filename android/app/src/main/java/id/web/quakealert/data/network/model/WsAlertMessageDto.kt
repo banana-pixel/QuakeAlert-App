@@ -18,6 +18,9 @@ import kotlinx.serialization.Serializable
  *   differently.
  * @param centroidLat station centroid, not the epicentre.
  * @param timestamp **milliseconds** since the Unix epoch, UTC (not seconds).
+ * @param isTest true only on a drill published by `POST /api/v1/admin/test-alert`.
+ *   Absent from a real event's payload entirely (the server omits it), so the
+ *   default is the safe read: a frame that says nothing is not a drill.
  */
 @Serializable
 data class WsAlertMessageDto(
@@ -30,5 +33,6 @@ data class WsAlertMessageDto(
     @SerialName("centroid_lon") val centroidLon: Double = 0.0,
     @SerialName("location_name") val locationName: String = "",
     @SerialName("timestamp") val timestamp: Long = 0L,
-    @SerialName("node_count") val nodeCount: Int = 0
+    @SerialName("node_count") val nodeCount: Int = 0,
+    @SerialName("is_test") val isTest: Boolean = false
 )
