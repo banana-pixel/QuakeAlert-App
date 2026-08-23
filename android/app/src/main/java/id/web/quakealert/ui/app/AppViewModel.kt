@@ -128,23 +128,31 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun observeStatusNotification() {
         val context = getApplication<Application>()
+        // Folded in two stages: the persisted preference facts first, then those against
+        // the system grants and the last-alert record. `combine` is typed only to five
+        // sources, and grouping is clearer here than an untyped vararg array anyway.
+        val preferences = combine(
+            repository.statusNotification,
+            repository.notificationsEnabled,
+            repository.autoSyncLocation,
+            repository.lastSyncAtMs
+        ) { enabled, alertsEnabled, autoSync, lastSyncAtMs ->
+            StatusPreferences(enabled, alertsEnabled, autoSync, lastSyncAtMs)
+        }
         viewModelScope.launch {
-            combine(
-                repository.statusNotification,
-                repository.notificationsEnabled,
-                repository.autoSyncLocation,
-                repository.lastSyncAtMs,
-                systemState
-            ) { enabled, alertsEnabled, autoSync, lastSyncAtMs, system ->
-                if (!enabled) {
+            combine(preferences, systemState, repository.lastAlert) { prefs, system, lastAlert ->
+                if (!prefs.enabled) {
                     null
                 } else {
                     ProtectionStatus(
-                        alertsEnabled = alertsEnabled,
+                        alertsEnabled = prefs.alertsEnabled,
                         notificationsPermitted = system.notificationsPermitted,
-                        autoSyncEnabled = autoSync,
+                        autoSyncEnabled = prefs.autoSyncEnabled,
                         batteryUnrestricted = system.batteryUnrestricted,
-                        lastSyncLabel = lastSyncAtMs?.let(::relativeLabel)
+                        lastSyncLabel = prefs.lastSyncAtMs?.let(::relativeLabel),
+                        lastAlertLabel = lastAlert?.let {
+                            "${it.summary}, ${relativeLabel(it.atMs)}"
+                        }
                     )
                 }
             }
@@ -167,6 +175,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         repository.completeOnboarding()
     }
 }
+
+/** The persisted half of [ProtectionStatus], collected as one value. */
+private data class StatusPreferences(
+    val enabled: Boolean,
+    val alertsEnabled: Boolean,
+    val autoSyncEnabled: Boolean,
+    val lastSyncAtMs: Long?
+)
 
 /** The OS-owned half of [ProtectionStatus], polled rather than observed. */
 private data class SystemState(

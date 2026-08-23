@@ -132,6 +132,29 @@ class AppSettingsRepository(context: Context) {
         it[KEY_STATUS_NOTIFICATION] = enabled
     }
 
+    /**
+     * The last alert this device actually *showed* — its one-line summary and when it
+     * was posted — or null when none ever has been.
+     *
+     * Written by [id.web.quakealert.service.WarningNotifier] at the moment a warning
+     * reaches the shade, not when one arrives on the socket: the status notification
+     * uses it to answer "has this thing ever done anything?", and an alert the user was
+     * never shown is not an answer to that.
+     *
+     * The two keys are exposed as one flow so the pair can never be read half-updated.
+     */
+    val lastAlert: Flow<LastAlert?> = read { prefs ->
+        val at = prefs[KEY_LAST_ALERT_AT_MS]
+        val summary = prefs[KEY_LAST_ALERT_SUMMARY]
+        if (at == null || summary.isNullOrBlank()) null else LastAlert(at, summary)
+    }
+
+    /** Records a shown alert, replacing any earlier one. Only the latest is kept. */
+    fun setLastAlert(summary: String, epochMs: Long) = write {
+        it[KEY_LAST_ALERT_AT_MS] = epochMs
+        it[KEY_LAST_ALERT_SUMMARY] = summary
+    }
+
     /** UI language tag. Inert placeholder — only `en` ships today. */
     val language: Flow<String> = read { it[KEY_LANGUAGE] ?: DEFAULT_LANGUAGE }
 
@@ -161,5 +184,15 @@ class AppSettingsRepository(context: Context) {
         private val KEY_LANGUAGE = stringPreferencesKey("language")
         private val KEY_REGION_CODE = stringPreferencesKey("region_code")
         private val KEY_STATUS_NOTIFICATION = booleanPreferencesKey("status_notification")
+        private val KEY_LAST_ALERT_AT_MS = longPreferencesKey("last_alert_at_ms")
+        private val KEY_LAST_ALERT_SUMMARY = stringPreferencesKey("last_alert_summary")
     }
 }
+
+/**
+ * The last alert shown on this device: [summary] is display copy already ("Intensity IV
+ * near Cianjur"), [atMs] the epoch millisecond it was posted.
+ *
+ * A pair rather than two flows because the status line reads both or neither.
+ */
+data class LastAlert(val atMs: Long, val summary: String)

@@ -19,13 +19,16 @@ package id.web.quakealert.domain
  *   earthquake is indistinguishable from never arriving.
  * @param lastSyncLabel human-readable age of the stored position ("2 minutes ago"),
  *   or null when no position has ever been synced.
+ * @param lastAlertLabel the last alert this device showed, already formatted
+ *   ("Intensity IV near Cianjur, 20 minutes ago"), or null when it has never shown one.
  */
 data class ProtectionStatus(
     val alertsEnabled: Boolean,
     val notificationsPermitted: Boolean,
     val autoSyncEnabled: Boolean,
     val batteryUnrestricted: Boolean,
-    val lastSyncLabel: String?
+    val lastSyncLabel: String?,
+    val lastAlertLabel: String? = null
 ) {
 
     /** Whether an alert would reach the screen at all: the user's switch and the grant. */
@@ -48,30 +51,41 @@ data class ProtectionStatus(
         }
 
     /**
-     * The expanded body: one line per fact, always all four, in a fixed order.
+     * The expanded body: what is wrong, and what the app has done.
      *
-     * Fixed rather than only-the-problems so the shade reads the same every time and
-     * the absence of a line never has to be interpreted.
+     * Only problems are listed. The four-facts-always version read as a settings audit —
+     * "Background delivery: unrestricted" is not news, and four rows of it buried the one
+     * row that was — so a healthy app now collapses to a single reassurance and each
+     * problem costs exactly one line, in the same order [headline] ranks them.
+     *
+     * The last line is the one thing a user of an early-warning app actually wonders
+     * during a quiet month: whether it has ever fired. Present in both states, because
+     * "nothing yet" is the reassuring answer and an absent line would only look like a
+     * missing feature.
      */
     val lines: List<String>
-        get() = listOf(
-            if (alertsEnabled) "Alerts: on" else "Alerts: off in QuakeAlert",
-            if (notificationsPermitted) {
-                "Notifications: allowed"
-            } else {
-                "Notifications: blocked in system settings"
-            },
-            when {
-                lastSyncLabel == null && !autoSyncEnabled ->
-                    "Location: not synced, and auto sync is off"
-                lastSyncLabel == null -> "Location: not synced yet"
-                !autoSyncEnabled -> "Location: synced $lastSyncLabel, auto sync off"
-                else -> "Location: synced $lastSyncLabel"
-            },
-            if (batteryUnrestricted) {
-                "Background delivery: unrestricted"
-            } else {
-                "Background delivery: may be delayed by battery optimisation"
+        get() = buildList {
+            if (!notificationsPermitted) {
+                add("Notifications are blocked in system settings, so alerts cannot arrive.")
             }
-        )
+            if (!alertsEnabled) add("Alerts are switched off in QuakeAlert.")
+            if (lastSyncLabel == null) {
+                add(
+                    if (autoSyncEnabled) {
+                        "Your location has not synced yet, so alerts cannot be aimed."
+                    } else {
+                        "Your location has not synced and auto sync is off."
+                    }
+                )
+            } else if (!autoSyncEnabled) {
+                add("Auto sync is off. Your location is from $lastSyncLabel.")
+            }
+            if (!batteryUnrestricted) {
+                add("Battery optimisation is on, which can hold an alert back.")
+            }
+            // All clear: one calm row instead of the absence of rows, which would leave
+            // the expanded notification looking empty rather than looking fine.
+            if (isEmpty()) add("Alerts can reach you. Location synced $lastSyncLabel.")
+            add(lastAlertLabel?.let { "Last alert: $it" } ?: "No alerts since you installed QuakeAlert.")
+        }
 }

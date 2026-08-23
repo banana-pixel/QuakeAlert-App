@@ -20,13 +20,15 @@ class ProtectionStatusTest {
         notificationsPermitted: Boolean = true,
         autoSyncEnabled: Boolean = true,
         batteryUnrestricted: Boolean = true,
-        lastSyncLabel: String? = "2 minutes ago"
+        lastSyncLabel: String? = "2 minutes ago",
+        lastAlertLabel: String? = null
     ) = ProtectionStatus(
         alertsEnabled = alertsEnabled,
         notificationsPermitted = notificationsPermitted,
         autoSyncEnabled = autoSyncEnabled,
         batteryUnrestricted = batteryUnrestricted,
-        lastSyncLabel = lastSyncLabel
+        lastSyncLabel = lastSyncLabel,
+        lastAlertLabel = lastAlertLabel
     )
 
     @Test
@@ -48,7 +50,7 @@ class ProtectionStatusTest {
     fun `the user's own switch is reported as theirs, not as a fault`() {
         val off = status(alertsEnabled = false)
         assertEquals("Alerts are turned off", off.headline)
-        assertTrue(off.lines.contains("Alerts: off in QuakeAlert"))
+        assertTrue(off.lines.contains("Alerts are switched off in QuakeAlert."))
     }
 
     @Test
@@ -71,30 +73,60 @@ class ProtectionStatusTest {
     fun `auto sync off is named beside the position it affects`() {
         assertTrue(
             status(autoSyncEnabled = false).lines
-                .contains("Location: synced 2 minutes ago, auto sync off")
+                .contains("Auto sync is off. Your location is from 2 minutes ago.")
         )
         assertTrue(
             status(autoSyncEnabled = false, lastSyncLabel = null).lines
-                .contains("Location: not synced, and auto sync is off")
+                .contains("Your location has not synced and auto sync is off.")
         )
     }
 
     @Test
-    fun `the body always carries the same four facts in the same order`() {
-        // Fixed shape so a missing line never has to be interpreted, and so the
-        // collapsed line (lines.first()) is always the alert state.
-        val lines = status(
-            alertsEnabled = false,
-            notificationsPermitted = false,
-            autoSyncEnabled = false,
-            batteryUnrestricted = false,
-            lastSyncLabel = null
-        ).lines
-        assertEquals(4, lines.size)
-        assertEquals(4, status().lines.size)
-        assertTrue(lines.first().startsWith("Alerts:"))
-        assertTrue(lines[1].startsWith("Notifications:"))
-        assertTrue(lines[2].startsWith("Location:"))
-        assertTrue(lines[3].startsWith("Background delivery:"))
+    fun `all clear is one line, and problems replace it one for one`() {
+        // The point of the redesign: a healthy app is a single calm row plus the last-alert
+        // line, not a four-row audit, and every row beyond that is a thing the user can act
+        // on. So one problem is the same height as none — it takes the all-clear's place —
+        // and four problems are four rows.
+        val clear = status().lines
+        assertEquals(2, clear.size)
+        assertEquals("Alerts can reach you. Location synced 2 minutes ago.", clear.first())
+
+        assertEquals(2, status(batteryUnrestricted = false).lines.size)
+        assertEquals(2, status(alertsEnabled = false).lines.size)
+        assertEquals(2, status(lastSyncLabel = null).lines.size)
+        assertEquals(3, status(alertsEnabled = false, batteryUnrestricted = false).lines.size)
+        assertEquals(
+            5,
+            status(
+                alertsEnabled = false,
+                notificationsPermitted = false,
+                autoSyncEnabled = false,
+                batteryUnrestricted = false,
+                lastSyncLabel = null
+            ).lines.size
+        )
+    }
+
+    @Test
+    fun `the worst problem leads the body, matching the collapsed headline`() {
+        // StatusNotifier shows lines.first() collapsed, so the two must agree about which
+        // problem matters most.
+        val blocked = status(notificationsPermitted = false, batteryUnrestricted = false)
+        assertEquals(
+            "Notifications are blocked in system settings, so alerts cannot arrive.",
+            blocked.lines.first()
+        )
+    }
+
+    @Test
+    fun `the last alert is always answered, including when there has been none`() {
+        // "Nothing yet" is the reassuring answer to the only question a user asks during a
+        // quiet month, so the line is present in both states rather than appearing once an
+        // alert has fired.
+        assertEquals("No alerts since you installed QuakeAlert.", status().lines.last())
+        assertEquals(
+            "Last alert: Intensity IV near Cianjur, 20 minutes ago",
+            status(lastAlertLabel = "Intensity IV near Cianjur, 20 minutes ago").lines.last()
+        )
     }
 }

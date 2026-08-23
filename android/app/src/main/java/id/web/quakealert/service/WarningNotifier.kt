@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import id.web.quakealert.R
+import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.network.mapper.intensityValueLabel
 import id.web.quakealert.domain.AlertDecision
 import id.web.quakealert.domain.WsAlertMessage
@@ -116,12 +117,29 @@ object WarningNotifier {
         }
 
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
+        // Remember what was shown, for the status notification's "Last alert" line. Here
+        // and not on arrival: the claim it feeds is that the app has alerted this user,
+        // and an alert filtered out by the distance gate or dropped by the OS never did.
+        AppSettingsRepository(context).setLastAlert(
+            summary = summaryText(message, distanceKm),
+            epochMs = System.currentTimeMillis()
+        )
         return true
     }
 
     /** Clears the emergency notification, on `EVENT_RESOLVED`. */
     fun clear(context: Context) {
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+    }
+
+    /**
+     * The one-line record kept for the status notification: what and where, no advice and
+     * no distance-unknown caveat. It is read weeks later in a shade, not during shaking.
+     */
+    private fun summaryText(message: WsAlertMessage, distanceKm: Int?): String {
+        val where = message.locationName.takeIf { it.isNotBlank() } ?: "your area"
+        val proximity = distanceKm?.let { ", $it km away" }.orEmpty()
+        return "Intensity ${message.mmi} near $where$proximity"
     }
 
     private fun bodyText(message: WsAlertMessage, distanceKm: Int?): String {

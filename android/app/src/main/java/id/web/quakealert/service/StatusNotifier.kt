@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -49,6 +50,7 @@ object StatusNotifier {
 
     const val CHANNEL_ID = "quakealert_status"
     private const val NOTIFICATION_ID = 4401
+    private const val SETTINGS_REQUEST_CODE = 4402
     private const val TAG = "StatusNotifier"
 
     /**
@@ -102,6 +104,14 @@ object StatusNotifier {
         )
 
         val body = status.lines.joinToString(separator = "\n")
+        // One action, and only ever the one that fits the state: a shortcut straight to
+        // the system toggle when that is what is blocking delivery, otherwise the app.
+        // Two actions on a MIN-importance row would be two ways to say "open something".
+        val action = if (status.notificationsPermitted) {
+            NotificationCompat.Action.Builder(0, "Open QuakeAlert", open).build()
+        } else {
+            NotificationCompat.Action.Builder(0, "Fix in settings", appNotificationSettings(context)).build()
+        }
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_status_wave)
             .setContentTitle(status.headline)
@@ -118,10 +128,30 @@ object StatusNotifier {
             .setSilent(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
+            // The app's name as sub-text: on a collapsed MIN row the headline is all the
+            // user sees, and "Watching for earthquakes near you" does not say who is.
+            .setSubText("QuakeAlert")
+            .addAction(action)
             .build()
 
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
         return true
+    }
+
+    /**
+     * The system's notification page for this app — where a revoked `POST_NOTIFICATIONS`
+     * grant is restored. `APP_NOTIFICATION_SETTINGS` has existed since API 26, below
+     * `minSdk`, so there is no fallback branch to write.
+     */
+    private fun appNotificationSettings(context: Context): PendingIntent {
+        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        return PendingIntent.getActivity(
+            context,
+            SETTINGS_REQUEST_CODE,
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     /** Removes the status notification — the toggle going off, and nothing else. */
