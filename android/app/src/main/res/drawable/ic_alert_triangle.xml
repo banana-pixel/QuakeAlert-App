@@ -1,12 +1,25 @@
+<!--
+  Untitled UI "alert-triangle" at 24dp: the app bar's "Offline" badge
+  (ui/common/QuakeAppBar.kt), the Warning screen's offline strip
+  (ui/warning/WarningComponents.kt) and the alert notification's small icon
+  (service/WarningNotifier.kt).
+
+  Path data is byte-identical to ic_alert_triangle_state.xml, and the 50x50
+  viewport is kept on purpose so it stays that way: the previous hand-authored
+  24px path had a stray trailing `H10.2852` that cut a flat notch across the
+  apex, so the same glyph rendered pointed on the error cards and broken here.
+  One geometry, three sizes (24dp here, 50dp _state, 63dp _lg) — a size change
+  is a width/height change, never a re-drawn path.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
+    android:viewportWidth="50"
+    android:viewportHeight="50">
     <path
-        android:pathData="M12,9V13M12,17H12.01M10.2852,3.8571L1.8232,18.4995C1.3552,19.3095 1.9392,20.3225 2.8752,20.3225H21.1252C22.0612,20.3225 22.6452,19.3095 22.1772,18.4995L13.7152,3.8571C13.2472,3.0471 12.7532,3.0471 12.2852,3.8571H10.2852Z"
+        android:pathData="M24.9996,18.75V27.0833M24.9996,35.4167H25.0204M22.1148,8.10775L4.97964,37.7049C4.02921,39.3465 3.554,40.1673 3.62423,40.841C3.68549,41.4286 3.99335,41.9626 4.47118,42.31C5.01901,42.7083 5.96747,42.7083 7.8644,42.7083H42.1347C44.0317,42.7083 44.9801,42.7083 45.528,42.31C46.0058,41.9626 46.3136,41.4286 46.3749,40.841C46.4451,40.1673 45.9699,39.3465 45.0195,37.7049L27.8843,8.10774C26.9373,6.47199 26.4638,5.65411 25.846,5.37942C25.3072,5.1398 24.692,5.1398 24.1531,5.37942C23.5353,5.65411 23.0618,6.47199 22.1148,8.10775Z"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.8"
+        android:strokeWidth="4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round" />
 </vector>

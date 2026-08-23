@@ -55,7 +55,6 @@ import id.web.quakealert.ui.theme.EventDetailDividerColor
 import id.web.quakealert.ui.theme.EventDetailLocation
 import id.web.quakealert.ui.theme.EventDetailMeta
 import id.web.quakealert.ui.theme.MetricLabel
-import id.web.quakealert.ui.theme.MmiOrange
 import id.web.quakealert.ui.theme.MetricPanelFill
 import id.web.quakealert.ui.theme.MetricValue
 import id.web.quakealert.ui.theme.NunitoFontFamily
@@ -211,7 +210,10 @@ fun AlertBanner(
  *
  * No design node: the [id.web.quakealert.ui.common.QuakeErrorState] card it replaces
  * in this position owns the "something failed" language, so this borrows that card's
- * `alert-triangle` glyph and its "Retry" affordance rather than inventing a third.
+ * `alert-triangle` glyph, its white glyph tint and its "Retry" affordance rather than
+ * inventing a third. The amber the strip used to tint the triangle with is carried by
+ * [OfflineNoticeFill] and [OfflineNoticeBorder] instead: the same glyph reading white
+ * on every error card and orange on this one was the inconsistency, not the nuance.
  *
  * @param message what failed, in one line — a ViewModel `errorMessage`, or the
  *   screen's offline copy.
@@ -239,7 +241,7 @@ fun WarningOfflineNotice(
         Image(
             painter = painterResource(id = R.drawable.ic_alert_triangle),
             contentDescription = null,
-            colorFilter = ColorFilter.tint(MmiOrange),
+            colorFilter = ColorFilter.tint(TextPrimary),
             modifier = Modifier.size(Dimens.OfflineNoticeGlyphSize)
         )
 
