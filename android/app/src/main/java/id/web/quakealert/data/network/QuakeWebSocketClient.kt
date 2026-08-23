@@ -2,12 +2,15 @@ package id.web.quakealert.data.network
 
 import android.util.Log
 import id.web.quakealert.data.auth.AuthRepository
+import id.web.quakealert.data.network.mapper.TYPE_ADMIN_BROADCAST
 import id.web.quakealert.data.network.mapper.toDomain
 import id.web.quakealert.data.network.mapper.toDomainOrNull
 import id.web.quakealert.data.network.model.WsAlertMessageDto
+import id.web.quakealert.data.network.model.WsBroadcastMessageDto
 import id.web.quakealert.data.network.model.WsChatMessageDto
 import id.web.quakealert.data.network.model.WsFrameTypeDto
 import id.web.quakealert.domain.ChatMessageEntry
+import id.web.quakealert.domain.OperatorUpdate
 import id.web.quakealert.domain.ServerConnectionState
 import id.web.quakealert.domain.WsAlertMessage
 import kotlinx.coroutines.CancellationException
@@ -41,7 +44,8 @@ import kotlin.random.Random
 
 /**
  * The realtime half of the contract: `GET /ws`, which pushes
- * `EARTHQUAKE_ALERT` / `EARTHQUAKE_ADVISORY` / `EVENT_RESOLVED` frames
+ * `EARTHQUAKE_ALERT` / `EARTHQUAKE_ADVISORY` / `EVENT_RESOLVED` frames, plus
+ * `CHAT_MESSAGE` and `ADMIN_BROADCAST`
  * (server/internal/dispatch/ws.go).
  *
  * Exposed as one hot [SharedFlow]. The socket is opened when the first collector
@@ -81,6 +85,17 @@ class QuakeWebSocketClient(
     )
 
     /**
+     * Backing flow for [operatorUpdates]. Same overflow policy as chat and for the
+     * same reason: an announcement dropped under pressure is re-readable from
+     * `GET /api/v1/broadcasts`, while an alert has no way back.
+     */
+    private val _operatorUpdates = MutableSharedFlow<OperatorUpdate>(
+        replay = 0,
+        extraBufferCapacity = BUFFER_CAPACITY,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+
+    /**
      * Backing state for [connectionState], written from the points in the
      * reconnect loop that already know about every transition.
      */
@@ -109,6 +124,21 @@ class QuakeWebSocketClient(
      * collecting is simply the page load's job instead.
      */
     val chatMessages: SharedFlow<ChatMessageEntry> = _chatMessages.asSharedFlow()
+
+    /**
+     * Operator announcements from the same socket, in arrival order.
+     *
+     * A third flow rather than a branch of [alerts], for the reason the whole feature
+     * exists: nothing about an announcement may be able to reach the alert path. It
+     * also must never occupy [alerts]'s replay slot, which exists so a recreated
+     * Warning screen learns a quake is in progress.
+     *
+     * `replay = 0`: the list is loaded from `GET /api/v1/broadcasts`, which is the
+     * source of truth, and a notice that arrives while nothing collects is the next
+     * page load's job. When the app is not running at all, the push copy is what
+     * arrives ([id.web.quakealert.service.UpdatesNotifier]).
+     */
+    val operatorUpdates: SharedFlow<OperatorUpdate> = _operatorUpdates.asSharedFlow()
 
     /** Live alert frames, newest last, with the most recent one replayed. */
     val alerts: SharedFlow<WsAlertMessage> = channelFlow {
@@ -302,6 +332,10 @@ class QuakeWebSocketClient(
             emitChat(text)
             return
         }
+        if (frameType.equals(TYPE_ADMIN_BROADCAST, ignoreCase = true)) {
+            emitOperatorUpdate(text)
+            return
+        }
 
         val dto = runCatching { json.decodeFromString<WsAlertMessageDto>(text) }.getOrNull()
         if (dto == null) {
@@ -337,6 +371,26 @@ class QuakeWebSocketClient(
         // tryEmit, not emit: the reader thread cannot suspend. The buffer drops the
         // oldest frame under pressure, so this always succeeds.
         _chatMessages.tryEmit(dto.toDomain(ownUserId = authRepository.peekUserId()))
+    }
+
+    /**
+     * Decodes one `ADMIN_BROADCAST` frame into [operatorUpdates].
+     *
+     * Nothing is gated on its age and no notification is posted from here: the app is
+     * in the foreground whenever this flow has a collector, so the notice belongs on
+     * the screen rather than in the shade — posting both would tell the user twice.
+     */
+    private fun emitOperatorUpdate(text: String) {
+        val update = runCatching { json.decodeFromString<WsBroadcastMessageDto>(text) }
+            .getOrNull()
+            ?.toDomainOrNull()
+        if (update == null) {
+            Log.w(TAG, "dropping unusable announcement frame")
+            return
+        }
+        // tryEmit, not emit: the reader thread cannot suspend. The buffer drops the
+        // oldest frame under pressure, so this always succeeds.
+        _operatorUpdates.tryEmit(update)
     }
 
     /** Outcome of a single connection attempt. */

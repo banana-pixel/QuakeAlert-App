@@ -299,6 +299,26 @@ object Dimens {
     /** Gap between the two action rows and between the buttons on a row (Figma 20). */
     val AboutModalActionGap = 20.dp
 
+    // --- Updates overlay (operator announcements) ---------------------------
+    // No Figma node of its own: it is assembled from the About overlay's card
+    // chrome (ModalPadding + RadiusCard + BorderThin) and the settings-card rows,
+    // so only the four measurements the list itself needs live here.
+    /** Gap between the header and the list, matching the About overlay's rhythm. */
+    val UpdatesModalSectionGap = 18.dp
+
+    /** Gap between two announcement cards. */
+    val UpdatesModalItemGap = 12.dp
+
+    /**
+     * Ceiling on the list's height. Announcements are unbounded in number, so the
+     * card would otherwise grow past the screen; the list scrolls inside this bound
+     * while the header stays put.
+     */
+    val UpdatesModalListMaxHeight = 420.dp
+
+    /** Height reserved for the loading spinner, so the card does not resize under it. */
+    val UpdatesModalStateHeight = 160.dp
+
     // --- Shared overlay action button ---------------------------------------
     // The About overlay's three actions (nodes 4:677 / 4:681 / 4:686) and the
     // Earthquake Details "Share" button (node 124:1085) are the same component:

@@ -5,6 +5,7 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import id.web.quakealert.data.AppSettingsRepository
 import id.web.quakealert.data.network.QuakeNetwork
+import id.web.quakealert.data.network.mapper.toOperatorUpdateOrNull
 import id.web.quakealert.data.network.mapper.toWsAlertMessageOrNull
 import id.web.quakealert.domain.AlertGate
 import id.web.quakealert.domain.AlertType
@@ -32,6 +33,11 @@ import kotlinx.coroutines.launch
  *     sounds a siren for every tremor;
  *  4. post the full-screen notification.
  *
+ * Operator announcements (`ADMIN_BROADCAST`) arrive on this same service and are
+ * sorted out before any of that, onto [UpdatesNotifier]'s low-importance channel.
+ * They are not alerts and share nothing with them — not the dedup key, not the gate,
+ * not the channel.
+ *
  * Registered in the manifest but only ever instantiated when Firebase initialised,
  * which requires an `app/google-services.json`. Without one this class is dead code
  * and the app runs WebSocket-only (docs/FIREBASE_SETUP.md).
@@ -54,6 +60,16 @@ class QuakeMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
+        // Announcements are sorted out first and never reach any of the alert
+        // machinery below: no dedup key shared with an event, no AlertGate, no siren.
+        // The server already decided who to tell, by region
+        // (server/internal/dispatch/broadcast.go).
+        val update = remoteMessage.data.toOperatorUpdateOrNull()
+        if (update != null) {
+            UpdatesNotifier.notify(applicationContext, update)
+            return
+        }
+
         val message = remoteMessage.data.toWsAlertMessageOrNull()
         if (message == null) {
             Log.w(TAG, "push payload had no recognisable type; dropped")

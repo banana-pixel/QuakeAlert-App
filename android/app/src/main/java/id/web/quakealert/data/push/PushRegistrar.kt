@@ -61,6 +61,7 @@ class PushRegistrar(
         }
         scope.launch {
             subscribeToAlertTopic()
+            subscribeToUpdatesTopic()
             val token = currentToken() ?: return@launch
             uploadToken(token)
         }
@@ -89,10 +90,28 @@ class PushRegistrar(
             .onFailure { Log.w(TAG, "could not subscribe to $GEO_TOPIC", it) }
     }
 
+    /**
+     * Subscribes to `updates_all`, the operator-announcement topic.
+     *
+     * A **separate** topic from [GEO_TOPIC], and subscribed separately, so the two can
+     * be unsubscribed one at a time: someone tired of announcements can leave this
+     * topic without losing the siren, and no attempt to reduce noise can end in
+     * earthquake alerts being switched off. Sharing one topic would make "mute the
+     * news" and "mute the warnings" the same button
+     * (server/internal/dispatch/broadcast.go).
+     */
+    private suspend fun subscribeToUpdatesTopic() {
+        runCatching { FirebaseMessaging.getInstance().subscribeToTopic(UPDATES_TOPIC).await() }
+            .onFailure { Log.w(TAG, "could not subscribe to $UPDATES_TOPIC", it) }
+    }
+
     private companion object {
         const val TAG = "PushRegistrar"
 
         /** `dispatch.GeoTopic` in server/internal/dispatch/dispatcher.go. */
         const val GEO_TOPIC = "geo_alert_all"
+
+        /** `dispatch.UpdatesTopic` in server/internal/dispatch/broadcast.go. */
+        const val UPDATES_TOPIC = "updates_all"
     }
 }

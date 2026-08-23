@@ -184,6 +184,22 @@ class QuakeApiUrlTest {
     }
 
     @Test
+    fun `clamps the broadcast page size to what the contract allows`() {
+        assertEquals(
+            "20",
+            QuakeApiClient.broadcastsUrl().queryParameter("limit")
+        )
+        assertEquals(
+            "50",
+            QuakeApiClient.broadcastsUrl(limit = 500).queryParameter("limit")
+        )
+        assertEquals(
+            "1",
+            QuakeApiClient.broadcastsUrl(limit = 0).queryParameter("limit")
+        )
+    }
+
+    @Test
     fun `omits a blank channel so the server applies its own default room`() {
         val url = QuakeApiClient.chatMessagesUrl(channelId = "  ")
 

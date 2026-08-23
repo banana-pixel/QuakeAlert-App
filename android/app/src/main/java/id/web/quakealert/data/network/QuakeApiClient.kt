@@ -3,6 +3,8 @@ package id.web.quakealert.data.network
 import id.web.quakealert.data.auth.AuthRepository
 import id.web.quakealert.data.local.SessionStore
 import id.web.quakealert.data.network.mapper.toDomain
+import id.web.quakealert.data.network.mapper.toOperatorUpdates
+import id.web.quakealert.data.network.model.BroadcastsResponseDto
 import id.web.quakealert.data.network.model.ChatChannelsResponseDto
 import id.web.quakealert.data.network.model.ChatMessageDto
 import id.web.quakealert.data.network.model.ChatMessagesResponseDto
@@ -16,6 +18,7 @@ import id.web.quakealert.data.network.model.UpdateLocationResponseDto
 import id.web.quakealert.domain.ChatChannel
 import id.web.quakealert.domain.ChatMessageEntry
 import id.web.quakealert.domain.EarthquakeEvent
+import id.web.quakealert.domain.OperatorUpdate
 import id.web.quakealert.domain.SensorNode
 import id.web.quakealert.domain.UserLocation
 import kotlinx.coroutines.CancellationException
@@ -316,6 +319,27 @@ class QuakeApiClient(
     }
 
     /**
+     * `GET /api/v1/broadcasts` — operator announcements this identity may read,
+     * newest first.
+     *
+     * Which rows those are is the server's decision, not a filter applied here: it
+     * returns national notices plus the ones matching the caller's stored
+     * `region_code` (server/internal/store/broadcast.go). A client that filtered by
+     * region itself would hide a notice the moment the server's normalisation of the
+     * key changed, and would need to know a region the user may not have synced yet.
+     *
+     * @param limit clamped to the contract's 1..50; the server answers 400 above it.
+     */
+    suspend fun fetchBroadcasts(limit: Int = DEFAULT_BROADCAST_LIMIT): Result<List<OperatorUpdate>> =
+        guarded {
+            val body = perform(
+                request = getRequest(broadcastsUrl(limit)),
+                fallback = "Could not load updates"
+            )
+            json.decodeFromString<BroadcastsResponseDto>(body).toOperatorUpdates()
+        }
+
+    /**
      * This device's `user_id`, or null before the identity bootstrap has run.
      *
      * Exposed because "is this message mine" is answered by comparing `sender_id`
@@ -400,6 +424,10 @@ class QuakeApiClient(
         /** `limit` on `/chat/messages`: server default 30, ceiling 100. */
         const val DEFAULT_CHAT_LIMIT = 30
         const val MAX_CHAT_LIMIT = 100
+
+        /** `limit` on `/broadcasts`: server default 20, ceiling 50. */
+        const val DEFAULT_BROADCAST_LIMIT = 20
+        const val MAX_BROADCAST_LIMIT = 50
 
         /** Body cap on `/chat/messages`, counted in **characters**, as the server does. */
         const val MAX_CHAT_BODY_LENGTH = 500
@@ -493,6 +521,15 @@ class QuakeApiClient(
                     )
                     before?.let { addQueryParameter("before", RFC3339.format(it)) }
                 }
+                .build()
+
+        /** Assembles the `GET /api/v1/broadcasts` URL. */
+        internal fun broadcastsUrl(limit: Int = DEFAULT_BROADCAST_LIMIT): HttpUrl =
+            QuakeApiConfig.url(QuakeApiConfig.PATH_BROADCASTS).toHttpUrl().newBuilder()
+                .addQueryParameter(
+                    "limit",
+                    limit.coerceIn(MIN_LIMIT, MAX_BROADCAST_LIMIT).toString()
+                )
                 .build()
 
         internal fun sensorsUrl(rangeKm: Int? = null): HttpUrl =
