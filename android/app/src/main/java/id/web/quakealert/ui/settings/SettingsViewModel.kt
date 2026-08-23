@@ -15,6 +15,7 @@ import id.web.quakealert.device.hasLocationPermission
 import id.web.quakealert.device.isBatteryUnrestricted
 import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.ui.common.errorCopy
+import id.web.quakealert.ui.onboarding.TestAlertNotifier
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -143,6 +144,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         if (enabled && !getApplication<Application>().canPostNotifications()) {
             post("Allow notifications in system settings for alerts to arrive")
         }
+    }
+
+    /**
+     * "Test Notification" — posts one local alert so the user can see for themselves
+     * that a notification reaches their screen.
+     *
+     * The same [TestAlertNotifier] the onboarding control uses, so both places prove
+     * the same thing on the same channel. It returns false when `POST_NOTIFICATIONS`
+     * is missing, which is reported here rather than swallowed: a button that does
+     * nothing visible is indistinguishable from a broken alert pipeline, which is the
+     * one thing this control exists to rule out.
+     */
+    fun onTestNotification() {
+        if (TestAlertNotifier.showTestAlert(getApplication())) return
+        post("Allow notifications in system settings to test alerts")
     }
 
     /**

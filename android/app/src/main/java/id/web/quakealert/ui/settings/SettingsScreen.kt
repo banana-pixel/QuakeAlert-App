@@ -168,6 +168,7 @@ fun SettingsRoute(
         onSyncLocationNow = syncLocation,
         onNotificationsToggled = viewModel::onNotificationsToggled,
         onStatusNotificationToggled = viewModel::onStatusNotificationToggled,
+        onTestNotification = viewModel::onTestNotification,
         onTestAlertSound = { showTestAlertSound = true },
         onBatterySettings = { context.openBatteryOptimizationSettings() },
         onFixNotifications = { context.openNotificationSettings() },
@@ -268,6 +269,7 @@ fun SettingsScreen(
     onSyncLocationNow: () -> Unit,
     onNotificationsToggled: (Boolean) -> Unit,
     onStatusNotificationToggled: (Boolean) -> Unit,
+    onTestNotification: () -> Unit,
     onTestAlertSound: () -> Unit,
     onBatterySettings: () -> Unit,
     onFixNotifications: () -> Unit,
@@ -391,8 +393,23 @@ fun SettingsScreen(
                 )
             }
 
-            // Same wording as the onboarding pair, so a control the user met once is
-            // recognisable here rather than reading as a second, different test.
+            // Both test controls, in the onboarding order and with the onboarding
+            // wording, so a control the user met once is recognisable here rather than
+            // reading as a second, different test. They belong on this screen too: a
+            // grant can be revoked in system settings months after onboarding, and
+            // this is where the user comes to check.
+            QuakeCard(
+                title = "Test Notification",
+                onClick = onTestNotification,
+                detail = {
+                    Text(
+                        text = "Sends one now, to check alerts reach your screen",
+                        style = CardSubtitle,
+                        color = TextSecondary
+                    )
+                }
+            )
+
             QuakeCard(
                 title = "Test Alert Sound",
                 onClick = onTestAlertSound,
@@ -653,6 +670,7 @@ private fun SettingsScreenPreview() {
             onFixLocation = {},
             onNotificationsToggled = {},
             onStatusNotificationToggled = {},
+            onTestNotification = {},
             onTestAlertSound = {},
             onBatterySettings = {},
             onCopyValue = {},
