@@ -17,6 +17,7 @@ import (
 //   - publik        : /healthz, POST /api/v1/auth/anonymous
 //   - auth opsional : GET /api/v1/events (token boleh absen; bila ada wajib valid)
 //   - auth wajib    : sisa /api/v1/* dan /ws
+//   - kunci admin   : POST /api/v1/admin/* (X-Admin-Key, BUKAN JWT)
 //
 // Path didaftarkan penuh (tanpa chi Route/Mount) karena ketiga grup berbagi
 // prefix /api/v1 dengan middleware berbeda — Mount pada prefix yang sama akan
@@ -56,9 +57,25 @@ func (s *Server) Router(wsHandler http.HandlerFunc, log *slog.Logger) http.Handl
 		r.Get("/api/v1/chat/channels", s.HandleListChatChannels)
 		r.Get("/api/v1/chat/messages", s.HandleListChatMessages)
 		r.Post("/api/v1/chat/messages", s.HandleCreateChatMessage)
+		// Pengumuman operator: dibaca oleh pengguna biasa, ditulis hanya oleh
+		// pemegang kunci admin di grup terpisah di bawah.
+		r.Get("/api/v1/broadcasts", s.HandleListBroadcasts)
 		// WebSocket realtime (WSS via reverse proxy TLS di produksi).
 		r.Get("/ws", wsHandler)
 	})
+
+	// Rute operator. Didaftarkan HANYA bila ADMIN_API_KEY terisi: instalasi yang
+	// lupa mengisinya kehilangan fiturnya, bukan pagarnya — sebuah endpoint yang
+	// dapat menyalakan notifikasi di setiap perangkat tidak boleh punya keadaan
+	// "terbuka karena belum dikonfigurasi".
+	if len(s.adminKey) > 0 {
+		r.Group(func(r chi.Router) {
+			r.Use(AdminKeyMiddleware(s.adminKey, log))
+			r.Post("/api/v1/admin/broadcasts", s.HandleCreateBroadcast)
+		})
+	} else {
+		log.Warn("ADMIN_API_KEY tidak di-set — endpoint siaran admin tidak didaftarkan")
+	}
 
 	return r
 }

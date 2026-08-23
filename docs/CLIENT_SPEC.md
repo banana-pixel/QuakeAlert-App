@@ -68,9 +68,9 @@ Content-Type: application/json
 
 ---
 
-## 4. Endpoint Client-Facing (7 Endpoint REST)
+## 4. Endpoint Client-Facing (8 Endpoint REST)
 
-> Seluruh 10 endpoint terdaftar di `router.go`; **7 berikut adalah permukaan integrasi Android** (ditandai `x-client: true` di OpenAPI).
+> Seluruh endpoint terdaftar di `router.go`; **8 berikut adalah permukaan integrasi Android** (ditandai `x-client: true` di OpenAPI). `POST /api/v1/admin/broadcasts` sengaja TIDAK ada di daftar ini: kuncinya tidak pernah ikut dalam APK (§4.8).
 
 ### 4.1 `POST /api/v1/auth/anonymous` — bootstrap identitas
 - **Publik**, tanpa token. Lihat §2.
@@ -171,6 +171,14 @@ Request:
 - `201` → objek `ChatMessage`. `403` kanal asing, `429` melewati batas laju (1 pesan / 2 detik per user).
 - **Kirim lewat REST, bukan WebSocket.** REST durable dan bisa diulang; socket hanya memfanout apa yang sudah tersimpan.
 
+### 4.8 `GET /api/v1/broadcasts` — pengumuman operator
+
+- `200` → `{ "broadcasts": [ { "broadcast_id", "title", "body", "region_code", "created_at" } ] }`, terbaru dulu. `region_code: null` = nasional.
+- Parameter: `limit` (1..50, default 20). Retensi 90 hari.
+- **Wilayah diambil dari profil, bukan dari query.** Klien tidak dapat (dan tidak perlu) meminta pengumuman wilayah lain; yang ia terima adalah nasional + wilayahnya sendiri hasil §4.2.
+- **Kapan dipanggil:** saat daftar Pembaruan dibuka, dan setelah menerima frame/notifikasi `ADMIN_BROADCAST` (§5.7).
+- Penerbitannya adalah `POST /api/v1/admin/broadcasts` dengan header `X-Admin-Key` — **bukan** JWT, dan bukan permukaan klien. Pengirimnya `deploy/scripts/broadcast.sh` di host terpercaya. Bila `ADMIN_API_KEY` tidak di-set, rute itu tidak didaftarkan sama sekali dan menjawab `404`: instalasi yang lupa mengisinya kehilangan fiturnya, bukan pagarnya.
+
 ---
 
 ## 5. MQTT Topic & QoS
@@ -263,6 +271,27 @@ Yang **tidak** dilakukan, beserta alasannya, supaya tidak dibuka ulang tanpa sen
 Konvensi wajib untuk field itu: **"Kecamatan, Kabupaten/Kota, Provinsi"** — tempat yang bisa dicari pembaca di peta (contoh: `"Lembang, Kab. Bandung Barat, Jawa Barat"`). Server menormalkan spasi, lalu menolak nilai kosong, lebih dari 150 karakter, yang memuat `NODE-` (station id bukan tempat), atau yang memuat 5+ karakter identik berurutan (`"Bandung AAAAAAAA"` — bentuk khas nilai uji). Penolakan datang sebagai `400 INVALID_ARGUMENT`.
 
 Validasi itu hanya menyaring bentuk yang jelas bukan nama tempat; ia **tidak** bisa membuktikan sebuah string benar-benar menyebut lokasi node. Jawaban tahan lama adalah memberi nama event dari **gazetteer atau tabel batas administratif** berbasis centroid, dengan label node hanya sebagai fallback. Itu butuh sumber data batas wilayah dan diputuskan bersamaan dengan pengetatan kepercayaan `POST /nodes/provision` (endpoint itu masih terbuka untuk pemanggil anonim), jadi dicatat di sini sebagai keputusan, bukan pekerjaan yang sudah selesai.
+
+### 5.7 Pengumuman operator: kanal sendiri, bukan kanal alert
+
+Frame WebSocket dan payload FCM `type: "ADMIN_BROADCAST"`:
+
+```json
+{
+  "type": "ADMIN_BROADCAST",
+  "broadcast_id": "9c2f1a44-6e1b-4f0a-9a77-3d5b6c7e8f91",
+  "title": "Gladi resik peringatan dini",
+  "body": "Pukul 10.00 WIB akan ada uji sirene. Tidak perlu evakuasi.",
+  "region_code": "ID-jawa-barat",
+  "timestamp": 1781913558000
+}
+```
+
+- **Kanal notifikasi terpisah** (`quakealert_updates`, importance rendah, tanpa suara, tanpa full-screen intent). Sebuah pengumuman yang berbunyi seperti sirene mengajari pengguna mengabaikan sirene, dan itu tidak dapat diperbaiki dengan pengumuman berikutnya.
+- **Topic FCM terpisah** (`updates_all`, bukan `geo_alert_all`) dan prioritas `NORMAL`. Seseorang yang berhenti berlangganan kabar tidak boleh ikut kehilangan peringatan gempa.
+- Siaran regional dikirim **hanya** ke token wilayah itu dan tidak pernah jatuh ke topic nasional; klien tidak perlu memfilter apa pun berdasarkan `region_code`, tetapi boleh menampilkannya.
+- `broadcast_id` adalah kunci dedup: frame WS dan notifikasi FCM dapat tiba berdua.
+- Payload push selalu `data`-only, seperti alert — kanal, ikon dan bunyinya ditentukan klien, bukan server.
 
 ---
 

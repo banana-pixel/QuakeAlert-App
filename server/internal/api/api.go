@@ -145,6 +145,8 @@ type Repo interface {
 	EnsureChatChannel(ctx context.Context, channelID, kind, displayName string) (string, error)
 	ListChatMessages(ctx context.Context, channelID string, limit int, before *time.Time) ([]store.ChatMessage, error)
 	InsertChatMessage(ctx context.Context, channelID, senderID, pseudonym, locationTag, body, clientMessageID string) (*store.ChatMessage, error)
+	InsertBroadcast(ctx context.Context, title, body, regionCode string) (*store.Broadcast, error)
+	ListBroadcastsForUser(ctx context.Context, userID string, limit int) ([]store.Broadcast, error)
 }
 
 // SecretEncryptor mengenkripsi provisioning secret menjadi (ciphertext, nonce)
@@ -180,6 +182,12 @@ type Server struct {
 	// chat menyiarkan pesan yang sudah tersimpan; nil berarti chat berjalan
 	// tanpa pembaruan realtime (lihat SetChatFanout).
 	chat ChatFanout
+	// broadcasts menyiarkan pengumuman operator; nil berarti siaran hanya
+	// tersimpan dan terbaca lewat REST (lihat SetBroadcastFanout).
+	broadcasts BroadcastFanout
+	// adminKey kosong berarti rute /api/v1/admin/* tidak didaftarkan sama sekali
+	// (lihat SetAdminAPIKey).
+	adminKey []byte
 }
 
 // NewServer membuat Server API. TokenTTL yang kosong diisi defaultTokenTTL.

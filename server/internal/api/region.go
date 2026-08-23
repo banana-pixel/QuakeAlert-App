@@ -100,3 +100,23 @@ func RegionDisplayName(admin1 string) string {
 	}
 	return name
 }
+
+// normalizeRegionCode menormalkan kunci wilayah yang diketik operator menjadi
+// bentuk kanonis yang sama dengan hasil sinkronisasi lokasi.
+//
+// Melewatkan fungsi yang sama, [RegionCode], alih-alih memeriksa polanya:
+// "ID-Jawa Barat", "id-jawa-barat" dan "ID-jawa-barat" harus menyasar satu
+// ruang, dan satu-satunya cara menjaminnya adalah menurunkan kuncinya dengan
+// aturan yang sama yang menurunkan keanggotaan.
+//
+// Mengembalikan string kosong bila tidak ada kunci sah yang dapat dibentuk;
+// pemanggil menolak permintaannya. Siaran yang menyasar kunci yang tidak
+// ditinggali siapa pun akan tersimpan, dikirim, dan tidak dibaca siapa pun —
+// kegagalan yang paling sulit diperhatikan operator.
+func normalizeRegionCode(raw string) string {
+	country, admin1, found := strings.Cut(strings.TrimSpace(raw), "-")
+	if !found {
+		return ""
+	}
+	return RegionCode(country, admin1)
+}

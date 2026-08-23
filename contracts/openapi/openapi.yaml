@@ -37,6 +37,8 @@ tags:
     description: Riwayat kejadian gempa terkonfirmasi
   - name: chat
     description: Kanal komunitas (global & regional), lihat docs/CHAT_DESIGN.md
+  - name: broadcasts
+    description: Pengumuman operator (dibaca pengguna, ditulis pemegang kunci admin)
   - name: ops
     description: Health probe & kanal realtime (WebSocket)
 
@@ -550,12 +552,101 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/v1/broadcasts:
+    get:
+      tags: [broadcasts]
+      summary: Pengumuman operator yang berlaku bagi pemanggil
+      description: >
+        Mengembalikan pengumuman nasional ditambah yang menyasar wilayah
+        pemanggil, terbaru dulu. Wilayah diambil dari `region_code` TERSIMPAN di
+        profil, bukan dari query: kalau tidak, siapa pun dapat membaca pengumuman
+        wilayah lain hanya dengan mengubah URL, dan yang lebih sering terjadi,
+        tidak akan pernah melihat pengumuman wilayahnya sendiri begitu klien
+        salah menyusun kuncinya. Pengumuman lebih lama dari 90 hari tidak lagi
+        dikembalikan.
+      operationId: listBroadcasts
+      x-client: true # dipakai klien Android (docs/CLIENT_SPEC.md)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BroadcastsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/admin/broadcasts:
+    post:
+      tags: [broadcasts]
+      summary: Menerbitkan satu pengumuman operator
+      description: >
+        Diproteksi shared secret di header `X-Admin-Key`, BUKAN JWT: pengirimnya
+        adalah skrip di host terpercaya (deploy/scripts/broadcast.sh), kuncinya
+        tidak pernah ikut dalam APK, dan pencabutannya cukup mengganti env lalu
+        restart. Bila `ADMIN_API_KEY` tidak di-set, rute ini tidak didaftarkan
+        sama sekali dan menjawab 404 — instalasi yang lupa mengisinya kehilangan
+        fiturnya, bukan pagarnya.
+
+
+        Server menyimpan lebih dulu, lalu memfanout (WebSocket + FCM data-only,
+        prioritas NORMAL pada kanal notifikasi ber-importance rendah milik
+        klien). Pengumuman tidak pernah terlihat atau berbunyi seperti alert
+        gempa. Siaran regional dikirim HANYA ke token wilayah itu dan tidak
+        pernah jatuh ke topic nasional bila wilayahnya kosong.
+      operationId: createBroadcast
+      security:
+        - adminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBroadcastRequest'
+      responses:
+        '201':
+          description: Tersimpan dan difanout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Broadcast'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Header X-Admin-Key tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    adminKey:
+      type: apiKey
+      in: header
+      name: X-Admin-Key
+      description: >
+        Shared secret operator, minimal 32 byte, dibandingkan dengan
+        crypto/subtle.ConstantTimeCompare. Dipakai HANYA oleh /api/v1/admin/*.
 
   responses:
     BadRequest:
@@ -788,6 +879,67 @@ components:
           description: Kanal global selalu berada di indeks pertama.
           items:
             $ref: '#/components/schemas/ChatChannel'
+
+    CreateBroadcastRequest:
+      type: object
+      required: [title, body]
+      properties:
+        title:
+          type: string
+          maxLength: 120
+          description: Spasi berganda dan newline diratakan sebelum disimpan.
+          example: Gladi resik peringatan dini
+        body:
+          type: string
+          maxLength: 500
+          example: Pukul 10.00 WIB akan ada uji sirene. Tidak perlu evakuasi.
+        region_code:
+          type: string
+          maxLength: 64
+          description: >
+            Opsional. Absen atau kosong = nasional. Kuncinya sama dengan kanal
+            chat regional dan dinormalisasi ulang server lewat fungsi yang sama
+            dengan PUT /users/location, sehingga "ID-Jawa Barat" dan
+            "id-jawa-barat" mendarat pada satu kunci. Bentuk yang tidak dapat
+            dinormalisasi ditolak 400, bukan diperlakukan sebagai nasional.
+          example: ID-jawa-barat
+
+    Broadcast:
+      type: object
+      required: [broadcast_id, title, body, region_code, created_at]
+      properties:
+        broadcast_id:
+          type: string
+          format: uuid
+          example: 9c2f1a44-6e1b-4f0a-9a77-3d5b6c7e8f91
+        title:
+          type: string
+          maxLength: 120
+          example: Gladi resik peringatan dini
+        body:
+          type: string
+          maxLength: 500
+          example: Pukul 10.00 WIB akan ada uji sirene. Tidak perlu evakuasi.
+        region_code:
+          type: string
+          nullable: true
+          maxLength: 64
+          description: null = pengumuman nasional.
+          example: ID-jawa-barat
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-08-23T06:19:18Z"
+
+    BroadcastsResponse:
+      type: object
+      required: [broadcasts]
+      properties:
+        broadcasts:
+          type: array
+          description: Terbaru lebih dulu.
+          items:
+            $ref: '#/components/schemas/Broadcast'
 
     ChatMessage:
       type: object

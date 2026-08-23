@@ -164,6 +164,13 @@ func run(log *slog.Logger) error {
 	// dispatch.ChatMessage, dan sebuah resolver menjawab keanggotaan kanal
 	// sebuah koneksi WS tanpa dispatch perlu tahu soal auth atau basis data.
 	apiSrv.SetChatFanout(chatFanout{hub: hub})
+
+	// --- Siaran operator: jembatan yang sama, arah yang sama ---
+	// Kunci dipasang di sini, bukan dibaca Router: Router hanya melihat ada atau
+	// tidaknya kunci, sehingga instalasi tanpa ADMIN_API_KEY tidak punya rute
+	// admin untuk ditembus sama sekali.
+	apiSrv.SetAdminAPIKey(cfg.AdminAPIKey)
+	apiSrv.SetBroadcastFanout(broadcastFanout{dispatcher: dispatcher})
 	hub.SetChannelResolver(func(r *http.Request) []string {
 		userID, ok := api.UserIDFromContext(r.Context())
 		if !ok {
@@ -324,6 +331,22 @@ func (f chatFanout) BroadcastChat(e api.ChatEvent) {
 		Message:         e.Body,
 		IsAdmin:         e.IsAdmin,
 		Timestamp:       e.CreatedAt.UnixMilli(),
+	})
+}
+
+// broadcastFanout mengadaptasi api.BroadcastFanout ke dispatcher, yang
+// mengurus WebSocket dan FCM sekaligus. Lewat dispatcher (bukan langsung ke
+// hub) karena pengumuman harus sampai juga ke perangkat yang aplikasinya
+// tertutup — di situlah hampir semua pembacanya berada.
+type broadcastFanout struct{ dispatcher *dispatch.Dispatcher }
+
+func (f broadcastFanout) BroadcastAdmin(b api.AdminBroadcast) {
+	f.dispatcher.DispatchBroadcast(&dispatch.BroadcastMessage{
+		BroadcastID: b.ID,
+		Title:       b.Title,
+		Body:        b.Body,
+		RegionCode:  b.RegionCode,
+		Timestamp:   b.CreatedAt.UnixMilli(),
 	})
 }
 

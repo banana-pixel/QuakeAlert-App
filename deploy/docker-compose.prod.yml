@@ -89,6 +89,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET wajib (>= 32 byte)}
       JWT_TTL_HOURS: ${JWT_TTL_HOURS:-720}
 
+      # Kunci operator untuk POST /api/v1/admin/*. Kosong = rute admin TIDAK
+      # didaftarkan sama sekali (bukan terbuka), jadi tidak mengisinya aman.
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+
       # Origin WebSocket: aplikasi Android tidak mengirim Origin, jadi daftar ini
       # hanya membatasi browser. Dibiarkan kosong = tolak semua lintas-origin.
       WS_ALLOWED_ORIGINS: ${WS_ALLOWED_ORIGINS:-}

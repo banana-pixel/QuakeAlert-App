@@ -16,6 +16,10 @@ const (
 	TypeAlert    = "EARTHQUAKE_ALERT"    // >= 3 node CONFIRMED
 	TypeAdvisory = "EARTHQUAKE_ADVISORY" // 1-2 node
 	TypeResolved = "EVENT_RESOLVED"      // all-clear (state machine SYSTEM_SPEC)
+	// TypeBroadcast adalah pengumuman operator: bukan hasil konsensus, tidak
+	// pernah berbunyi seperti sirene, dan dirender klien pada kanal notifikasi
+	// ber-importance rendah miliknya sendiri.
+	TypeBroadcast = "ADMIN_BROADCAST"
 )
 
 // GeoTopic default untuk broadcast FCM (topik geo global; segmentasi lebih
@@ -44,6 +48,14 @@ type eventSaver interface {
 // mengimplementasikannya jatuh ke broadcast topic.
 type tokenFinder interface {
 	FCMTokensWithin(ctx context.Context, lat, lon float64, rangeKm int) ([]string, error)
+}
+
+// regionTokenFinder mengabstraksi pencarian token FCM per wilayah administratif
+// (siaran admin). Terpisah dari tokenFinder dan dideteksi lewat type assertion
+// dengan alasan yang sama: penyedia yang tidak mengimplementasikannya jatuh ke
+// broadcast topic alih-alih gagal.
+type regionTokenFinder interface {
+	FCMTokensInRegion(ctx context.Context, regionCode string) ([]string, error)
 }
 
 // AlertRadiusKm adalah radius peringatan TETAP: 200 km dari centroid.

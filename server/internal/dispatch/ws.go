@@ -71,6 +71,22 @@ type ChatMessage struct {
 	Timestamp       int64  `json:"timestamp"` // ms epoch UTC, seperti AlertMessage
 }
 
+// BroadcastMessage adalah pengumuman operator yang difanout ke klien.
+//
+// Envelope yang sama dengan AlertMessage dan ChatMessage — satu socket, satu
+// bentuk ber-"type" — sehingga klien tidak perlu koneksi ketiga hanya untuk
+// membaca pengumuman.
+type BroadcastMessage struct {
+	Type        string `json:"type"` // ADMIN_BROADCAST
+	BroadcastID string `json:"broadcast_id"`
+	Title       string `json:"title"`
+	Body        string `json:"body"`
+	// RegionCode kosong berarti nasional; bila terisi, hanya anggota kanal
+	// dengan kunci itu yang menerimanya.
+	RegionCode string `json:"region_code,omitempty"`
+	Timestamp  int64  `json:"timestamp"` // ms epoch UTC, seperti AlertMessage
+}
+
 // ChannelResolver menjawab kanal chat mana yang boleh diterima sebuah koneksi.
 //
 // Sebuah fungsi yang di-inject, bukan lookup di dalam paket ini: dispatch tidak
@@ -212,6 +228,48 @@ func (h *Hub) BroadcastChat(msg *ChatMessage) {
 			h.log.Debug("buffer klien ws penuh, frame chat di-drop")
 		}
 	}
+}
+
+// BroadcastAdmin mengirim satu pengumuman operator. RegionCode kosong berarti
+// seluruh klien; bila terisi, hanya klien yang menjadi anggota kanal dengan
+// kunci itu — kunci kanal chat regional dan kunci penargetan siaran adalah
+// nilai yang sama (user_profiles.region_code), jadi keanggotaan yang sudah
+// diambil saat upgrade sekaligus menjawab siapa yang berhak menerima siaran.
+//
+// Diperlakukan seperti chat, bukan seperti alert, dalam satu hal yang penting:
+// frame dilewati bila antrean klien sudah melewati chatBufferCeiling, dan klien
+// tidak ditutup. Pengumuman yang hilang muncul kembali saat klien membuka daftar
+// Pembaruan lewat REST; sebuah peringatan gempa tidak punya jalan kembali, jadi
+// sisa buffer selalu miliknya.
+func (h *Hub) BroadcastAdmin(msg *BroadcastMessage) {
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		h.log.Error("gagal marshal siaran ws", "err", err)
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	sent := 0
+	for c := range h.clients {
+		if msg.RegionCode != "" {
+			if _, ok := c.channels[msg.RegionCode]; !ok {
+				continue
+			}
+		}
+		if len(c.send) >= chatBufferCeiling {
+			h.log.Debug("buffer klien ws menipis, frame siaran dilewati")
+			continue
+		}
+		select {
+		case c.send <- payload:
+			sent++
+		default:
+			h.log.Debug("buffer klien ws penuh, frame siaran di-drop")
+		}
+	}
+	h.log.Info("siaran admin difanout via ws",
+		"broadcast_id", msg.BroadcastID, "region", msg.RegionCode, "klien", sent)
 }
 
 // Count mengembalikan jumlah klien aktif.

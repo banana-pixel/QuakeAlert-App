@@ -81,6 +81,16 @@ type fakeRepo struct {
 	insertedBody  string
 	insertedChan  string
 	insertedClID  string
+
+	// Siaran admin
+	broadcasts     []store.Broadcast
+	broadcastErr   error
+	listBroadErr   error
+	insertedBTitle string
+	insertedBBody  string
+	insertedBRegn  string
+	broadcastLimit int
+	broadcastUser  string
 }
 
 func (f *fakeRepo) CreateNode(_ context.Context, n *store.NewNode) error {
@@ -169,6 +179,28 @@ func (f *fakeRepo) InsertChatMessage(
 		Body:            body,
 		CreatedAt:       time.Unix(1_781_913_558, 0).UTC(),
 	}, nil
+}
+
+func (f *fakeRepo) InsertBroadcast(
+	_ context.Context, title, body, regionCode string,
+) (*store.Broadcast, error) {
+	if f.broadcastErr != nil {
+		return nil, f.broadcastErr
+	}
+	f.insertedBTitle, f.insertedBBody, f.insertedBRegn = title, body, regionCode
+	return &store.Broadcast{
+		ID:         "bcast-1",
+		Title:      title,
+		Body:       body,
+		RegionCode: regionCode,
+		CreatedAt:  time.Unix(1_781_913_558, 0).UTC(),
+	}, nil
+}
+func (f *fakeRepo) ListBroadcastsForUser(
+	_ context.Context, userID string, limit int,
+) ([]store.Broadcast, error) {
+	f.broadcastUser, f.broadcastLimit = userID, limit
+	return f.broadcasts, f.listBroadErr
 }
 
 type fakeCipher struct{}

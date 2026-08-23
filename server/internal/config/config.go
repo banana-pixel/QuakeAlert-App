@@ -59,12 +59,26 @@ type Config struct {
 	// Redis: dipakai rate-limiter reroll pseudonym (SET NX EX 60s).
 	RedisURL string
 
+	// AdminAPIKey adalah secret untuk endpoint operator (POST
+	// /api/v1/admin/broadcasts). KOSONG = endpoint admin tidak didaftarkan sama
+	// sekali, bukan didaftarkan tanpa proteksi: sebuah instalasi yang lupa
+	// mengisinya harus kehilangan fiturnya, bukan kehilangan pagarnya.
+	//
+	// Bukan JWT dan bukan user_profiles.is_admin: pengirimnya adalah skrip shell
+	// di host terpercaya, jadi secret tidak pernah ikut dalam APK dan pencabutan
+	// hanya berarti mengganti env lalu restart.
+	AdminAPIKey string
+
 	// MQTT public config yang dikembalikan saat provisioning node (bukan koneksi
 	// server → broker, melainkan yang dipakai firmware untuk konek).
 	MQTTPublicBroker string
 	MQTTPublicPort   int
 	MQTTPublicTLS    bool
 }
+
+// minAdminKeyLen adalah panjang minimum ADMIN_API_KEY. 32 byte acak (mis.
+// `openssl rand -hex 32`) berada di luar jangkauan brute force lewat HTTP.
+const minAdminKeyLen = 32
 
 // Load membaca & memvalidasi konfigurasi dari environment.
 func Load() (*Config, error) {
@@ -86,6 +100,8 @@ func Load() (*Config, error) {
 		MQTTPublicBroker: getEnv("MQTT_PUBLIC_BROKER", "broker.quakealert.id"),
 		MQTTPublicPort:   getEnvInt("MQTT_PUBLIC_PORT", 8883),
 		MQTTPublicTLS:    getEnvBool("MQTT_PUBLIC_TLS", true),
+
+		AdminAPIKey: getEnv("ADMIN_API_KEY", ""),
 
 		JWTTokenTTL: time.Duration(getEnvInt("JWT_TTL_HOURS", 720)) * time.Hour,
 	}
@@ -115,6 +131,13 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("JWT_SECRET wajib di-set (minimal 32 byte untuk HS256), dapat %d byte", len(jwtSecret))
 	}
 	cfg.JWTSecret = []byte(jwtSecret)
+
+	// Kunci admin opsional, tetapi bila diisi harus benar-benar sebuah secret:
+	// kunci pendek yang lolos di sini akan menjadi satu-satunya hal yang
+	// memisahkan penyerang dari mengirim notifikasi ke seluruh pengguna.
+	if cfg.AdminAPIKey != "" && len(cfg.AdminAPIKey) < minAdminKeyLen {
+		return nil, fmt.Errorf("ADMIN_API_KEY minimal %d byte, dapat %d", minAdminKeyLen, len(cfg.AdminAPIKey))
+	}
 
 	if cfg.JWTTokenTTL <= 0 {
 		return nil, fmt.Errorf("JWT_TTL_HOURS harus > 0, dapat %s", cfg.JWTTokenTTL)
