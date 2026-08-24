@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.addsensor
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.web.quakealert.data.network.QuakeNetwork
@@ -177,6 +178,7 @@ class AddSensorViewModel(application: Application) : AndroidViewModel(applicatio
     // --- LINK ---
 
     fun onSsidSelected(ssid: String) {
+        Log.i(TAG, "ssid selected: $ssid")
         _state.update { it.onSsidSelected(ssid) }
     }
 
@@ -188,12 +190,15 @@ class AddSensorViewModel(application: Application) : AndroidViewModel(applicatio
     fun onConfigureNode() {
         val gated = _state.value.advanceIfLinkValid()
         _state.value = gated
+        Log.i(TAG, "configure gate: step=${gated.step} ssid=${gated.selectedSsid} " +
+            "pwLen=\${gated.wifiPassword.length} linkError=${gated.linkError} busy=${gated.isBusy}")
         val provisioned = gated.provisioned ?: return
         val lat = gated.latitude ?: return
         val lon = gated.longitude ?: return
 
         viewModelScope.launch {
             _state.update { it.copy(isBusy = true, errorMessage = null) }
+            Log.i(TAG, "sending /config to node")
             val payload = NodePortalConfigDto(
                 ssid = gated.selectedSsid.trim(),
                 password = gated.wifiPassword,
@@ -207,12 +212,14 @@ class AddSensorViewModel(application: Application) : AndroidViewModel(applicatio
             )
             nodeLink.sendConfig(payload).fold(
                 onSuccess = { echo ->
+                    Log.i(TAG, "portal accepted config, echo=$echo")
                     ensureServerKnowsAPosition()
                     _state.update { it.onNodeConfigured(echo).copy(isBusy = false) }
                     startConfirmLoop()
                     nodeLink.releaseNode()
                 },
                 onFailure = { throwable ->
+                    Log.w(TAG, "portal rejected config", throwable)
                     _state.update {
                         it.copy(isBusy = false, errorMessage = throwable.message ?: CONFIG_FAILED_MESSAGE)
                     }
@@ -315,3 +322,5 @@ class AddSensorViewModel(application: Application) : AndroidViewModel(applicatio
             "The sensor could not be configured. Make sure you are still connected to QuakeSetup."
     }
 }
+
+private const val TAG = "AddSensor"

@@ -87,36 +87,42 @@ class NodeLink(context: Context) {
             )
             .build()
 
-        val network: Network? = suspendCancellableCoroutine { continuation ->
-            val callback = object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    Log.i(TAG, "node network available (pre-DHCP): $network")
-                }
+        // A specifier request with no answer (dialog left open) never times out on
+        // its own — and the ViewModel would sit busy forever. The WAIT is bounded;
+        // on timeout the cancellation unregisters the callback and Rescan can
+        // bring the dialog back.
+        val network: Network? = kotlinx.coroutines.withTimeoutOrNull(BIND_TIMEOUT_MS) {
+            suspendCancellableCoroutine { continuation ->
+                val callback = object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        Log.i(TAG, "node network available (pre-DHCP): $network")
+                    }
 
-                // The gate that matters: link properties carry the interface's
-                // addresses, so their arrival means DHCP finished and 192.168.4.1
-                // is actually reachable through this network.
-                override fun onLinkPropertiesChanged(
-                    network: Network,
-                    linkProperties: LinkProperties
-                ) {
-                    val hasV4 = linkProperties.getLinkAddresses().any { addr -> addr.address is java.net.Inet4Address }
-                    Log.i(TAG, "link properties changed, ipv4=$hasV4")
-                    if (hasV4 && continuation.isActive) {
-                        continuation.resume(network)
+                    // The gate that matters: link properties carry the interface's
+                    // addresses, so their arrival means DHCP finished and 192.168.4.1
+                    // is actually reachable through this network.
+                    override fun onLinkPropertiesChanged(
+                        network: Network,
+                        linkProperties: LinkProperties
+                    ) {
+                        val hasV4 = linkProperties.getLinkAddresses().any { addr -> addr.address is java.net.Inet4Address }
+                        Log.i(TAG, "link properties changed, ipv4=$hasV4")
+                        if (hasV4 && continuation.isActive) {
+                            continuation.resume(network)
+                        }
+                    }
+
+                    override fun onUnavailable() {
+                        Log.w(TAG, "node network unavailable (dialog dismissed or timed out)")
+                        continuation.resume(null)
                     }
                 }
-
-                override fun onUnavailable() {
-                    Log.w(TAG, "node network unavailable (dialog dismissed or timed out)")
-                    continuation.resume(null)
-                }
+                boundCallback = callback
+                // requestNetwork (not registerNetworkCallback): brings the network UP,
+                // showing the join dialog, instead of waiting for one to exist.
+                manager.requestNetwork(request, callback)
+                continuation.invokeOnCancellation { runCatching { manager.unregisterNetworkCallback(callback) } }
             }
-            boundCallback = callback
-            // requestNetwork (not registerNetworkCallback): brings the network UP,
-            // showing the join dialog, instead of waiting for one to exist.
-            manager.requestNetwork(request, callback)
-            continuation.invokeOnCancellation { runCatching { manager.unregisterNetworkCallback(callback) } }
         }
 
         boundNetwork = network
@@ -161,6 +167,7 @@ class NodeLink(context: Context) {
                 .build()
             val response = clientFor(boundNetwork).newCall(request).execute()
             val outcome = parseConfigOutcome(response.body?.string(), response.code)
+            Log.i(TAG, "POST /config -> http=$response.code echo=${outcome.getOrNull()}")
             outcome.getOrThrow()
         }
     }
@@ -213,6 +220,9 @@ class NodeLink(context: Context) {
 
         private const val PORTAL_TIMEOUT_S = 10L
         private const val PORTAL_CALL_TIMEOUT_S = 30L
+
+        /** Join-dialog window; past this, bind fails and Rescan restarts it. */
+        const val BIND_TIMEOUT_MS = 45_000L
 
         private const val NOT_LINKED_MESSAGE =
             "Not connected to the sensor's setup network yet."
