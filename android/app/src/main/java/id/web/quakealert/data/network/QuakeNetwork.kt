@@ -111,6 +111,34 @@ class QuakeNetwork private constructor(context: Context) {
     }
 
     /**
+     * Probe transport: the shared client's pool and DNS, with its own short
+     * timeouts. A health answer that takes 20 s to arrive has already told the
+     * user the wrong thing by waiting; 3 s connect/read and a 5 s call ceiling
+     * keep one probe inside a badge tick.
+     */
+    private val healthHttpClient: OkHttpClient by lazy {
+        httpClient.newBuilder()
+            .connectTimeout(HEALTH_CONNECT_TIMEOUT_S, TimeUnit.SECONDS)
+            .readTimeout(HEALTH_READ_TIMEOUT_S, TimeUnit.SECONDS)
+            .callTimeout(HEALTH_CALL_TIMEOUT_S, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /**
+     * The single verdict behind the top-bar badge on every tab. Lazy like its
+     * inputs; constructing it opens no socket and starts no polling — both begin
+     * when the first screen subscribes to [ServerHealthMonitor.health].
+     */
+    val serverHealthMonitor: ServerHealthMonitor by lazy {
+        ServerHealthMonitor(
+            networkMonitor = networkMonitor,
+            webSocketClient = webSocketClient,
+            probe = HealthProbe(healthHttpClient),
+            scope = networkScope
+        )
+    }
+
+    /**
      * Shared across both delivery channels, which is the entire point: the WebSocket
      * frame and its FCM copy describe one earthquake and must raise one alert.
      */
@@ -140,9 +168,13 @@ class QuakeNetwork private constructor(context: Context) {
                 instance ?: QuakeNetwork(context).also { instance = it }
             }
 
-        private const val CONNECT_TIMEOUT_S = 10L
-        private const val READ_TIMEOUT_S = 20L
-        private const val WRITE_TIMEOUT_S = 10L
-        private const val WS_PING_INTERVAL_S = 20L
+    private const val CONNECT_TIMEOUT_S = 10L
+    private const val READ_TIMEOUT_S = 20L
+    private const val WRITE_TIMEOUT_S = 10L
+    private const val WS_PING_INTERVAL_S = 20L
+
+    private const val HEALTH_CONNECT_TIMEOUT_S = 3L
+    private const val HEALTH_READ_TIMEOUT_S = 3L
+    private const val HEALTH_CALL_TIMEOUT_S = 5L
     }
 }
