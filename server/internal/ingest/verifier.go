@@ -15,17 +15,32 @@ const MaxClockSkew = 30 * time.Second
 
 // Kesalahan verifikasi (life-safety: setiap penolakan di-log untuk audit).
 var (
-	ErrNodeInactive = errors.New("node non-aktif")
-	ErrClockSkew    = errors.New("ts menyimpang > 30s dari waktu server")
-	ErrReplay       = errors.New("ts <= last_seen_ts (replay/stale)")
-	ErrBadSignature = errors.New("HMAC tidak valid")
+	ErrNodeInactive   = errors.New("node non-aktif")
+	ErrNodeUnverified = errors.New("node belum diverifikasi operator")
+	ErrClockSkew      = errors.New("ts menyimpang > 30s dari waktu server")
+	ErrReplay         = errors.New("ts <= last_seen_ts (replay/stale)")
+	ErrBadSignature   = errors.New("HMAC tidak valid")
 )
 
-// Verifier memverifikasi trigger: struktur -> node aktif -> clock skew ->
-// HMAC -> anti-replay. Urutan sengaja: tolak murah dulu, kripto terakhir.
+// nodeSource adalah subset store yang dibutuhkan verifier. Interface, bukan
+// *store.Store konkret, agar pipa verifikasi dapat diuji dengan fake store —
+// pola yang sama dengan api.Repo.
+type nodeSource interface {
+	GetNodeSecret(ctx context.Context, stationID string) (*store.NodeSecret, error)
+	UpdateLastSeen(ctx context.Context, stationID string, ts int64) (bool, error)
+}
+
+// secretDecryptor membuka secret_key_enc node (implementasi: crypto.Cipher).
+type secretDecryptor interface {
+	Decrypt(ciphertext, nonce []byte) ([]byte, error)
+}
+
+// Verifier memverifikasi trigger: struktur -> node aktif & terverifikasi ->
+// clock skew -> HMAC -> anti-replay. Urutan sengaja: tolak murah dulu,
+// kripto terakhir.
 type Verifier struct {
-	store  *store.Store
-	cipher *crypto.Cipher
+	store  nodeSource
+	cipher secretDecryptor
 	log    *slog.Logger
 	now    func() time.Time // diinjeksi untuk test
 }
@@ -53,8 +68,15 @@ func (v *Verifier) Verify(ctx context.Context, raw []byte) (*Trigger, error) {
 }
 
 // VerifyTrigger menjalankan pipa verifikasi atas trigger yang struktur payloadnya
-// SUDAH divalidasi ParseTrigger: node aktif -> clock skew -> HMAC -> anti-replay.
-// Urutan sengaja: tolak murah dulu, kripto terakhir.
+// SUDAH divalidasi ParseTrigger: node aktif & terverifikasi -> clock skew ->
+// HMAC -> anti-replay. Urutan sengaja: tolak murah dulu, kripto terakhir.
+//
+// Gerbang verified (migrasi 000005) berdiri sebelum HMAC dengan alasan yang sama
+// seperti is_active: sebuah node yang belum dikonfirmasi operator tidak boleh
+// ikut voting menuju ambang 3-node CONFIRMED, seberapa pun sah tanda tangannya —
+// siapa pun yang bisa provision juga bisa menandatangani. Heartbeat node yang
+// sama TETAP diterima di jalur lain, jadi stasiunnya tetap tampak di /sensors
+// sebagai pending; hanya suaranya dalam konsensus yang tidak ada.
 func (v *Verifier) VerifyTrigger(ctx context.Context, t *Trigger) error {
 	// 1. Clock skew — murah, tolak sebelum sentuh DB/kripto.
 	nowMs := v.now().UnixMilli()
@@ -71,6 +93,10 @@ func (v *Verifier) VerifyTrigger(ctx context.Context, t *Trigger) error {
 	if !node.IsActive {
 		v.log.Warn("trigger ditolak: node inactive", "node_id", t.NodeID)
 		return ErrNodeInactive
+	}
+	if !node.Verified {
+		v.log.Warn("trigger ditolak: node belum terverifikasi", "node_id", t.NodeID)
+		return ErrNodeUnverified
 	}
 
 	// 3. Anti-replay awal (cek in-memory nilai last_seen; penegakan final via DB atomik).
