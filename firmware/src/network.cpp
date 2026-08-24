@@ -1,13 +1,18 @@
 /**
  * QuakeAlert ESP32 - Network & Location Implementation
  *
- * Privacy-centric architecture:
- *   - No IP-geolocation HTTP calls (HTTPClient removed entirely)
- *   - HTML5 navigator.geolocation injected into the WiFiManager captive
- *     portal so the user's phone GPS auto-fills the lat/lon fields once
- *   - Coordinates persisted to NVS (Preferences) and loaded on every boot
- *   - Raw coordinates kept full-precision in memory; only the MQTT payloads
- *     receive 2-decimal-place masking (~1.1 km anonymity box)
+ * Provisioning (SoftAP "QuakeSetup"):
+ *   - POST /config menerima {ssid, password, lat, lon, hmac_key} plus handoff
+ *     wizard "Add a Sensor": {station_id, mqtt_broker, mqtt_port, mqtt_tls}.
+ *     Semuanya persisten ke NVS (Preferences); station_id divalidasi ketat.
+ *   - GET /scan mengembalikan daftar SSID terlihat.
+ *   - Node reboot sendiri setelah /config sukses (rebootRequestReceived).
+ *
+ * Lokasi:
+ *   - HTML5 navigator.geolocation pada portal + BeaconDB BSSID triangulation,
+ *     dengan IP-geolocation (HTTPClient) hanya sebagai fallback kota.
+ *   - Koordinat disimpan penuh di NVS dan memori; payload MQTT dimasking
+ *     2 desimal (~1.1 km anonymity box).
  */
 
 #include "network.h"
@@ -42,6 +47,24 @@ namespace {
 // ------------------------------------------------------------------
 float maskCoord(float coord) {
     return roundf(coord * 100.0f) / 100.0f;
+}
+
+// ------------------------------------------------------------------
+// Validasi station_id dari portal (sisi firmware dari migrasi 000005):
+// NODE- + 8 hex kapital, panjang tepat 13 — pola yang sama dengan
+// stationIDPattern server (internal/api/api.go). Pemeriksaan manual,
+// bukan <regex>: polanya sederhana dan menghindari menarik library
+// regex besar ke dalam image firmware.
+// ------------------------------------------------------------------
+bool isValidStationId(const char* id) {
+    if (id == nullptr || strlen(id) != 13) return false;
+    if (strncmp(id, "NODE-", 5) != 0) return false;
+    for (size_t i = 5; i < 13; ++i) {
+        const char c = id[i];
+        const bool hexUpper = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F');
+        if (!hexUpper) return false;
+    }
+    return true;
 }
 
 // ------------------------------------------------------------------
@@ -118,7 +141,7 @@ void initWifi() {
                 p.begin("quake-app", false);
                 p.putString("ssid", doc["ssid"] | "");
                 p.putString("password", doc["password"] | "");
-                
+
                 float lat = doc["lat"] | 0.0f;
                 float lon = doc["lon"] | 0.0f;
                 if (lat != 0.0f || lon != 0.0f) {
@@ -135,11 +158,65 @@ void initWifi() {
                     p.putString(NVS_KEY_HMAC, hmacKey);
                     Serial.println("HMAC key provisioned to NVS.");
                 }
+
+                // --- Handoff wizard "Add a Sensor" (server: POST /nodes/provision) ---
+                //
+                // station_id ditolak KERAS bila bentuknya salah, dan seluruh
+                // payload ditolak bersamanya: identitas adalah kunci topik MQTT
+                // dan kunci voting konsensus — nilai sampah tidak boleh masuk
+                // NVS hanya karena datang bersama kredensial Wi-Fi yang sah.
+                // Menolak total (bukan mengabaikan field) memberi wizard satu
+                // kontrak yang sederhana: 400 berarti coba ulang tanpa setengah
+                // konfigurasi tersimpan.
+                const char* sentStationId = nullptr;
+                if (doc["station_id"].is<const char*>()) {
+                    const char* sid = doc["station_id"] | "";
+                    if (!isValidStationId(sid)) {
+                        p.end();
+                        Serial.printf("Rejected /config: bad station_id '%s'\n", sid);
+                        configServer->send(400, "application/json",
+                                           "{\"status\":\"error\",\"message\":\"invalid_station_id\"}");
+                        return;
+                    }
+                    p.putString("station_id", sid);
+                    sentStationId = sid;
+                }
+
+                // Broker dioverride per-node dengan jawaban provisioning; field
+                // yang absen mempertahankan nilai lama / fallback secrets.h.
+                if (doc["mqtt_broker"].is<const char*>()) {
+                    char broker[MQTT_BROKER_BUFFER_SIZE];
+                    strlcpy(broker, doc["mqtt_broker"] | "", sizeof(broker));
+                    if (broker[0] != '\0') {
+                        p.putString(NVS_KEY_MQTT_BROKER, broker);
+                    }
+                }
+                if (doc["mqtt_port"].is<int>()) {
+                    const int port = doc["mqtt_port"] | 0;
+                    if (port > 0 && port <= 65535) {
+                        p.putInt(NVS_KEY_MQTT_PORT, port);
+                    }
+                }
+                if (doc["mqtt_tls"].is<bool>()) {
+                    p.putBool(NVS_KEY_MQTT_TLS, doc["mqtt_tls"] | true);
+                }
+
+                // Identitas efektif dikirim balik: wizard tidak perlu menebak
+                // apakah node memakai ID dari server atau ID hasil generate
+                // boot pertama (assignStationId sudah jalan sebelum portal ini).
+                char effectiveId[STATION_ID_BUFFER_SIZE];
+                if (sentStationId != nullptr) {
+                    strlcpy(effectiveId, sentStationId, sizeof(effectiveId));
+                } else {
+                    p.getString("station_id", effectiveId, sizeof(effectiveId));
+                }
                 p.end();
 
-                
-                configServer->send(200, "application/json", "{\"status\":\"success\"}");
-                Serial.println("Successfully saved new credentials via /config API.");
+                char response[80];
+                snprintf(response, sizeof(response),
+                         "{\"status\":\"success\",\"station_id\":\"%s\"}", effectiveId);
+                configServer->send(200, "application/json", response);
+                Serial.printf("Config saved via /config API. Station ID: %s\n", effectiveId);
                 extern volatile bool rebootRequestReceived;
                 rebootRequestReceived = true;
             } else {

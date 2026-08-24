@@ -59,7 +59,7 @@ Severity: 🔴 blocker (integritas/keamanan/kontrak), 🟡 penting, 🟢 minor.
 - **Aksi:** Pastikan `getStationIdCopy()` menghasilkan format `NODE-<8 hex uppercase>`.
 
 ### 🟢 F-9 — Provisioning SoftAP & NVS
-- **`.clinerules/30` #2/#3:** Wi-Fi creds & `station_id` via `Preferences.h` (NVS); reset via BOOT 5s → SoftAP `QuakeNode-Setup` → `POST /setup`.
+- **`.clinerules/30` #2/#3:** Wi-Fi creds, `station_id`, dan konfigurasi broker per-node via `Preferences.h` (NVS); reset via BOOT 5s → SoftAP `QuakeSetup` → `POST /config`. (Nama AP dan endpoint sebelumnya tertulis `QuakeNode-Setup`/`POST /setup` — tidak sesuai kode; diperbaiki saat handoff wizard, lihat `network.cpp`.)
 - **Aksi:** Verifikasi keberadaan di `network.cpp`; jika hardcode via `secrets.h`, jadikan fallback saja.
 
 ### 🔴 F-11 — Kredensial MQTT node harus dirotasi, dan `secrets.h` lokal memakai peran yang salah
