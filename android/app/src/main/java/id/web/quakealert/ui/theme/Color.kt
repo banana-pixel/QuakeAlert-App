@@ -482,3 +482,51 @@ val MapSurfaceFallback = Color(0xFF0A1620)
  */
 val MapAttributionText = Color(0x99FFFFFF)          // white 60%
 val MapAttributionScrim = Color(0x59000000)         // black 35%
+
+// ============================================================
+// Add-a-Sensor wizard palette (Figma nodes 155:985 ... 155:1572)
+// ============================================================
+// Named for the wizard and kept here beside the other overlay palettes rather
+// than privately inside the screen, so the exit-confirmation card and the wizard
+// card cannot drift apart.
+
+/** Wizard card fill: linear-gradient(180deg, #003B3A 0%, #222222 100%). */
+val WizardGradientTop = Color(0xFF003B3A)
+val WizardGradientBottom = Color(0xFF222222)
+val WizardModalGradient = Brush.verticalGradient(
+    colors = listOf(WizardGradientTop, WizardGradientBottom)
+)
+
+/** Card stroke, white 10%. Shared by the wizard card and its confirmation card. */
+val ModalCardBorder = Color(0x1AFFFFFF)
+
+/** Inset panel fill, rgba(0,0,0,0.31), and its white 30% stroke. */
+val WizardPanelFill = Color(0x4F000000)
+val WizardPanelStroke = Color(0x4DFFFFFF)
+
+/** Step badge, micro-chips and text inputs, #2D2D2D. */
+val WizardBadgeFill = Color(0xFF2D2D2D)
+
+/** Primary action fill (#002C40) and the confirming green (#465115). */
+val WizardPrimaryActionFill = Color(0xFF002C40)
+val WizardConfirmActionFill = Color(0xFF465115)
+
+/**
+ * Fill for an action that throws work away (Discard, Exit). Deliberately the same
+ * red container the offline and MMI badges already use, so "this destroys something"
+ * looks identical everywhere rather than borrowing the confirming green.
+ */
+val DestructiveActionFill = Color(0xFF460808)
+
+/** GPS sync chip container inside the map frame, #414141. */
+val WizardSyncChipFill = Color(0xFF414141)
+
+/** Hairline rule between panel rows, #5D5D5D. */
+val WizardDividerColor = Color(0xFF5D5D5D)
+
+/** Emphasis washes: processing rgba(0,0,0,0.2) and failure rgba(255,0,0,0.2). */
+val WizardProcessingFill = Color(0x33000000)
+val WizardAlertFill = Color(0x33FF0000)
+
+/** Scrim behind the exit-confirmation card, so the wizard reads as parked. */
+val ModalScrim = Color(0x8C000000)

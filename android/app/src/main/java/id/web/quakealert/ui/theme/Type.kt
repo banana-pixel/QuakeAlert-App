@@ -562,3 +562,71 @@ val TestAlertBodyText = TextStyle(
     platformStyle = CenteredPlatformStyle,
     lineHeightStyle = CenteredLineHeight
 )
+
+// ============================================================
+// Add-a-Sensor wizard typography (Figma nodes 155:985 ... 155:1572)
+// ============================================================
+// The wizard used to set its type inline at every call site, which is how one
+// screen ended up with four different 12sp variants. These four styles cover the
+// whole flow; anything else it needs reuses MetricLabel / MetricValue.
+
+/**
+ * Step headline under the badge ("WLAN Setup", "Where would you like to..."):
+ * Nunito Bold 15/20, centred. One step under [ModalTitle] so the card header
+ * still outweighs it.
+ */
+val WizardHeadline = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 15.sp,
+    lineHeight = 20.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle
+)
+
+/**
+ * Explanatory paragraphs: the welcome copy, the per-step helper, the failure
+ * message. Nunito Medium 12/17. Colour is left on [TextPrimary] and overridden to
+ * [TextSecondary] where the copy is a quiet aside rather than something to read.
+ */
+val WizardBodyText = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Medium,
+    fontSize = 12.sp,
+    lineHeight = 17.sp,
+    color = TextPrimary,
+    platformStyle = CenteredPlatformStyle
+)
+
+/**
+ * The one line of status inside an emphasis block ("Processing, please hang
+ * tight..."): Nunito Bold 15/22, centred. Sized down from the design's 16sp so a
+ * three-line status still fits the 346dp card without scrolling.
+ */
+val WizardStatusText = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 15.sp,
+    lineHeight = 22.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)
+
+/**
+ * Label of an action capsule and of the step badge: Nunito Bold 13/18, centred.
+ * Deliberately below the 15sp the design draws: the Back / Next pair shares a
+ * 346dp row, and 15sp truncates "Rescan Networks" on a small phone.
+ */
+val WizardActionLabel = TextStyle(
+    fontFamily = NunitoFontFamily,
+    fontWeight = FontWeight.Bold,
+    fontSize = 13.sp,
+    lineHeight = 18.sp,
+    color = TextPrimary,
+    textAlign = TextAlign.Center,
+    platformStyle = CenteredPlatformStyle,
+    lineHeightStyle = CenteredLineHeight
+)

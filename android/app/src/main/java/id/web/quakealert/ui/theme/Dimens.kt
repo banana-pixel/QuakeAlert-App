@@ -647,5 +647,84 @@ object Dimens {
     const val SkeletonCardCount = 5
 
 
+
+    // ============================================================
+    // Add-a-Sensor wizard (Figma nodes 155:985 ... 155:1572)
+    // ============================================================
+    // The wizard card is drawn 346 wide in Figma, so its inner elements are sized
+    // for that width rather than for a full screen. Every measurement the wizard
+    // needs lives here: it used to borrow EventDetail and Chat tokens, which is how
+    // a 346dp card ended up with a full-width card's paddings.
+
+    /** Ceiling on the card width (Figma frame 346). */
+    val WizardCardMaxWidth = 346.dp
+
+    /**
+     * Share of the available height the card may occupy. The body scrolls inside
+     * that bound while the header, indicator and action row stay put, so a long
+     * step never pushes the actions off screen.
+     */
+    const val WizardCardHeightFraction = 0.88f
+
+    /** Vertical rhythm between the card's stacked blocks (Figma gap 14). */
+    val WizardSectionGap = 14.dp
+
+    /** Vertical rhythm inside one panel (Figma gap 10). */
+    val WizardPanelGap = 10.dp
+
+    /** Inner padding of a wizard panel (Figma padding 12 / 14). */
+    val WizardPanelPaddingHorizontal = 14.dp
+    val WizardPanelPaddingVertical = 12.dp
+
+    /** Padding of the emphasis blocks: processing, finishing, rate limit (Figma 18). */
+    val WizardEmphasisPadding = 18.dp
+
+    /** Dark disc behind a wizard glyph, and the glyph inside it (Figma 74 / 50). */
+    val WizardGlyphDisc = 74.dp
+    val WizardGlyphIcon = 44.dp
+
+    /** Gap between the two glyph discs of a status pair (Figma gap 20). */
+    val WizardGlyphGap = 20.dp
+
+    /** Height of the map frame on the location step (Figma 175). */
+    val WizardMapHeight = 175.dp
+
+    /** Inset of the sync chip from the map frame's own edges. */
+    val WizardMapChipInset = 10.dp
+
+    /** GPS sync chip inside the map frame (Figma 44x42). */
+    val WizardSyncChipWidth = 44.dp
+    val WizardSyncChipHeight = 42.dp
+
+    /** The centre pin drawn over the map, and the dot at its core. */
+    val WizardPinSize = 22.dp
+    val WizardPinCoreSize = 8.dp
+
+    /** One scanned-network row (Figma 27). */
+    val WizardSsidRowHeight = 27.dp
+
+    /** The 60x22 "Choose" / "Copy" micro-button (Figma EL-cc177b8d). */
+    val WizardChipWidth = 60.dp
+    val WizardChipHeight = 22.dp
+
+    /** Editable field: the place name and the WLAN password. */
+    val WizardFieldPaddingHorizontal = 10.dp
+    val WizardFieldPaddingVertical = 8.dp
+
+    /** Trailing pencil glyph on the place-name row (decorative; the row is the target). */
+    val WizardEditGlyphSize = 18.dp
+
+    /** Side padding of a wizard action capsule; the height is ModalActionHeight. */
+    val WizardActionPaddingHorizontal = 14.dp
+
+    /** Gap between the two capsules of the Back / Next row (Figma gap 12). */
+    val WizardActionGap = 12.dp
+
+    /** Side padding of the step badge pill (Figma padding 12). */
+    val WizardBadgePaddingHorizontal = 12.dp
+
+    /** Inner padding of the exit-confirmation card's message block. */
+    val WizardConfirmContentGap = 12.dp
+
 }
 
