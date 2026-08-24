@@ -354,8 +354,10 @@ void checkMqttConnection() {
     // Sertifikat broker diverifikasi terhadap jam dinding, dan ESP32 boot pada
     // 1970. Mencoba handshake sebelum NTP hanya menghasilkan rc=-2 yang terlihat
     // seperti broker tidak dapat dihubungi. Ditahan di sini, bukan di dalam
-    // configureMqttTls(), karena syaratnya berubah selama runtime.
-    if (!mqttTlsClockReady()) {
+    // configureMqttTls(), karena syaratnya berubah selama runtime. Jalur
+    // plaintext (mqtt_use_tls = false, dev) tidak menilai sertifikat apa pun,
+    // jadi menunggu jam hanya menunda tanpa alasan.
+    if (mqtt_use_tls && !mqttTlsClockReady()) {
         return;
     }
 

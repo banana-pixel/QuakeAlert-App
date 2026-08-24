@@ -57,6 +57,13 @@
 #define MQTT_TRIGGER_BUFFER_SIZE   256
 // NVS key untuk HMAC secret per-node (di-set saat provisioning).
 #define NVS_KEY_HMAC "hmac_key"
+// NVS key konfigurasi broker per-node (handoff wizard "Add a Sensor" lewat
+// portal /config). Absen di NVS = pakai nilai bawaan secrets.h saat boot.
+#define NVS_KEY_MQTT_BROKER "mqtt_broker"
+#define NVS_KEY_MQTT_PORT   "mqtt_port"
+#define NVS_KEY_MQTT_TLS    "mqtt_tls"
+// Ruang untuk hostname broker terpanjang yang masuk akal (mis. broker.quakealert.id).
+#define MQTT_BROKER_BUFFER_SIZE 128
 
 
 // ========================================

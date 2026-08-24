@@ -30,8 +30,13 @@
 // ========================================
 // CREDENTIALS
 // ========================================
-const char* mqtt_server   = SECRET_MQTT_SERVER;
-const int   mqtt_port     = SECRET_MQTT_PORT;
+// Nilai bawaan build (secrets.h) berlaku sampai portal /config menulis
+// override per-node ke NVS — dibaca ulang tiap boot oleh loadBrokerConfig().
+// Buffer, bukan pointer: nilai NVS disalin saat boot sehingga tidak bergantung
+// pada masa hidup objek Preferences.
+char mqtt_server[MQTT_BROKER_BUFFER_SIZE] = SECRET_MQTT_SERVER;
+int  mqtt_port     = SECRET_MQTT_PORT;
+bool mqtt_use_tls  = true;
 const char* mqtt_user     = SECRET_MQTT_USER;
 const char* mqtt_password = SECRET_MQTT_PASS;
 
@@ -49,6 +54,7 @@ MPU6050 mpu;
 TaskHandle_t SensorTask = nullptr;
 TaskHandle_t NetworkMaintenanceTask = nullptr;
 WiFiClientSecure espClient;
+WiFiClient plainClient;               // jalur plaintext dev saat mqtt_use_tls = false
 PubSubClient mqttClient(espClient);
 SemaphoreHandle_t i2cMutex = nullptr;
 SemaphoreHandle_t mpuInterruptSemaphore = nullptr;
@@ -148,6 +154,29 @@ static void assignStationId() {
     prefs.end();
 
     Serial.printf("Station ID: %s\n", StationID);
+}
+
+static void loadBrokerConfig() {
+    // Override broker per-node dari portal /config (wizard "Add a Sensor").
+    // Field yang absen atau di luar rentang membiarkan nilai bawaan secrets.h:
+    // NVS hanya pernah berisi nilai yang sudah lolos validasi di network.cpp,
+    // tapi pemeriksaan ulang saat baca membuat loader ini tidak bisa dipakai
+    // untuk menyalakan sesuatu yang aneh walau NVS ditulis langsung.
+    Preferences prefs;
+    prefs.begin("quake-app", true);
+    String broker = prefs.getString(NVS_KEY_MQTT_BROKER, "");
+    const int port = prefs.getInt(NVS_KEY_MQTT_PORT, 0);
+    mqtt_use_tls = prefs.getBool(NVS_KEY_MQTT_TLS, true);
+    prefs.end();
+
+    if (broker.length() > 0 && broker.length() < sizeof(mqtt_server)) {
+        broker.toCharArray(mqtt_server, sizeof(mqtt_server));
+    }
+    if (port > 0 && port <= 65535) {
+        mqtt_port = port;
+    }
+    Serial.printf("MQTT target: %s:%d (%s)\n", mqtt_server, mqtt_port,
+                  mqtt_use_tls ? "TLS" : "PLAINTEXT");
 }
 
 static void initPersistentState() {
@@ -312,9 +341,21 @@ void setup() {
     }
 
     assignStationId();
+    loadBrokerConfig();
     initPersistentState();
     initTaskWatchdog();
 
+    // Jalur transport dipilih sebelum setServer: PubSubClient menyimpan referensi
+    // client, dan configureMqttTls() memasang trust anchor pada espClient —
+    // dipanggil hanya saat NVS (fallback secrets.h) menuntut TLS. Jalur plaintext
+    // sengaja berisik di serial agar build dev tidak diam-diam sampai ke lapangan.
+    if (mqtt_use_tls) {
+        configureMqttTls();
+        mqttClient.setClient(espClient);
+    } else {
+        Serial.println("MQTT: PLAINTEXT - HANYA untuk pengembangan lokal!");
+        mqttClient.setClient(plainClient);
+    }
     mqttClient.setServer(mqtt_server, mqtt_port);
     mqttClient.setBufferSize(2048);
     mqttClient.setKeepAlive(CUSTOM_MQTT_KEEPALIVE);
@@ -325,7 +366,7 @@ void setup() {
     // mqtt_ca.h; koneksi ditahan sampai NTP memberi jam yang masuk akal
     // (mqttTlsClockReady), karena verifikasi masa berlaku terhadap jam 1970
     // selalu gagal.
-    configureMqttTls();
+    // (configureMqttTls() dipindah ke cabang TLS di atas.)
 
     initWifi();
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);

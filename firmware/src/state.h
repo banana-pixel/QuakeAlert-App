@@ -17,10 +17,11 @@
 #include "freertos/semphr.h"
 
 // ========================================
-// CREDENTIALS (from secrets.h)
+// CREDENTIALS (secrets.h fallback, dioverride NVS via loadBrokerConfig)
 // ========================================
-extern const char* mqtt_server;
-extern const int mqtt_port;
+extern char mqtt_server[MQTT_BROKER_BUFFER_SIZE];
+extern int  mqtt_port;
+extern bool mqtt_use_tls;   // false = plaintext dev (tcp://), true = WiFiClientSecure
 extern const char* mqtt_user;
 extern const char* mqtt_password;
 
