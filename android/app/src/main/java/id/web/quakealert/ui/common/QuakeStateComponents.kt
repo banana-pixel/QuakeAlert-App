@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -124,18 +125,51 @@ fun QuakeEmptyState(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     actionLabel: String? = null,
-    onAction: (() -> Unit)? = null
+    onAction: (() -> Unit)? = null,
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null
 ) {
+    val primary: (@Composable () -> Unit)? = if (actionLabel != null && onAction != null) {
+        { StateAction(label = actionLabel, onClick = onAction) }
+    } else {
+        null
+    }
+    // The lighter offer ("…or add your own sensor") rides below the primary
+    // capsule as plain labelled text: visibly present, visibly lesser.
+    val secondary: (@Composable () -> Unit)? = if (secondaryActionLabel != null && onSecondaryAction != null) {
+        {
+            Text(
+                text = secondaryActionLabel,
+                style = ChipLabel,
+                color = TextPrimary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Dimens.RadiusSmall))
+                    .clickable(role = Role.Button, onClick = onSecondaryAction)
+                    .padding(horizontal = Dimens.CardPaddingStart, vertical = 6.dp)
+            )
+        }
+    } else {
+        null
+    }
+
     StateBlock(
         icon = icon,
         iconTint = TextPrimary,
         message = message,
         subtitle = subtitle,
         modifier = modifier,
-        action = if (actionLabel != null && onAction != null) {
-            { StateAction(label = actionLabel, onClick = onAction) }
-        } else {
-            null
+        action = when {
+            primary != null && secondary != null -> {
+                {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        primary()
+                        secondary()
+                    }
+                }
+            }
+
+            primary != null -> primary
+            else -> secondary
         }
     )
 }
@@ -235,7 +269,8 @@ fun QuakeNoDataState(
 @Composable
 fun QuakeNoCoverageState(
     onWidenRadius: (() -> Unit)?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onAddSensor: (() -> Unit)? = null
 ) {
     QuakeEmptyState(
         icon = R.drawable.ic_nav_sensors,
@@ -243,7 +278,9 @@ fun QuakeNoCoverageState(
         modifier = modifier,
         subtitle = "QuakeAlert's sensor network does not cover this area yet.",
         actionLabel = "Widen Search Radius".takeIf { onWidenRadius != null },
-        onAction = onWidenRadius
+        onAction = onWidenRadius,
+        secondaryActionLabel = "Or Add Your Own Sensor".takeIf { onAddSensor != null },
+        onSecondaryAction = onAddSensor
     )
 }
 
@@ -263,7 +300,8 @@ fun QuakeNoCoverageState(
 @Composable
 fun QuakeNoPositionState(
     onSyncLocation: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onAddSensor: (() -> Unit)? = null
 ) {
     QuakeEmptyState(
         icon = R.drawable.ic_nav_settings,
@@ -271,7 +309,9 @@ fun QuakeNoPositionState(
         modifier = modifier,
         subtitle = "QuakeAlert needs your location before it can show what is near you.",
         actionLabel = "Sync Location",
-        onAction = onSyncLocation
+        onAction = onSyncLocation,
+        secondaryActionLabel = "Or Add a Sensor".takeIf { onAddSensor != null },
+        onSecondaryAction = onAddSensor
     )
 }
 

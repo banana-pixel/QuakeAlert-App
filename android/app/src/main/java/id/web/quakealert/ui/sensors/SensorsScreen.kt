@@ -53,6 +53,7 @@ fun SensorsRoute(
     health: ServerHealth,
     onSyncLocation: () -> Unit,
     modifier: Modifier = Modifier,
+    onAddSensor: (() -> Unit)? = null,
     listState: LazyListState = rememberLazyListState(),
     viewModel: SensorsViewModel = viewModel(),
     filterViewModel: QuakeFilterViewModel = viewModel()
@@ -124,6 +125,7 @@ fun SensorsScreen(
     onSensorClicked: (SensorStationItem) -> Unit,
     onRetry: () -> Unit,
     onSyncLocation: () -> Unit = {},
+    onAddSensor: (() -> Unit)? = null,
     onFilterSheetClicked: (() -> Unit)? = null,
     onWidenRadius: () -> Unit = {},
     onFiltersReset: () -> Unit = {},
@@ -206,7 +208,8 @@ fun SensorsScreen(
                 // is a true thing to say.
                 uiState.needsPosition -> QuakeNoPositionState(
                     onSyncLocation = onSyncLocation,
-                    modifier = bodyModifier
+                    modifier = bodyModifier,
+                    onAddSensor = onAddSensor
                 )
 
                 // An empty *slice* of a non-empty roll is a different fact from an
@@ -225,6 +228,7 @@ fun SensorsScreen(
                 // there", not "there is nothing to watch". The widen action appears
                 // only when a radius is actually narrowing the query.
                 uiState.sensors.isEmpty() -> QuakeNoCoverageState(
+                    onAddSensor = onAddSensor,
                     onWidenRadius = onWidenRadius.takeIf {
                         uiState.filter.mode == QuakeFilter.NEAR
                     },

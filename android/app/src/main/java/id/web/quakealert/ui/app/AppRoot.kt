@@ -10,10 +10,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import id.web.quakealert.ui.addsensor.AddSensorScreen
+import id.web.quakealert.ui.addsensor.AddSensorViewModel
 import id.web.quakealert.ui.main.MainScreen
 import id.web.quakealert.ui.onboarding.OnboardingScreen
 import id.web.quakealert.ui.theme.BackgroundGradientBottom
@@ -63,7 +68,41 @@ fun AppRoot(
 
                 is AppUiState.Ready -> {
                     if (state.onboardingCompleted) {
-                        MainScreen(modifier = Modifier.fillMaxSize())
+                        // The wizard overlays everything, exactly like onboarding:
+                        // a full-screen flow that owns the back gesture until it is
+                        // dismissed, so no tab sits half-visible behind a step.
+                        var showAddSensor by remember { mutableStateOf(false) }
+                        if (showAddSensor) {
+                            val wizard: AddSensorViewModel = viewModel()
+                            val wizardState by wizard.state.collectAsStateWithLifecycle()
+                            AddSensorScreen(
+                                state = wizardState,
+                                onDismiss = {
+                                    showAddSensor = false
+                                    wizard.onDismissed()
+                                },
+                                onNameChanged = wizard::onNameChanged,
+                                onModelChanged = wizard::onModelChanged,
+                                onUseCurrentPosition = wizard::onUseCurrentPosition,
+                                onManualLatitudeChanged = wizard::onManualLatitudeChanged,
+                                onManualLongitudeChanged = wizard::onManualLongitudeChanged,
+                                onDetailsContinue = wizard::onDetailsContinue,
+                                onRetryFromDetails = wizard::retryFromDetails,
+                                onSecretRevealed = wizard::onSecretRevealed,
+                                onCredentialsContinue = wizard::onCredentialsContinue,
+                                onRescanClicked = wizard::onRescanClicked,
+                                onSsidSelected = wizard::onSsidSelected,
+                                onPasswordChanged = wizard::onPasswordChanged,
+                                onConfigureNode = wizard::onConfigureNode,
+                                onRefreshConfirm = wizard::onRefreshConfirm,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            MainScreen(
+                                modifier = Modifier.fillMaxSize(),
+                                onAddSensor = { showAddSensor = true }
+                            )
+                        }
                     } else {
                         OnboardingScreen(
                             modifier = Modifier.fillMaxSize(),

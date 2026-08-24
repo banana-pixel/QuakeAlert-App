@@ -140,6 +140,7 @@ private val MainDestinationSaver: Saver<MainDestination, String> = Saver(
 @Composable
 fun MainScreen(
     modifier: Modifier = Modifier,
+    onAddSensor: () -> Unit = {},
     serverHealthViewModel: ServerHealthViewModel = viewModel()
 ) {
     var selected by rememberSaveable(stateSaver = MainDestinationSaver) {
@@ -211,6 +212,7 @@ fun MainScreen(
 
                             MainDestination.SENSORS -> SensorsRoute(
                                 health = health,
+                                onAddSensor = onAddSensor,
                                 // Same offer as the History feed makes: the
                                 // control that syncs a position lives on
                                 // Settings, so point at it rather than
@@ -231,6 +233,7 @@ fun MainScreen(
 
                             MainDestination.SETTINGS -> SettingsRoute(
                                 health = health,
+                                onAddSensor = onAddSensor,
                                 scrollState = settingsScrollState
                             )
                         }
