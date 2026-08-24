@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -66,6 +67,7 @@ import id.web.quakealert.ui.common.rememberQuakeToastState
 import id.web.quakealert.ui.history.HistoryRoute
 import id.web.quakealert.ui.sensors.SensorsRoute
 import id.web.quakealert.ui.settings.SettingsRoute
+import id.web.quakealert.ui.updates.UpdatesModalDialog
 import id.web.quakealert.ui.warning.WarningRoute
 
 
@@ -153,6 +155,15 @@ fun MainScreen(
     // on whichever tab the user is sitting.
     val health by serverHealthViewModel.health.collectAsStateWithLifecycle()
 
+    // The Updates overlay lives here rather than in any one tab: its entry glyph
+    // (Figma node 158-1645) sits in every tab's app bar next to the server-status
+    // pill, and one host means one ViewModel instance no matter which bar opened it.
+    var showUpdates by remember { mutableStateOf(false) }
+    if (showUpdates) {
+        UpdatesModalDialog(onDismiss = { showUpdates = false })
+    }
+    val openUpdates: () -> Unit = { showUpdates = true }
+
     // One hoisted scroll state per scrolling destination. Declared here so a tab
     // swap disposes the content but not its scroll position.
     val historyListState = rememberLazyListState()
@@ -202,6 +213,7 @@ fun MainScreen(
                         when (destination) {
                             MainDestination.HISTORY -> HistoryRoute(
                                 health = health,
+                                onOpenUpdates = openUpdates,
                                 // A "Near" feed with no synced position offers a
                                 // sync, and the control that performs one lives on
                                 // Settings — so the offer switches tabs rather than
@@ -212,6 +224,7 @@ fun MainScreen(
 
                             MainDestination.SENSORS -> SensorsRoute(
                                 health = health,
+                                onOpenUpdates = openUpdates,
                                 onAddSensor = onAddSensor,
                                 // Same offer as the History feed makes: the
                                 // control that syncs a position lives on
@@ -223,16 +236,19 @@ fun MainScreen(
 
                             MainDestination.WARNING -> WarningRoute(
                                 health = health,
+                                onOpenUpdates = openUpdates,
                                 listState = warningListState
                             )
 
                             MainDestination.CHAT -> ChatRoute(
                                 health = health,
+                                onOpenUpdates = openUpdates,
                                 listState = chatListState
                             )
 
                             MainDestination.SETTINGS -> SettingsRoute(
                                 health = health,
+                                onOpenUpdates = openUpdates,
                                 onAddSensor = onAddSensor,
                                 scrollState = settingsScrollState
                             )

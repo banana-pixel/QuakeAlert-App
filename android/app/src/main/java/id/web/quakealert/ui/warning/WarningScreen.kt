@@ -49,6 +49,7 @@ import id.web.quakealert.ui.theme.SectionTitle
 @Composable
 fun WarningRoute(
     health: ServerHealth,
+    onOpenUpdates: () -> Unit = {},
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     viewModel: WarningViewModel = viewModel()
@@ -87,6 +88,7 @@ fun WarningRoute(
     WarningScreen(
         uiState = uiState,
         health = health,
+        onOpenUpdates = onOpenUpdates,
         onSeeDetails = viewModel::onSeeDetailsClicked,
         onEmergency = viewModel::onEmergencyClicked,
         onDetailDismissed = viewModel::onDetailDismissed,
@@ -148,6 +150,7 @@ fun WarningRoute(
 fun WarningScreen(
     uiState: WarningUiState,
     health: ServerHealth = ServerHealth.HEALTHY,
+    onOpenUpdates: () -> Unit = {},
     onSeeDetails: () -> Unit,
     onEmergency: () -> Unit,
     onDetailDismissed: () -> Unit,
@@ -170,7 +173,7 @@ fun WarningScreen(
     ) {
         // Rendered once, outside the branch: the header is the one part of the screen
         // the emergency state keeps, unchanged from the resting screen.
-        QuakeAppBar(title = "Warning", health = health)
+        QuakeAppBar(title = "Warning", health = health, onUpdatesClicked = onOpenUpdates)
 
         when (uiState) {
             is WarningUiState.Idle -> IdleBody(

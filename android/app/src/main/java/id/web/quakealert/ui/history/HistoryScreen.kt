@@ -62,6 +62,7 @@ import id.web.quakealert.ui.theme.QuakeAlertTheme
 fun HistoryRoute(
     health: ServerHealth,
     onSyncLocation: () -> Unit,
+    onOpenUpdates: () -> Unit = {},
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     viewModel: HistoryViewModel = viewModel(),
@@ -98,6 +99,7 @@ fun HistoryRoute(
     HistoryScreen(
         uiState = uiState,
         health = health,
+        onOpenUpdates = onOpenUpdates,
         onModeSelected = filterViewModel::onModeSelected,
         onFilterSheetClicked = filterViewModel::onSheetOpened,
         onFiltersReset = filterViewModel::onFiltersReset,
@@ -155,6 +157,7 @@ fun HistoryRoute(
 fun HistoryScreen(
     uiState: HistoryUiState,
     health: ServerHealth = ServerHealth.HEALTHY,
+    onOpenUpdates: () -> Unit = {},
     onModeSelected: (QuakeFilter) -> Unit,
     onShareClicked: (QuakeHistoryItem) -> Unit,
     onSeeMoreClicked: (QuakeHistoryItem) -> Unit,
@@ -174,7 +177,7 @@ fun HistoryScreen(
             .padding(horizontal = Dimens.ScreenHorizontalPadding)
     ) {
         // --- Static header ---------------------------------------------------
-        QuakeAppBar(title = "History", health = health)
+        QuakeAppBar(title = "History", health = health, onUpdatesClicked = onOpenUpdates)
 
         QuakeFilterRow(
             filter = uiState.filter,

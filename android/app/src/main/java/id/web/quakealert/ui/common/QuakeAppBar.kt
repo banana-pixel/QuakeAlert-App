@@ -4,12 +4,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -54,12 +57,16 @@ import id.web.quakealert.ui.theme.TextPrimary
  * @param health the global verdict from [id.web.quakealert.data.network.ServerHealthMonitor];
  *   the label is rendered verbatim, so the UI never sees the internal word for degradation —
  *   users get "Limited", not jargon.
+ * @param onUpdatesClicked opens the Updates overlay (Figma node 158-1645 places the
+ *   notification-text glyph beside the server-status pill). Null — the default — renders no
+ *   control, so a caller that cannot host the overlay simply leaves it out.
  */
 @Composable
 fun QuakeAppBar(
     title: String,
     health: ServerHealth,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onUpdatesClicked: (() -> Unit)? = null
 ) {
     Row(
         modifier = modifier
@@ -77,7 +84,35 @@ fun QuakeAppBar(
             lineHeight = 26.sp
         )
 
-        ServerHealthBadge(health = health)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (onUpdatesClicked != null) {
+                UpdatesIconButton(onClick = onUpdatesClicked)
+                // One badge-gap of air between the glyph and the status pill, so the
+                // pair reads as two separate controls rather than one crowded cluster.
+                Spacer(Modifier.width(Dimens.BadgeIconGap))
+            }
+            ServerHealthBadge(health = health)
+        }
+    }
+}
+
+/**
+ * The Updates entry point in the app bar (Figma node 158-1645): tinted like every other
+ * bar glyph. [IconButton] supplies the 48dp minimum touch target Material requires
+ * without inflating the visible mark.
+ */
+@Composable
+private fun UpdatesIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    IconButton(onClick = onClick, modifier = modifier) {
+        Icon(
+            painter = painterResource(id = R.drawable.ic_updates_notification),
+            contentDescription = "Open Updates",
+            tint = TextPrimary,
+            modifier = Modifier.size(24.dp)
+        )
     }
 }
 

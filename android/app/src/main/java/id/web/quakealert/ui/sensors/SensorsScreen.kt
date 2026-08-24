@@ -52,6 +52,7 @@ import id.web.quakealert.ui.theme.QuakeAlertTheme
 fun SensorsRoute(
     health: ServerHealth,
     onSyncLocation: () -> Unit,
+    onOpenUpdates: () -> Unit = {},
     modifier: Modifier = Modifier,
     onAddSensor: (() -> Unit)? = null,
     listState: LazyListState = rememberLazyListState(),
@@ -70,6 +71,7 @@ fun SensorsRoute(
     SensorsScreen(
         uiState = uiState,
         health = health,
+        onOpenUpdates = onOpenUpdates,
         onModeSelected = filterViewModel::onModeSelected,
         onFilterSheetClicked = filterViewModel::onSheetOpened,
         onWidenRadius = filterViewModel::onRadiusWidened,
@@ -121,6 +123,7 @@ fun SensorsRoute(
 fun SensorsScreen(
     uiState: SensorsUiState,
     health: ServerHealth = ServerHealth.HEALTHY,
+    onOpenUpdates: () -> Unit = {},
     onModeSelected: (QuakeFilter) -> Unit,
     onSensorClicked: (SensorStationItem) -> Unit,
     onRetry: () -> Unit,
@@ -139,7 +142,7 @@ fun SensorsScreen(
             .padding(horizontal = Dimens.ScreenHorizontalPadding)
     ) {
         // --- Static header: title + map preview + filter row -----------------
-        QuakeAppBar(title = "Sensors", health = health)
+        QuakeAppBar(title = "Sensors", health = health, onUpdatesClicked = onOpenUpdates)
 
         SensorMapCard(
             overview = uiState.overview,

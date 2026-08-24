@@ -62,7 +62,6 @@ import id.web.quakealert.ui.common.MapMarker
 import id.web.quakealert.ui.common.MapMarkerKind
 import id.web.quakealert.ui.sensors.SensorMapCard
 import id.web.quakealert.ui.sensors.SensorMapOverview
-import id.web.quakealert.ui.updates.UpdatesModalDialog
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.CardSubtitle
 import id.web.quakealert.ui.theme.CardSurface
@@ -89,6 +88,7 @@ import id.web.quakealert.ui.theme.TextSecondary
 @Composable
 fun SettingsRoute(
     health: ServerHealth,
+    onOpenUpdates: () -> Unit = {},
     modifier: Modifier = Modifier,
     onAddSensor: () -> Unit = {},
     scrollState: ScrollState = rememberScrollState(),
@@ -163,12 +163,8 @@ fun SettingsRoute(
         TestAlertSoundDialog(onDismissRequest = { showTestAlertSound = false })
     }
 
-    // Same reasoning for the Updates overlay: it owns its own ViewModel, list and
-    // retry, so whether it is open is this Route's business and nobody else's.
-    var showUpdates by remember { mutableStateOf(false) }
-    if (showUpdates) {
-        UpdatesModalDialog(onDismiss = { showUpdates = false })
-    }
+    // The Updates overlay is hosted by MainScreen now — its glyph lives in every
+    // tab's app bar (Figma node 158-1645) — so this route only forwards the opener.
 
     SettingsScreen(
         uiState = uiState,
@@ -179,7 +175,7 @@ fun SettingsRoute(
         onStatusNotificationToggled = viewModel::onStatusNotificationToggled,
         onTestNotification = viewModel::onTestNotification,
         onTestAlertSound = { showTestAlertSound = true },
-        onOpenUpdates = { showUpdates = true },
+        onOpenUpdates = onOpenUpdates,
         onAddSensor = onAddSensor,
         onBatterySettings = { context.openBatteryOptimizationSettings() },
         onFixNotifications = { context.openNotificationSettings() },
@@ -308,7 +304,7 @@ fun SettingsScreen(
             .fillMaxSize()
             .padding(horizontal = Dimens.ScreenHorizontalPadding)
     ) {
-        QuakeAppBar(title = "Settings", health = health)
+        QuakeAppBar(title = "Settings", health = health, onUpdatesClicked = onOpenUpdates)
 
         Column(
             modifier = Modifier
@@ -492,22 +488,6 @@ fun SettingsScreen(
                         onFixLocation = onFixLocation,
                         onFixBattery = onBatterySettings,
                         modifier = Modifier.padding(top = Dimens.SettingCardTitleGap)
-                    )
-                }
-            )
-
-            // Operator announcements, in the alert section but visibly *not* an
-            // alert: the subtitle says what this channel is not, because the whole
-            // point of a separate channel is that a notice here never means shaking
-            // is on its way.
-            QuakeCard(
-                title = "Updates from QuakeAlert",
-                onClick = onOpenUpdates,
-                detail = {
-                    Text(
-                        text = "Announcements from the team — never earthquake warnings",
-                        style = CardSubtitle,
-                        color = TextSecondary
                     )
                 }
             )

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- notification-text glyph, Figma node 158-1645 (component notification-text).
+     Kept at the source 124x124 coordinate space so the path data matches Figma
+     verbatim; the Icon composable sizes it for display. Stroke-only: the fill
+     stays empty and Compose's Icon tint recolors the strokes. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="28"
+    android:viewportHeight="28">
+    <!-- Figma's export frame is 124x124 (it includes the drop-shadow bleed) while the
+         glyph itself sits near the centre. Translate so the mark fills this 28x28
+         viewport instead of rendering ~4dp inside an oversized frame. -->
+    <group
+        android:translateX="-48"
+        android:translateY="-44">
+    <path
+        android:pathData="M60.75,48H56.75C54.6498,48 53.5997,48 52.7975,48.4087C52.0919,48.7683 51.5183,49.3419 51.1587,50.0475C50.75,50.8497 50.75,51.8998 50.75,54V63.25C50.75,65.3502 50.75,66.4003 51.1587,67.2025C51.5183,67.9081 52.0919,68.4817 52.7975,68.8413C53.5997,69.25 54.6498,69.25 56.75,69.25H66C68.1002,69.25 69.1503,69.25 69.9525,68.8413C70.6581,68.4817 71.2317,67.9081 71.5913,67.2025C72,66.4003 72,65.3502 72,63.25V59.25M63.25,64.25H55.75M65.75,59.25H55.75M72.1517,47.8483C73.6161,49.3128 73.6161,51.6872 72.1517,53.1517C70.6872,54.6161 68.3128,54.6161 66.8483,53.1517C65.3839,51.6872 65.3839,49.3128 66.8483,47.8483C68.3128,46.3839 70.6872,46.3839 72.1517,47.8483Z"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.5"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+    </group>
+</vector>

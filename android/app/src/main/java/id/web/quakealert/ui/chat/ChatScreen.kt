@@ -46,6 +46,7 @@ import id.web.quakealert.ui.theme.TextSecondary
 @Composable
 fun ChatRoute(
     health: ServerHealth,
+    onOpenUpdates: () -> Unit = {},
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     viewModel: ChatViewModel = viewModel()
@@ -55,6 +56,7 @@ fun ChatRoute(
     ChatScreen(
         uiState = uiState,
         health = health,
+        onOpenUpdates = onOpenUpdates,
         onDraftChanged = viewModel::onDraftChanged,
         onSendClicked = viewModel::onSendClicked,
         onSwitchChannelClicked = viewModel::onSwitchChannelClicked,
@@ -83,6 +85,7 @@ fun ChatRoute(
 fun ChatScreen(
     uiState: ChatUiState,
     health: ServerHealth = ServerHealth.HEALTHY,
+    onOpenUpdates: () -> Unit = {},
     onDraftChanged: (String) -> Unit,
     onSendClicked: () -> Unit,
     onSwitchChannelClicked: () -> Unit,
@@ -99,7 +102,7 @@ fun ChatScreen(
             .padding(horizontal = Dimens.ScreenHorizontalPadding)
     ) {
         // --- Static header: title + channel card -----------------------------
-        QuakeAppBar(title = "Chat", health = health)
+        QuakeAppBar(title = "Chat", health = health, onUpdatesClicked = onOpenUpdates)
 
         ChatChannelCard(
             channel = uiState.channel,
