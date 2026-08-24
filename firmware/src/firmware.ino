@@ -63,7 +63,7 @@ SemaphoreHandle_t stateMutex = nullptr;
 portMUX_TYPE reportMux = portMUX_INITIALIZER_UNLOCKED;
 portMUX_TYPE eventTriggerMux = portMUX_INITIALIZER_UNLOCKED;
 
-volatile EventReport pendingReport = {false, 0.0f, 0.0f, 0UL, false};
+volatile EventReport pendingReport = {false, 0.0f, 0.0f, 0UL, false, 0, 0UL};
 volatile bool eventTriggered = false;
 volatile bool rebootRequestReceived = false;
 
@@ -288,13 +288,53 @@ void handleAlerts() {
         const uint32_t durMs = (uint32_t)(reportDuration * 1000.0f);
         if (publishTrigger(reportPga, durMs)) {
             totalEventsDetected++;
-        }
+            portENTER_CRITICAL(&reportMux);
+            pendingReport.ready = false;
+            pendingReport.processed = false;
+            pendingReport.publishAttempts = 0;
+            pendingReport.lastAttemptMs = 0;
+            portEXIT_CRITICAL(&reportMux);
+        } else {
+            // Publish gagal (MQTT putus / NTP belum sinkron). JANGAN buang
+            // laporan gempa: tandai sudah dicoba, coba lagi di loop berikutnya
+            // dengan backoff. Laporan dinyatakan hilang hanya jika batas
+            // percobaan ATAU batas usia terlampaui — dan selalu dengan log.
+            portENTER_CRITICAL(&reportMux);
+            pendingReport.publishAttempts++;
+            pendingReport.lastAttemptMs = millis();
+            const uint8_t attempts = pendingReport.publishAttempts;
+            portEXIT_CRITICAL(&reportMux);
 
-        portENTER_CRITICAL(&reportMux);
-        pendingReport.ready = false;
-        pendingReport.processed = false;
-        portEXIT_CRITICAL(&reportMux);
+            Serial.printf("Trigger publish failed (attempt %u/%u) — will retry\n",
+                          attempts, TRIGGER_MAX_ATTEMPTS);
+            if (attempts >= TRIGGER_MAX_ATTEMPTS) {
+                Serial.println("ERROR: trigger publish gave up after max attempts — EVENT LOST");
+                portENTER_CRITICAL(&reportMux);
+                pendingReport.ready = false;
+                pendingReport.processed = false;
+                pendingReport.publishAttempts = 0;
+                portEXIT_CRITICAL(&reportMux);
+            }
+        }
     }
+
+    // Retry berkala untuk laporan yang belum berhasil dipublish: hormati
+    // backoff antar percobaan, dan beri batas usia jauh lebih longgar dari
+    // semula agar event tidak dibuang saat MQTT sedang reconnect.
+    portENTER_CRITICAL(&reportMux);
+    if (pendingReport.ready && pendingReport.processed) {
+        const unsigned long age = millis() - pendingReport.timestamp;
+        const unsigned long sinceAttempt = millis() - pendingReport.lastAttemptMs;
+        if (age > TRIGGER_MAX_AGE_MS) {
+            Serial.println("ERROR: stale unpublished report expired — EVENT LOST");
+            pendingReport.ready = false;
+            pendingReport.processed = false;
+            pendingReport.publishAttempts = 0;
+        } else if (sinceAttempt >= TRIGGER_RETRY_BACKOFF_MS) {
+            pendingReport.processed = false;  // jalur handleAlerts() akan mencoba lagi
+        }
+    }
+    portEXIT_CRITICAL(&reportMux);
 }
 
 
@@ -406,15 +446,10 @@ void loop() {
 
     handleAlerts();
 
-    portENTER_CRITICAL(&reportMux);
-    if (pendingReport.ready && !pendingReport.processed) {
-        if (millis() - pendingReport.timestamp > 15000UL) {
-            Serial.println("Warning: stale pending report cleared");
-            pendingReport.ready = false;
-            pendingReport.processed = false;
-        }
-    }
-    portEXIT_CRITICAL(&reportMux);
+    // Catatan: pembersih "stale pending report" 15 detik yang lama dihapus.
+    // Ia menghapus laporan ready&&!processed berusia >15 dtk, yang justru
+    // adalah kondisi retry setelah publish gagal — membuang event gempa saat
+    // MQTT reconnect. Batas usianya kini TRIGGER_MAX_AGE_MS di handleAlerts().
 
     delay(10);
 }

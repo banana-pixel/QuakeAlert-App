@@ -52,6 +52,8 @@ struct EventReport {
     float duration;
     unsigned long timestamp;
     bool processed;
+    uint8_t publishAttempts;   // jumlah percobaan publish trigger yang sudah dilakukan
+    unsigned long lastAttemptMs; // millis() percobaan publish terakhir (untuk backoff)
 };
 
 // ========================================

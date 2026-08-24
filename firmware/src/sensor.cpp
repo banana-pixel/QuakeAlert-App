@@ -236,10 +236,16 @@ void processSensorData() {
             }
 
             portENTER_CRITICAL(&reportMux);
+            // Jangan timpa laporan yang masih menunggu publish ulang: ganti
+            // isinya saja (PGA/durasi event terbaru), retry counter tetap jalan.
             pendingReport.maxPga = pga;
             pendingReport.duration = (millis() - eventStartTime) / 1000.0f;
             pendingReport.timestamp = millis();
             pendingReport.ready = true;
+            if (!pendingReport.processed) {
+                pendingReport.publishAttempts = 0;
+                pendingReport.lastAttemptMs = 0;
+            }
             pendingReport.processed = false;
             portEXIT_CRITICAL(&reportMux);
 

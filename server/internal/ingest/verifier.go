@@ -11,13 +11,21 @@ import (
 )
 
 // MaxClockSkew adalah toleransi drift ts vs waktu server (.clinerules/10 #7).
+// Dipakai oleh heartbeat (gate + pengukuran latency) — JANGAN diubah tanpa
+// mempertimbangkan akurasi latency /sensors.
 const MaxClockSkew = 30 * time.Second
+
+// MaxTriggerAge melonggarkan gerbang freshness KHUSUS trigger agar publish
+// ulang pasca-reconnect MQTT (firmware TRIGGER_MAX_AGE_MS = 5 menit) tetap
+// diterima server. Anti-replay TIDAK bergantung pada konstanta ini: last_seen_ts
+// monotonik ketat (UPDATE ... WHERE last_seen_ts < $2) menolak replay kapan pun.
+const MaxTriggerAge = 5 * time.Minute
 
 // Kesalahan verifikasi (life-safety: setiap penolakan di-log untuk audit).
 var (
 	ErrNodeInactive   = errors.New("node non-aktif")
 	ErrNodeUnverified = errors.New("node belum diverifikasi operator")
-	ErrClockSkew      = errors.New("ts menyimpang > 30s dari waktu server")
+	ErrClockSkew      = errors.New("ts di luar jendela freshness (trigger: -5m/+30s)")
 	ErrReplay         = errors.New("ts <= last_seen_ts (replay/stale)")
 	ErrBadSignature   = errors.New("HMAC tidak valid")
 )
@@ -78,9 +86,11 @@ func (v *Verifier) Verify(ctx context.Context, raw []byte) (*Trigger, error) {
 // sama TETAP diterima di jalur lain, jadi stasiunnya tetap tampak di /sensors
 // sebagai pending; hanya suaranya dalam konsensus yang tidak ada.
 func (v *Verifier) VerifyTrigger(ctx context.Context, t *Trigger) error {
-	// 1. Clock skew — murah, tolak sebelum sentuh DB/kripto.
+	// 1. Clock skew — murah, tolak sebelum sentuh DB/kripto. Trigger memakai
+	// MaxTriggerAge (lebih longgar) agar retry publish ulang tetap diterima;
+	// anti-replay di bawah tetap menjamin satu kali penerimaan per ts.
 	nowMs := v.now().UnixMilli()
-	if diff := nowMs - t.TS; diff > int64(MaxClockSkew/time.Millisecond) || diff < -int64(MaxClockSkew/time.Millisecond) {
+	if diff := nowMs - t.TS; diff > int64(MaxTriggerAge/time.Millisecond) || diff < -int64(MaxClockSkew/time.Millisecond) {
 		v.log.Warn("trigger ditolak: clock skew", "node_id", t.NodeID, "ts", t.TS, "server_ms", nowMs)
 		return ErrClockSkew
 	}

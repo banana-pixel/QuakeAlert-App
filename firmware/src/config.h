@@ -106,6 +106,13 @@
 #define NTP_SYNC_INTERVAL_MS 3600000
 #define NTP_RETRY_INTERVAL_MS 60000
 #define LOCATION_RETRY_INTERVAL_MS 60000
+
+// Retry trigger publish saat MQTT/NTP belum siap (lihat handleAlerts).
+// Backoff tetap 5 dtk antar percobaan; serah setelah batas percobaan ATAU
+// usia laporan lewat batas — selalu dengan log ERROR, tidak pernah diam-diam.
+#define TRIGGER_RETRY_BACKOFF_MS 5000UL
+#define TRIGGER_MAX_ATTEMPTS 36UL
+#define TRIGGER_MAX_AGE_MS 300000UL
 #define HEARTBEAT_INTERVAL_MS 60000
 
 // ========================================
