@@ -80,6 +80,7 @@ fun SensorsRoute(
         onSyncLocation = onSyncLocation,
         onRetry = viewModel::onRetry,
         onRefresh = viewModel::onRefresh,
+        onAddSensor = onAddSensor,
         listState = listState,
         modifier = modifier
     )
@@ -161,6 +162,10 @@ fun SensorsScreen(
             unitSystem = uiState.unitSystem,
             onModeSelected = onModeSelected,
             onFilterSheetClicked = onFilterSheetClicked,
+            // The wizard's canonical entry point (Figma: pill left of the filter
+            // button). Null when the host offers no launcher, so the pill simply
+            // does not render.
+            onAddSensorClicked = onAddSensor,
             modifier = Modifier.padding(top = Dimens.SensorsHeaderBlockGap)
         )
 

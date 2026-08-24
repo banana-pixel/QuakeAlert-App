@@ -249,7 +249,6 @@ fun MainScreen(
                             MainDestination.SETTINGS -> SettingsRoute(
                                 health = health,
                                 onOpenUpdates = openUpdates,
-                                onAddSensor = onAddSensor,
                                 scrollState = settingsScrollState
                             )
                         }
