@@ -61,13 +61,16 @@ enum class ProbeOutcome {
  * that distinction belongs in the word "Limited", not in a red "Offline".
  */
 enum class SensorNetworkStatus {
-    /** No successful sensors call yet this process. */
+    /** No successful sensors call yet this process, or nothing to judge. */
     UNKNOWN,
 
     /** At least one trusted station within range is reporting. */
     REPORTING,
 
-    /** The roll loaded fine, but every station in it has gone quiet. */
+    /**
+     * Stations exist within range but every one of them has gone quiet. Only a
+     * non-empty roll can reach here — coverage absence is not fleet failure.
+     */
     ALL_SILENT,
 
     /**
@@ -151,12 +154,21 @@ private val healthJson = kotlinx.serialization.json.Json {
 /**
  * Pure classification of one successful `/sensors` envelope.
  *
- * [SensorNetworkStatus.NO_STORED_LOCATION] wins even at zero reporting stations:
- * the exact bug this module exists for was an empty roll (no stored location)
- * being read as "something is wrong".
+ * Two cases must never read as degradation:
+ *  - [SensorNetworkStatus.NO_STORED_LOCATION] wins even at zero active — the exact
+ *    bug this module exists for was an empty roll (no stored location) being read
+ *    as "something is wrong";
+ *  - an **empty roll** (user located, but no stations exist within range) also says
+ *    nothing about fleet health — coverage absence is not fleet failure, so it maps
+ *    to [SensorNetworkStatus.UNKNOWN] rather than ALL_SILENT.
  */
-internal fun sensorNetworkStatusOf(hasStoredLocation: Boolean, activeSensorsCount: Int): SensorNetworkStatus = when {
+internal fun sensorNetworkStatusOf(
+    hasStoredLocation: Boolean,
+    stationCount: Int,
+    activeSensorsCount: Int
+): SensorNetworkStatus = when {
     !hasStoredLocation -> SensorNetworkStatus.NO_STORED_LOCATION
+    stationCount == 0 -> SensorNetworkStatus.UNKNOWN
     activeSensorsCount > 0 -> SensorNetworkStatus.REPORTING
     else -> SensorNetworkStatus.ALL_SILENT
 }

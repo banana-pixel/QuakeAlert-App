@@ -149,7 +149,7 @@ class SensorNetworkStatusOfTest {
     fun `no stored location wins even at zero active`() {
         assertEquals(
             SensorNetworkStatus.NO_STORED_LOCATION,
-            sensorNetworkStatusOf(hasStoredLocation = false, activeSensorsCount = 0)
+            sensorNetworkStatusOf(hasStoredLocation = false, stationCount = 0, activeSensorsCount = 0)
         )
     }
 
@@ -157,15 +157,25 @@ class SensorNetworkStatusOfTest {
     fun `reporting beats silence by count alone`() {
         assertEquals(
             SensorNetworkStatus.REPORTING,
-            sensorNetworkStatusOf(hasStoredLocation = true, activeSensorsCount = 1)
+            sensorNetworkStatusOf(hasStoredLocation = true, stationCount = 3, activeSensorsCount = 1)
         )
     }
 
     @Test
-    fun `located user with zero reporting stations is all silent`() {
+    fun `non-empty roll with zero reporting stations is all silent`() {
         assertEquals(
             SensorNetworkStatus.ALL_SILENT,
-            sensorNetworkStatusOf(hasStoredLocation = true, activeSensorsCount = 0)
+            sensorNetworkStatusOf(hasStoredLocation = true, stationCount = 2, activeSensorsCount = 0)
+        )
+    }
+
+    @Test
+    fun `empty roll says nothing about fleet health`() {
+        // Coverage absence is not fleet failure: a user where no stations exist
+        // must read Healthy, not Limited.
+        assertEquals(
+            SensorNetworkStatus.UNKNOWN,
+            sensorNetworkStatusOf(hasStoredLocation = true, stationCount = 0, activeSensorsCount = 0)
         )
     }
 }

@@ -168,7 +168,13 @@ class QuakeApiClient(
             hasStoredLocation = sessionStore.readUserLocation() != null
         )
         serverHealthMonitor?.invoke()
-            ?.reportSensorNetwork(sensorNetworkStatusOf(snapshot.hasStoredLocation, snapshot.activeSensorsCount))
+            ?.reportSensorNetwork(
+                sensorNetworkStatusOf(
+                    hasStoredLocation = snapshot.hasStoredLocation,
+                    stationCount = snapshot.nodes.size,
+                    activeSensorsCount = snapshot.activeSensorsCount
+                )
+            )
         snapshot
     }
 
