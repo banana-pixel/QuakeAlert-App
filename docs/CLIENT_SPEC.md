@@ -283,6 +283,8 @@ Batas laju provisioning: cooldown 12 menit per akun (≈5/jam) dan 3 menit per I
 
 Dua tingkat sengaja, bukan peran per-node: selama operatornya satu orang, peran tambahan tidak punya perilaku yang memakainya. Peran bermakna baru muncul bersama kepemilikan node oleh pihak ketiga.
 
+Sisi yang diketahui dan sengaja ditunda: sesi wizard yang ditinggalkan meninggalkan baris `verified = false` (identitas dicetak di langkah Register, sebelum node pernah dikonfigurasi). Batas laju membatasi penyalahgunaan, bukan penumpukan pelan. Jawaban tahan lamanya adalah pekerjaan pembersih berkala — hapus node unverified yang lebih tua dari N hari — dicatat di sini sebagai keputusan, belum dibangun.
+
 ### 5.7 Pengumuman operator: kanal sendiri, bukan kanal alert
 
 Frame WebSocket dan payload FCM `type: "ADMIN_BROADCAST"`:
