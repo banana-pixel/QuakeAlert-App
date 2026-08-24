@@ -35,6 +35,12 @@ object QuakeApiConfig {
     /** WebSocket path — mounted at the server root, outside [API_PREFIX]. */
     const val PATH_WS: String = "ws"
 
+    /**
+     * Reachability probe path — also mounted at the server root, outside
+     * [API_PREFIX], like [PATH_WS]. Public: no token, no identity.
+     */
+    const val PATH_HEALTHZ: String = "healthz"
+
     /** Absolute URL for a REST [path], e.g. `url(PATH_EVENTS)`. */
     fun url(path: String): String = BASE_URL + path
 
