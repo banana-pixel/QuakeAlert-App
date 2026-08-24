@@ -98,7 +98,14 @@ android {
         debug {
             // Emulator loopback to the Go server on the host (docs/CLIENT_SPEC.md §1).
             // Cleartext is permitted for this host only, via res/xml/network_security_config.xml.
-            buildConfigField("String", "QUAKE_BASE_URL", "\"http://10.0.2.2:8080/\"")
+            //
+            // On a REAL PHONE 10.0.2.2 does not exist; override per install:
+            //   adb reverse tcp:8080 tcp:8080
+            //   ./gradlew installDebug -PquakeDebugBaseUrl="http://localhost:8080/"
+            // (network_security_config.xml already permits cleartext localhost.)
+            val quakeDebugBaseUrl = (project.findProperty("quakeDebugBaseUrl") as String?)
+                ?: "http://10.0.2.2:8080/"
+            buildConfigField("String", "QUAKE_BASE_URL", "\"$quakeDebugBaseUrl\"")
             // A distinct application id so a tester's drill build installs *beside*
             // the production app instead of replacing it (docs/CLIENT_SPEC.md §5.8).
             // Two reasons this matters more than convenience: the drill build is the
