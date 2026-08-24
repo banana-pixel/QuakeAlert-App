@@ -172,6 +172,7 @@ func run(log *slog.Logger) error {
 	apiSrv.SetAdminAPIKey(cfg.AdminAPIKey)
 	apiSrv.SetBroadcastFanout(broadcastFanout{dispatcher: dispatcher})
 	apiSrv.SetTestAlertFanout(testAlertFanout{dispatcher: dispatcher})
+	apiSrv.SetMQTTHealthCheck(func() bool { return client.IsConnected() })
 	hub.SetChannelResolver(func(r *http.Request) []string {
 		userID, ok := api.UserIDFromContext(r.Context())
 		if !ok {

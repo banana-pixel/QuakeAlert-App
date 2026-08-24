@@ -62,6 +62,13 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 // Close menutup pool (dipanggil saat graceful shutdown).
 func (s *Store) Close() { s.pool.Close() }
 
+// Ping memeriksa koneksi basis data untuk /healthz. Pemanggil membawa context
+// ber-timeout sendiri (500 ms di internal/api), jadi probe yang menggantung tidak
+// pernah menahan slot reverse proxy.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
 // NodeSecret memuat data yang dibutuhkan untuk verifikasi HMAC & anti-replay.
 type NodeSecret struct {
 	StationID   string

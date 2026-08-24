@@ -47,6 +47,9 @@ type fakeRepo struct {
 	// statement UPDATE yang sama; nil = user belum pernah punya posisi.
 	locMovedKm *float64
 
+	// Healthz
+	pingErr error
+
 	// FCM
 	fcmToken  string
 	fcmErr    error
@@ -212,6 +215,8 @@ func (f *fakeRepo) ListBroadcastsForUser(
 }
 
 // --- Node verifikasi (admin) ---
+
+func (f *fakeRepo) Ping(_ context.Context) error { return f.pingErr }
 
 func (f *fakeRepo) ListUnverifiedNodes(_ context.Context) ([]store.PendingNode, error) {
 	if f.pendingErr != nil {

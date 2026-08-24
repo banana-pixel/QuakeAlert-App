@@ -28,11 +28,10 @@ func (s *Server) Router(wsHandler http.HandlerFunc, log *slog.Logger) http.Handl
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 
-	// Health check publik (untuk load balancer / k8s probe).
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
+	// Health check publik (untuk load balancer / k8s probe). Status code adalah
+	// kontrak pertama (200/503); body JSON membedakan "mati" dari "terbatas"
+	// bagi klien yang membacanya — lihat HandleHealthz.
+	r.Get("/healthz", s.HandleHealthz)
 
 	// Bootstrap identitas: klien belum punya token saat memanggil ini.
 	r.Post("/api/v1/auth/anonymous", s.HandleAnonymousAuth)

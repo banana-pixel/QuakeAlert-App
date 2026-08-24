@@ -48,20 +48,72 @@ paths:
       tags: [ops]
       summary: Health probe (publik, tanpa prefix versi)
       description: >
-        Probe liveness untuk load balancer / k8s. Publik dan sengaja berada di
-        luar /api/v1: kontraknya adalah "proses hidup", bukan versi API. Body
-        adalah teks biasa `ok`, BUKAN JSON, sehingga probe tidak perlu parser.
+        Probe kesehatan untuk load balancer / k8s dan badge koneksi di aplikasi.
+        Publik dan sengaja berada di luar /api/v1. Kontrak berlapis:
+
+        - **Status code** adalah kontrak pertama (tanpa parser): `200` selama
+          dependensi kritikal hidup, `503` begitu database turun.
+
+        - **Body JSON** membedakan "mati" dari "terbatas": `database: "down"`
+          menjatuhkan status code; `mqtt: "down"` tidak (alert yang sudah
+          terdispatch tetap sampai, hanya ingest bacaan baru yang berhenti).
+          Dependensi yang belum diprobe dilaporkan `"unknown"` dan dihilangkan
+          dari JSON bila tidak ada probe terpasang.
+
+        Setiap pengecekan dependensi dibatasi 500 ms agar probe yang menggantung
+        tidak menahan slot reverse proxy.
       operationId: healthz
       security: []
       responses:
         '200':
-          description: Proses hidup
+          description: >
+            Proses hidup; dependensi non-kritikal boleh down (lihat body).
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-              example: ok
-
+                type: object
+                required: [status, database]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded]
+                  database:
+                    type: string
+                    description: Kritikal — "down" menjawab 503.
+                    example: ok
+                  mqtt:
+                    type: string
+                    description: >
+                      Non-kritikal bagi status code. Absen bila probe broker
+                      belum terpasang; "unknown" bila terpasang namun belum
+                      bisa menilai.
+                    enum: [ok, down, unknown]
+              examples:
+                allOk:
+                  value:
+                    status: ok
+                    database: ok
+                    mqtt: ok
+                mqttDown:
+                  value:
+                    status: degraded
+                    database: ok
+                    mqtt: down
+        '503':
+          description: Dependensi kritikal (database) tidak hidup.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: degraded
+                  database:
+                    type: string
+                    example: down
+                  mqtt:
+                    type: string
   /ws:
     get:
       tags: [ops]

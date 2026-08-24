@@ -162,6 +162,7 @@ type Repo interface {
 	ListBroadcastsForUser(ctx context.Context, userID string, limit int) ([]store.Broadcast, error)
 	ListUnverifiedNodes(ctx context.Context) ([]store.PendingNode, error)
 	SetNodeVerified(ctx context.Context, stationID string, verified bool) (bool, error)
+	Ping(ctx context.Context) error
 }
 
 // SecretEncryptor mengenkripsi provisioning secret menjadi (ciphertext, nonce)
@@ -207,6 +208,10 @@ type Server struct {
 	// menjawab 503 alih-alih menerima yang tidak akan terkirim (lihat
 	// SetTestAlertFanout).
 	testAlerts TestAlertFanout
+	// mqttHealth menjawab "apakah koneksi ke broker hidup" untuk /healthz.
+	// nil berarti belum dipasang: field mqtt dilaporkan "unknown" dan tidak
+	// ikut menentukan status (lihat SetMQTTHealthCheck).
+	mqttHealth func() bool
 }
 
 // NewServer membuat Server API. TokenTTL yang kosong diisi defaultTokenTTL.
@@ -215,6 +220,13 @@ func NewServer(repo Repo, cipher SecretEncryptor, limiter RateLimiter, mqtt MQTT
 		auth.TokenTTL = defaultTokenTTL
 	}
 	return &Server{repo: repo, cipher: cipher, limiter: limiter, mqtt: mqtt, auth: auth, log: log}
+}
+
+// SetMQTTHealthCheck memasang probe kesehatan broker untuk /healthz. Setter,
+// bukan parameter NewServer, karena klien MQTT dibangun setelah Server di
+// cmd/quakealert. Tanpa setter terpasang, field mqtt dilaporkan "unknown".
+func (s *Server) SetMQTTHealthCheck(fn func() bool) {
+	s.mqttHealth = fn
 }
 
 // --- Helpers ---
