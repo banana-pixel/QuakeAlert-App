@@ -30,7 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import id.web.quakealert.domain.ServerConnectionState
+import id.web.quakealert.data.network.ServerHealth
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.GenericErrorCopy
 import id.web.quakealert.ui.common.QuakeErrorState
@@ -60,7 +60,7 @@ import id.web.quakealert.ui.theme.QuakeAlertTheme
  */
 @Composable
 fun HistoryRoute(
-    connectionState: ServerConnectionState,
+    health: ServerHealth,
     onSyncLocation: () -> Unit,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
@@ -97,7 +97,7 @@ fun HistoryRoute(
 
     HistoryScreen(
         uiState = uiState,
-        connectionState = connectionState,
+        health = health,
         onModeSelected = filterViewModel::onModeSelected,
         onFilterSheetClicked = filterViewModel::onSheetOpened,
         onFiltersReset = filterViewModel::onFiltersReset,
@@ -154,7 +154,7 @@ fun HistoryRoute(
 @Composable
 fun HistoryScreen(
     uiState: HistoryUiState,
-    connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
+    health: ServerHealth = ServerHealth.HEALTHY,
     onModeSelected: (QuakeFilter) -> Unit,
     onShareClicked: (QuakeHistoryItem) -> Unit,
     onSeeMoreClicked: (QuakeHistoryItem) -> Unit,
@@ -174,7 +174,7 @@ fun HistoryScreen(
             .padding(horizontal = Dimens.ScreenHorizontalPadding)
     ) {
         // --- Static header ---------------------------------------------------
-        QuakeAppBar(title = "History", connectionState = connectionState)
+        QuakeAppBar(title = "History", health = health)
 
         QuakeFilterRow(
             filter = uiState.filter,

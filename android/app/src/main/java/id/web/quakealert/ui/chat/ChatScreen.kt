@@ -23,7 +23,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.R
-import id.web.quakealert.domain.ServerConnectionState
+import id.web.quakealert.data.network.ServerHealth
 import id.web.quakealert.ui.common.GenericErrorCopy
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeEmptyState
@@ -45,7 +45,7 @@ import id.web.quakealert.ui.theme.TextSecondary
  */
 @Composable
 fun ChatRoute(
-    connectionState: ServerConnectionState,
+    health: ServerHealth,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     viewModel: ChatViewModel = viewModel()
@@ -54,7 +54,7 @@ fun ChatRoute(
 
     ChatScreen(
         uiState = uiState,
-        connectionState = connectionState,
+        health = health,
         onDraftChanged = viewModel::onDraftChanged,
         onSendClicked = viewModel::onSendClicked,
         onSwitchChannelClicked = viewModel::onSwitchChannelClicked,
@@ -82,7 +82,7 @@ fun ChatRoute(
 @Composable
 fun ChatScreen(
     uiState: ChatUiState,
-    connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
+    health: ServerHealth = ServerHealth.HEALTHY,
     onDraftChanged: (String) -> Unit,
     onSendClicked: () -> Unit,
     onSwitchChannelClicked: () -> Unit,
@@ -99,7 +99,7 @@ fun ChatScreen(
             .padding(horizontal = Dimens.ScreenHorizontalPadding)
     ) {
         // --- Static header: title + channel card -----------------------------
-        QuakeAppBar(title = "Chat", connectionState = connectionState)
+        QuakeAppBar(title = "Chat", health = health)
 
         ChatChannelCard(
             channel = uiState.channel,

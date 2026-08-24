@@ -50,7 +50,7 @@ import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.device.LOCATION_PERMISSIONS
 import id.web.quakealert.device.hasLocationPermission
 import id.web.quakealert.domain.SafetyPolicy
-import id.web.quakealert.domain.ServerConnectionState
+import id.web.quakealert.data.network.ServerHealth
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeCard
 import id.web.quakealert.ui.common.LocalQuakeToast
@@ -88,7 +88,7 @@ import id.web.quakealert.ui.theme.TextSecondary
  */
 @Composable
 fun SettingsRoute(
-    connectionState: ServerConnectionState,
+    health: ServerHealth,
     modifier: Modifier = Modifier,
     scrollState: ScrollState = rememberScrollState(),
     viewModel: SettingsViewModel = viewModel()
@@ -171,7 +171,7 @@ fun SettingsRoute(
 
     SettingsScreen(
         uiState = uiState,
-        connectionState = connectionState,
+        health = health,
         onAutoSyncToggled = viewModel::onAutoSyncToggled,
         onSyncLocationNow = syncLocation,
         onNotificationsToggled = viewModel::onNotificationsToggled,
@@ -273,7 +273,7 @@ private fun Context.openBatteryOptimizationSettings() {
 @Composable
 fun SettingsScreen(
     uiState: SettingsUiState,
-    connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
+    health: ServerHealth = ServerHealth.HEALTHY,
     onAutoSyncToggled: (Boolean) -> Unit,
     onSyncLocationNow: () -> Unit,
     onNotificationsToggled: (Boolean) -> Unit,
@@ -305,7 +305,7 @@ fun SettingsScreen(
             .fillMaxSize()
             .padding(horizontal = Dimens.ScreenHorizontalPadding)
     ) {
-        QuakeAppBar(title = "Settings", connectionState = connectionState)
+        QuakeAppBar(title = "Settings", health = health)
 
         Column(
             modifier = Modifier

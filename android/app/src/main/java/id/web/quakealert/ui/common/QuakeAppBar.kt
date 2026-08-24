@@ -15,32 +15,35 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.web.quakealert.R
-import id.web.quakealert.domain.ServerConnectionState
+import id.web.quakealert.data.network.ServerHealth
 import id.web.quakealert.ui.theme.CardBorder
 import id.web.quakealert.ui.theme.ConnectingBadgeFill
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.HealthyBadgeFill
 import id.web.quakealert.ui.theme.NunitoFontFamily
 import id.web.quakealert.ui.theme.OfflineBadgeFill
+import id.web.quakealert.ui.theme.PillFill
 import id.web.quakealert.ui.theme.TextPrimary
 
 /**
  * Shared screen header used by all five main tabs (Figma nodes 1:705 / 1:1082): a
- * large title on the left and the network-status badge on the right. Extracted to
+ * large title on the left and the server-status badge on the right. Extracted to
  * [ui.common] so every screen shares a single source of truth for the layout and
  * token wiring instead of duplicating it.
  *
- * The badge is driven by the global [ServerConnectionState] rather than by anything
- * the calling screen loaded. That is the point: it reports whether the *backend* is
- * reachable, so an empty station roll or an all-offline node fleet cannot make one
+ * The badge is driven by the global [ServerHealth] verdict rather than by anything
+ * the calling screen loaded. That is the point: it reports whether the *backend* can
+ * do its job, so an empty station roll or an all-offline node fleet cannot make one
  * tab claim the network is down while another says it is up. Per-screen health
  * (station chips, active-sensor counts) stays inside the screens that own it.
  *
- * It is always present, in one of three states, rather than shown only while healthy.
+ * It is always present, in one of four states, rather than shown only while healthy.
  * A badge that vanishes when the link drops says nothing at all — and "nothing" is
  * indistinguishable from a healthy app with a quiet network, which is the one reading
  * this app must never allow. On Warning the badge is joined by
@@ -48,12 +51,14 @@ import id.web.quakealert.ui.theme.TextPrimary
  * link means for the alerts themselves.
  *
  * @param title the screen title (e.g. "History", "Sensors").
- * @param connectionState global backend link state, named verbatim by the badge.
+ * @param health the global verdict from [id.web.quakealert.data.network.ServerHealthMonitor];
+ *   the label is rendered verbatim, so the UI never sees the internal word for degradation —
+ *   users get "Limited", not jargon.
  */
 @Composable
 fun QuakeAppBar(
     title: String,
-    connectionState: ServerConnectionState,
+    health: ServerHealth,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -72,33 +77,41 @@ fun QuakeAppBar(
             lineHeight = 26.sp
         )
 
-        ConnectionBadge(connectionState = connectionState)
+        ServerHealthBadge(health = health)
     }
 }
 
 /**
- * Network-status pill (Figma node 1:708 is the healthy variant). The offline and
- * connecting variants reuse its geometry unchanged and differ only in fill, glyph and
- * word, so the badge stays one recognisable object across all three.
+ * Server-status pill (Figma node 1:708 is the healthy variant). The other three
+ * variants reuse its geometry unchanged and differ only in fill, glyph and word, so
+ * the badge stays one recognisable object across all four.
+ *
+ * The severity ramp reads grey → green → amber → red: Checking has no verdict yet,
+ * Healthy needs no explanation, Limited says "something behind the server is not
+ * right" without borrowing Offline's alarm (the globe keeps standing for a place
+ * that answers; the triangle is reserved for the one state where alerts cannot
+ * arrive).
  */
 @Composable
-private fun ConnectionBadge(
-    connectionState: ServerConnectionState,
+private fun ServerHealthBadge(
+    health: ServerHealth,
     modifier: Modifier = Modifier
 ) {
-    val (fill, glyph, label) = when (connectionState) {
-        ServerConnectionState.CONNECTED ->
+    val (fill, glyph, label) = when (health) {
+        // Neutral grey, not amber: no verdict yet must not read as a caution.
+        ServerHealth.CHECKING ->
+            Triple(PillFill, R.drawable.ic_globe, "Checking…")
+        ServerHealth.HEALTHY ->
             Triple(HealthyBadgeFill, R.drawable.ic_globe, "Healthy")
-        ServerConnectionState.CONNECTING ->
-            Triple(ConnectingBadgeFill, R.drawable.ic_globe, "Connecting")
-        // The alert triangle rather than the globe: offline is the one state where the
-        // badge is reporting a problem, not a location.
-        ServerConnectionState.DISCONNECTED ->
+        ServerHealth.LIMITED ->
+            Triple(ConnectingBadgeFill, R.drawable.ic_globe, "Limited")
+        ServerHealth.OFFLINE ->
             Triple(OfflineBadgeFill, R.drawable.ic_alert_triangle, "Offline")
     }
 
     Row(
         modifier = modifier
+            .semantics { contentDescription = "Server status: $label" }
             .background(fill, RoundedCornerShape(Dimens.RadiusSmall))
             .border(Dimens.BorderThin, CardBorder, RoundedCornerShape(Dimens.RadiusSmall))
             .padding(
@@ -110,8 +123,8 @@ private fun ConnectionBadge(
     ) {
         Icon(
             painter = painterResource(id = glyph),
-            // The whole badge is one statement; describing it once on the label keeps
-            // TalkBack from reading a decorative glyph before it.
+            // The row's semantics already announce the whole statement once; a
+            // contentDescription here would make TalkBack read the glyph first.
             contentDescription = null,
             tint = TextPrimary,
             modifier = Modifier.size(16.dp)

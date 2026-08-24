@@ -128,7 +128,7 @@ private val MainDestinationSaver: Saver<MainDestination, String> = Saver(
  *
  * Server health is hoisted here for the same reason as the scroll positions: it is
  * shared by all five tabs. One [ServerHealthViewModel] is collected once and the
- * resulting [id.web.quakealert.domain.ServerConnectionState] is handed to every
+ * resulting [id.web.quakealert.data.network.ServerHealth] is handed to every
  * route, so each tab's status badge is literally the same value rather than five
  * per-screen derivations that can disagree.
  *
@@ -146,10 +146,11 @@ fun MainScreen(
         mutableStateOf(MainDestination.HISTORY)
     }
 
-    // Collected at this single point: observing it is also what keeps the shared
-    // alert socket open, so the connection the badge reports is the same one an
-    // earthquake alert would arrive on, on whichever tab the user is sitting.
-    val connectionState by serverHealthViewModel.connectionState.collectAsStateWithLifecycle()
+    // Collected at this single point: it is also what keeps the health monitor's
+    // probe loop (and, through it, the shared alert socket) alive — the verdict the
+    // badge reports is about the same channel an earthquake alert would arrive on,
+    // on whichever tab the user is sitting.
+    val health by serverHealthViewModel.health.collectAsStateWithLifecycle()
 
     // One hoisted scroll state per scrolling destination. Declared here so a tab
     // swap disposes the content but not its scroll position.
@@ -199,7 +200,7 @@ fun MainScreen(
                     ) {
                         when (destination) {
                             MainDestination.HISTORY -> HistoryRoute(
-                                connectionState = connectionState,
+                                health = health,
                                 // A "Near" feed with no synced position offers a
                                 // sync, and the control that performs one lives on
                                 // Settings — so the offer switches tabs rather than
@@ -209,7 +210,7 @@ fun MainScreen(
                             )
 
                             MainDestination.SENSORS -> SensorsRoute(
-                                connectionState = connectionState,
+                                health = health,
                                 // Same offer as the History feed makes: the
                                 // control that syncs a position lives on
                                 // Settings, so point at it rather than
@@ -219,17 +220,17 @@ fun MainScreen(
                             )
 
                             MainDestination.WARNING -> WarningRoute(
-                                connectionState = connectionState,
+                                health = health,
                                 listState = warningListState
                             )
 
                             MainDestination.CHAT -> ChatRoute(
-                                connectionState = connectionState,
+                                health = health,
                                 listState = chatListState
                             )
 
                             MainDestination.SETTINGS -> SettingsRoute(
-                                connectionState = connectionState,
+                                health = health,
                                 scrollState = settingsScrollState
                             )
                         }

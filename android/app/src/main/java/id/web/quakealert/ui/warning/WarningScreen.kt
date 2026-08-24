@@ -23,7 +23,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import id.web.quakealert.R
-import id.web.quakealert.domain.ServerConnectionState
+import id.web.quakealert.data.network.ServerHealth
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.QuakeEmptyState
 import id.web.quakealert.ui.common.GenericErrorCopy
@@ -48,7 +48,7 @@ import id.web.quakealert.ui.theme.SectionTitle
  */
 @Composable
 fun WarningRoute(
-    connectionState: ServerConnectionState,
+    health: ServerHealth,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
     viewModel: WarningViewModel = viewModel()
@@ -86,7 +86,7 @@ fun WarningRoute(
 
     WarningScreen(
         uiState = uiState,
-        connectionState = connectionState,
+        health = health,
         onSeeDetails = viewModel::onSeeDetailsClicked,
         onEmergency = viewModel::onEmergencyClicked,
         onDetailDismissed = viewModel::onDetailDismissed,
@@ -147,7 +147,7 @@ fun WarningRoute(
 @Composable
 fun WarningScreen(
     uiState: WarningUiState,
-    connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
+    health: ServerHealth = ServerHealth.HEALTHY,
     onSeeDetails: () -> Unit,
     onEmergency: () -> Unit,
     onDetailDismissed: () -> Unit,
@@ -170,12 +170,12 @@ fun WarningScreen(
     ) {
         // Rendered once, outside the branch: the header is the one part of the screen
         // the emergency state keeps, unchanged from the resting screen.
-        QuakeAppBar(title = "Warning", connectionState = connectionState)
+        QuakeAppBar(title = "Warning", health = health)
 
         when (uiState) {
             is WarningUiState.Idle -> IdleBody(
                 uiState = uiState,
-                connectionState = connectionState,
+                health = health,
                 onSeeDetails = onSeeDetails,
                 onEmergency = onEmergency,
                 onRetry = onRetry,
@@ -255,7 +255,7 @@ fun WarningScreen(
 @Composable
 private fun ColumnScope.IdleBody(
     uiState: WarningUiState.Idle,
-    connectionState: ServerConnectionState,
+    health: ServerHealth,
     onSeeDetails: () -> Unit,
     onEmergency: () -> Unit,
     onRetry: () -> Unit,
@@ -273,7 +273,7 @@ private fun ColumnScope.IdleBody(
         // "we are asking" and a notice would only pre-announce a failure.
         uiState.isLoading -> null
         uiState.isError -> (uiState.errorCopy ?: GenericErrorCopy).message
-        connectionState == ServerConnectionState.DISCONNECTED -> OFFLINE_MESSAGE
+        health == ServerHealth.OFFLINE -> OFFLINE_MESSAGE
         else -> null
     }
     if (notice != null) {
@@ -428,7 +428,7 @@ private fun WarningScreenErrorPreview() {
 private fun WarningScreenOfflinePreview() {
     PreviewWarningScreen(
         uiState = WarningUiState.Idle(),
-        connectionState = ServerConnectionState.DISCONNECTED
+        health = ServerHealth.OFFLINE
     )
 }
 
@@ -452,12 +452,12 @@ private fun WarningScreenActiveAlertMutedPreview() {
 @Composable
 private fun PreviewWarningScreen(
     uiState: WarningUiState,
-    connectionState: ServerConnectionState = ServerConnectionState.CONNECTED
+    health: ServerHealth = ServerHealth.HEALTHY
 ) {
     QuakeAlertTheme {
         WarningScreen(
             uiState = uiState,
-            connectionState = connectionState,
+            health = health,
             onSeeDetails = {},
             onEmergency = {},
             onDetailDismissed = {},

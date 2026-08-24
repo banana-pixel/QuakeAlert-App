@@ -22,7 +22,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import id.web.quakealert.domain.ServerConnectionState
+import id.web.quakealert.data.network.ServerHealth
 import id.web.quakealert.ui.common.QuakeAppBar
 import id.web.quakealert.ui.common.GenericErrorCopy
 import id.web.quakealert.ui.common.QuakeErrorState
@@ -50,7 +50,7 @@ import id.web.quakealert.ui.theme.QuakeAlertTheme
  */
 @Composable
 fun SensorsRoute(
-    connectionState: ServerConnectionState,
+    health: ServerHealth,
     onSyncLocation: () -> Unit,
     modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState(),
@@ -68,7 +68,7 @@ fun SensorsRoute(
 
     SensorsScreen(
         uiState = uiState,
-        connectionState = connectionState,
+        health = health,
         onModeSelected = filterViewModel::onModeSelected,
         onFilterSheetClicked = filterViewModel::onSheetOpened,
         onWidenRadius = filterViewModel::onRadiusWidened,
@@ -119,7 +119,7 @@ fun SensorsRoute(
 @Composable
 fun SensorsScreen(
     uiState: SensorsUiState,
-    connectionState: ServerConnectionState = ServerConnectionState.CONNECTED,
+    health: ServerHealth = ServerHealth.HEALTHY,
     onModeSelected: (QuakeFilter) -> Unit,
     onSensorClicked: (SensorStationItem) -> Unit,
     onRetry: () -> Unit,
@@ -137,7 +137,7 @@ fun SensorsScreen(
             .padding(horizontal = Dimens.ScreenHorizontalPadding)
     ) {
         // --- Static header: title + map preview + filter row -----------------
-        QuakeAppBar(title = "Sensors", connectionState = connectionState)
+        QuakeAppBar(title = "Sensors", health = health)
 
         SensorMapCard(
             overview = uiState.overview,
