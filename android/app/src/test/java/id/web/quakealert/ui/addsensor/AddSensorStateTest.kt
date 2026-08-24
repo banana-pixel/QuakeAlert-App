@@ -56,14 +56,14 @@ class AddSensorStateTest {
     fun `details gate advances when name and position are valid`() {
         val state = AddSensorState(locationName = "Cimahi", latitude = -6.87, longitude = 107.54)
             .advanceIfDetailsValid()
-        assertEquals(WizardStep.CREDENTIALS, state.step)
+        assertEquals(AddSensorWizardStep.CREDENTIALS, state.currentStep)
         assertNull(state.detailsError)
     }
 
     @Test
     fun `details gate refuses a missing pin without losing the typed name`() {
         val state = AddSensorState(locationName = "Cimahi").advanceIfDetailsValid()
-        assertEquals(WizardStep.DETAILS, state.step)
+        assertEquals(AddSensorWizardStep.WELCOME, state.currentStep)
         assertEquals(DetailsError.POSITION_MISSING, state.detailsError)
         assertEquals("Cimahi", state.locationName)
     }
@@ -109,7 +109,7 @@ class AddSensorStateTest {
         locationName = "Cimahi",
         latitude = -6.87,
         longitude = 107.54
-    ).copy(step = WizardStep.CREDENTIALS).onProvisioned(
+    ).onProvisioned(
         id.web.quakealert.domain.ProvisionedNode(
             stationId = "NODE-163A149F",
             provisioningSecret = "sec_test",
@@ -124,7 +124,7 @@ class AddSensorStateTest {
         // The portal's echo wins over the minted id: if the node carried a
         // different NVS identity, that is what will heartbeat.
         val state = provisionedState().onNodeConfigured(effectiveStationId = null)
-        assertEquals(WizardStep.CONFIRM, state.confirmStateOrNull())
+        assertEquals(AddSensorWizardStep.FINISHING, state.currentStep)
         assertTrue(state.nodeConfigured)
         assertEquals("NODE-163A149F", state.effectiveStationId)
     }
@@ -147,12 +147,69 @@ class AddSensorStateTest {
 
         state = state.onConfirmPoll(emptyMap())
         assertEquals(fresh - 1, state.attemptsLeft)
-        assertNull(state.errorMessage)
+        assertNull(state.failure)
 
         repeat(state.attemptsLeft) { state = state.onConfirmPoll(emptyMap()) }
         assertEquals(0, state.attemptsLeft)
-        assertTrue(!state.errorMessage.isNullOrBlank())
+        assertEquals(WizardFailure.SENSOR_NEVER_CHECKED_IN, state.failure)
     }
 
-    private fun AddSensorState.confirmStateOrNull(): WizardStep = step
+    // --- navigation and exit ---
+
+    @Test
+    fun `only the location step can be stepped back out of`() {
+        assertEquals(
+            AddSensorWizardStep.WELCOME,
+            AddSensorState(currentStep = AddSensorWizardStep.LOCATION).previousStep
+        )
+        // Past LOCATION the identity exists on the server and cannot be un-minted,
+        // so there is nowhere safe to step back to; null asks for the exit question.
+        assertNull(AddSensorState(currentStep = AddSensorWizardStep.CREDENTIALS).previousStep)
+        assertNull(AddSensorState(currentStep = AddSensorWizardStep.WLAN).previousStep)
+        assertNull(AddSensorState().previousStep)
+    }
+
+    @Test
+    fun `leaving costs progress exactly when something was minted`() {
+        assertFalse(AddSensorState().exitLosesProgress)
+        assertFalse(AddSensorState(currentStep = AddSensorWizardStep.RATE_LIMIT).exitLosesProgress)
+        assertTrue(AddSensorState(currentStep = AddSensorWizardStep.CREDENTIALS).exitLosesProgress)
+        assertTrue(AddSensorState(currentStep = AddSensorWizardStep.WLAN).exitLosesProgress)
+
+        // A finished flow is already saved; a still-waiting one is not.
+        assertTrue(
+            AddSensorState(currentStep = AddSensorWizardStep.FINISHING).exitLosesProgress
+        )
+        assertFalse(
+            AddSensorState(
+                currentStep = AddSensorWizardStep.FINISHING,
+                confirmState = ConfirmState.ONLINE
+            ).exitLosesProgress
+        )
+    }
+
+    // --- copy hygiene: the house rule, as a test ---
+
+    @Test
+    fun `no wizard copy leaks transport detail`() {
+        val banned = listOf(
+            "Exception", "IOException", "HTTP", "http", "socket", "Socket",
+            "SoftAP", "portal", "null", "MQTT", "/config", "/sensors", "429"
+        )
+        val sentences = WizardFailure.entries.flatMap { failure ->
+            val copy = failureCopy(failure)
+            listOf(copy.title, copy.message)
+        } +
+            AddSensorWizardStep.entries.flatMap { listOf(it.headline(), it.helperText()) } +
+            DetailsError.entries.map { it.message() } +
+            LinkError.entries.map { it.message() }
+
+        for (sentence in sentences) {
+            for (word in banned) {
+                assertFalse("leaked '\$word' in: \$sentence", sentence.contains(word))
+            }
+            // Em dashes are banned app-wide; the wizard is where copy is densest.
+            assertFalse("em dash in: \$sentence", sentence.contains('\u2014'))
+        }
+    }
 }

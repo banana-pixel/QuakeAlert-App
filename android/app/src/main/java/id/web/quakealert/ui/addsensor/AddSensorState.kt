@@ -3,26 +3,35 @@ package id.web.quakealert.ui.addsensor
 import id.web.quakealert.domain.ProvisionedNode
 
 /**
- * The four steps of the wizard, in order. A step exists only while the user has
- * something to do or see on it — provisioning itself is a busy flag inside
- * [WizardStep.Details], not a fifth screen.
+ * The screens of the wizard (Figma 155:985 ... 155:1572), in the order the user
+ * walks them. [WELCOME] and [RATE_LIMIT] are presentation states rather than work:
+ * one introduces the flow, the other replaces it.
+ *
+ * One enum, not two: the flow used to carry a second parallel `WizardStep` for the
+ * pure gates, and keeping two step fields in agreement was a bug waiting to happen.
  */
-enum class WizardStep {
-    /** Name the sensor and drop its pin. */
-    DETAILS,
+enum class AddSensorWizardStep {
+    /** Welcome screen with sensor icons and Start button. */
+    WELCOME,
 
-    /** Show the minted identity + display-once secret; the gate before linking. */
+    /** Location selection: interactive map, GPS sync, editable place name. */
+    LOCATION,
+
+    /** Station ID and provisioning secret display. */
     CREDENTIALS,
 
-    /** Join the node's SoftAP and hand over credentials via its /config portal. */
-    LINK,
+    /** Wi-Fi network selection and password entry. */
+    WLAN,
 
-    /** Wait for the node's first heartbeat to surface in `/sensors`. */
-    CONFIRM
+    /** Processing / finishing with Check Now action. */
+    FINISHING,
+
+    /** Provisioning rate limit hit, shown right after Welcome. */
+    RATE_LIMIT
 }
 
 /**
- * What the CONFIRM step is currently seeing.
+ * What the FINISHING step is currently seeing.
  */
 enum class ConfirmState {
     /** Polling `/sensors`; the node has not appeared yet. */
@@ -34,11 +43,11 @@ enum class ConfirmState {
      */
     PENDING,
 
-    /** The station reports Online — end to end, including trust. */
+    /** The station reports Online, end to end, including trust. */
     ONLINE
 }
 
-/** Why the DETAILS step refuses to continue. Mirrors the server's own rules. */
+/** Why the LOCATION step refuses to continue. Mirrors the server's own rules. */
 enum class DetailsError {
     NAME_REQUIRED,
     NAME_TOO_LONG,
@@ -47,17 +56,57 @@ enum class DetailsError {
     POSITION_MISSING
 }
 
-/** Why the LINK step refuses to configure. */
+/** Why the WLAN step refuses to configure. */
 enum class LinkError {
     SSID_REQUIRED,
     PASSWORD_TOO_SHORT
+}
+
+/**
+ * Every way the wizard can fail, as a closed set of situations.
+ *
+ * An enum rather than a message string, and that is the point: the state cannot
+ * carry text at all, so no server sentence, socket state or exception name can
+ * reach the screen even by accident. The wording lives in one place
+ * ([failureCopy] in AddSensorCopy.kt) and the real cause stays in the log.
+ */
+enum class WizardFailure {
+    /** No usable link to the alert network while registering the sensor. */
+    OFFLINE,
+
+    /** The alert network could not register the sensor right now. */
+    REGISTER_REJECTED,
+
+    /** The phone never joined the sensor's own network (dialog dismissed, timeout). */
+    SENSOR_NOT_JOINED,
+
+    /** Joined, but the sensor did not answer when asked what it can see. */
+    SENSOR_NOT_ANSWERING,
+
+    /** The sensor refused or dropped the settings we handed it. */
+    SETTINGS_NOT_ACCEPTED,
+
+    /** No position could be obtained from the device. */
+    LOCATION_UNAVAILABLE,
+
+    /** The pin has no place name and none could be detected. */
+    PLACE_NAME_MISSING,
+
+    /** The sensor never checked in within the confirm budget. */
+    SENSOR_NEVER_CHECKED_IN
 }
 
 /** Server-side limits the client mirrors so feedback is instant, not a 400. */
 object SensorNameRules {
     const val MAX_LENGTH = 150
     const val MIN_CHAR_RUN = 5
-    val MODEL_CHOICES = listOf("MPU 6050", "MPU 9250", "ADXL355")
+
+    /**
+     * The firmware speaks exactly one dialect: the MPU 6050. Kept as a list so a
+     * future multi-sensor firmware flips this back into a picker without touching
+     * call sites.
+     */
+    val MODEL_CHOICES = listOf("MPU 6050")
 
     /**
      * Normalises exactly like `nodeLocationName` (server/internal/api/api.go):
@@ -103,22 +152,25 @@ object WifiRules {
 /**
  * One wizard session, as a single value.
  *
- * Everything decision-shaped lives in pure functions below ([DetailsError],
- * [WifiRules], [advanceIfDetailsValid], [onProvisioned], [onConfirmPoll]) — this
- * class only carries it. The ViewModel applies these functions to a
- * [MutableStateFlow] and owns every side effect: the provision call, the local
- * link, the poll loop.
+ * Everything decision-shaped lives in the pure functions below ([advanceIfDetailsValid],
+ * [onProvisioned], [previousStep], [onConfirmPoll]); this class only carries it. The
+ * ViewModel applies those functions to a [kotlinx.coroutines.flow.MutableStateFlow]
+ * and owns every side effect: the register call, the local link, the poll loop.
  *
- * @param latitude/longitude the chosen placement. Nullable because they start as
- *   the current fix *if one exists*; a wizard opened without any fix shows an
- *   explicit "drop the pin" state rather than a map centred at Null Island.
- * @param attemptsLeft confirm polls remaining; surfaced so the failure message can
- *   say how long we actually waited instead of a vague "timed out".
+ * @param latitude/longitude the chosen placement. Nullable because they start as the
+ *   current fix *if one exists*; a wizard opened without any fix shows an explicit
+ *   "drop the pin" state rather than a map centred at Null Island.
+ * @param attemptsLeft confirm polls remaining; surfaced so the failure copy can say
+ *   how long we actually waited instead of a vague "timed out".
+ * @param failure the one situation the card is currently reporting, if any. Never a
+ *   message: see [WizardFailure].
  */
 data class AddSensorState(
-    val step: WizardStep = WizardStep.DETAILS,
-    // --- DETAILS ---
+    val currentStep: AddSensorWizardStep = AddSensorWizardStep.WELCOME,
+    // --- LOCATION ---
     val locationName: String = "",
+    val detectedLocationName: String? = null,
+    val isSyncingLocation: Boolean = false,
     val sensorModel: String = SensorNameRules.MODEL_CHOICES.first(),
     val latitude: Double? = null,
     val longitude: Double? = null,
@@ -126,27 +178,61 @@ data class AddSensorState(
     // --- CREDENTIALS ---
     val provisioned: ProvisionedNode? = null,
     val secretRevealed: Boolean = false,
-    // --- LINK ---
+    // --- WLAN ---
     val scannedSsids: List<String> = emptyList(),
     val selectedSsid: String = "",
     val wifiPassword: String = "",
     val linkError: LinkError? = null,
     val nodeConfigured: Boolean = false,
     val effectiveStationId: String? = null,
-    // --- CONFIRM ---
+    // --- FINISHING ---
     val confirmState: ConfirmState = ConfirmState.WAITING,
     val attemptsLeft: Int = MAX_CONFIRM_ATTEMPTS,
     // --- shared ---
+    val showingExitConfirm: Boolean = false,
     val isBusy: Boolean = false,
-    val errorMessage: String? = null
+    val failure: WizardFailure? = null
 ) {
 
     val detailsValid: Boolean
         get() = latitude != null && longitude != null &&
             SensorNameRules.validate(locationName) == null
 
+    /** The LOCATION screen only demands a pin; the name arrives auto-detected. */
+    val locationStepValid: Boolean
+        get() = latitude != null && longitude != null
+
     val linkValid: Boolean
         get() = WifiRules.validate(selectedSsid, wifiPassword) == null
+
+    /**
+     * Where the Back capsule leads, or null when there is nowhere to step back to
+     * and Back therefore means "leave the wizard".
+     *
+     * Nothing has been created yet on LOCATION, so its Back is a plain step back to
+     * WELCOME. Past that point the sensor identity exists on the server and cannot
+     * be un-minted, so stepping back would either strand a half-configured sensor or
+     * invite minting a second one; leaving (with the discard question) is the only
+     * honest way back, which is what null asks the caller to do.
+     */
+    val previousStep: AddSensorWizardStep?
+        get() = when (currentStep) {
+            AddSensorWizardStep.LOCATION -> AddSensorWizardStep.WELCOME
+            else -> null
+        }
+
+    /**
+     * Whether leaving right now would throw work away. Welcome has nothing yet, the
+     * rate-limit screen never started, and a finished flow is already saved; every
+     * other screen holds a minted identity or a display-once secret.
+     */
+    val exitLosesProgress: Boolean
+        get() = when (currentStep) {
+            AddSensorWizardStep.WELCOME,
+            AddSensorWizardStep.RATE_LIMIT -> false
+            AddSensorWizardStep.FINISHING -> confirmState == ConfirmState.WAITING
+            else -> true
+        }
 
     companion object {
         /**
@@ -160,8 +246,8 @@ data class AddSensorState(
 }
 
 /**
- * Gate for leaving DETAILS. Returns the state unchanged (with the error set) when
- * invalid — the caller never has to remember to validate separately.
+ * Gate for leaving LOCATION. Returns the state unchanged (with the error set) when
+ * invalid, so the caller never has to remember to validate separately.
  */
 fun AddSensorState.advanceIfDetailsValid(): AddSensorState {
     val positionMissing = latitude == null || longitude == null
@@ -170,7 +256,7 @@ fun AddSensorState.advanceIfDetailsValid(): AddSensorState {
         positionMissing -> DetailsError.POSITION_MISSING
         nameError != null -> nameError
         else -> null
-    } ?: return copy(step = WizardStep.CREDENTIALS, detailsError = null)
+    } ?: return copy(currentStep = AddSensorWizardStep.CREDENTIALS, detailsError = null)
 
     return copy(detailsError = error)
 }
@@ -179,8 +265,8 @@ fun AddSensorState.advanceIfDetailsValid(): AddSensorState {
 fun AddSensorState.onProvisioned(node: ProvisionedNode): AddSensorState = copy(
     provisioned = node,
     secretRevealed = false,
-    step = WizardStep.CREDENTIALS,
-    errorMessage = null
+    currentStep = AddSensorWizardStep.CREDENTIALS,
+    failure = null
 )
 
 /** Applies the Wi-Fi selection, clearing stale link errors when it changes. */
@@ -198,20 +284,20 @@ fun AddSensorState.advanceIfLinkValid(): AddSensorState {
 }
 
 /**
- * Records the portal's answer. The echoed station id is authoritative — if the node
+ * Records the portal's answer. The echoed station id is authoritative: if the node
  * already carried a different NVS identity, that is what will heartbeat, and the
- * CONFIRM step must search for *this*, not for what the server minted.
+ * FINISHING step must search for *this*, not for what the server minted.
  */
 fun AddSensorState.onNodeConfigured(effectiveStationId: String?): AddSensorState = copy(
     nodeConfigured = true,
     effectiveStationId = effectiveStationId ?: provisioned?.stationId,
-    step = WizardStep.CONFIRM
+    currentStep = AddSensorWizardStep.FINISHING
 )
 
 /**
  * One confirm poll. Matches by station id against the full roll (pending included).
- * An empty result changes nothing except the budget — absence is expected noise
- * while the node is still rebooting.
+ * An empty result changes nothing except the budget: absence is expected noise while
+ * the node is still rebooting.
  */
 fun AddSensorState.onConfirmPoll(
     stationsById: Map<String, String>
@@ -219,16 +305,12 @@ fun AddSensorState.onConfirmPoll(
     val target = effectiveStationId ?: provisioned?.stationId
     val status = target?.let { stationsById[it] }
     return when (status) {
-        "Online" -> copy(confirmState = ConfirmState.ONLINE)
-        "Pending" -> copy(confirmState = ConfirmState.PENDING)
+        "Online" -> copy(confirmState = ConfirmState.ONLINE, failure = null)
+        "Pending" -> copy(confirmState = ConfirmState.PENDING, failure = null)
         else -> {
             val left = attemptsLeft - 1
-            if (left <= 0) copy(attemptsLeft = 0, errorMessage = EXHAUSTED_MESSAGE)
+            if (left <= 0) copy(attemptsLeft = 0, failure = WizardFailure.SENSOR_NEVER_CHECKED_IN)
             else copy(attemptsLeft = left)
         }
     }
 }
-
-private const val EXHAUSTED_MESSAGE =
-    "The sensor has not checked in yet. Make sure it stayed powered, is within " +
-        "range of your Wi-Fi, and try confirming again from the Sensors tab."

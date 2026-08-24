@@ -42,7 +42,7 @@ fun AppRoot(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // Every foreground is a chance for the stored position to have gone stale — the
+    // Every foreground is a chance for the stored position to have gone stale, and the
     // process-start check alone misses an app that was simply left in the background.
     // Placed on the root rather than in a tab so it covers onboarding too, and nothing
     // is needed on the way out.
@@ -68,39 +68,42 @@ fun AppRoot(
 
                 is AppUiState.Ready -> {
                     if (state.onboardingCompleted) {
-                        // The wizard overlays everything, exactly like onboarding:
-                        // a full-screen flow that owns the back gesture until it is
-                        // dismissed, so no tab sits half-visible behind a step.
+                        // A modal, not a destination: MainScreen stays composed
+                        // underneath so the wizard's scrim dims the screen the user
+                        // launched it from, exactly like every other overlay here.
                         var showAddSensor by remember { mutableStateOf(false) }
+                        MainScreen(
+                            modifier = Modifier.fillMaxSize(),
+                            onAddSensor = { showAddSensor = true }
+                        )
                         if (showAddSensor) {
                             val wizard: AddSensorViewModel = viewModel()
                             val wizardState by wizard.state.collectAsStateWithLifecycle()
+                            val dismissWizard = {
+                                showAddSensor = false
+                                // Activity scoped, so without this the next open
+                                // resumes a session whose secret can no longer be read.
+                                wizard.reset()
+                            }
                             AddSensorWizardDialog(
                                 state = wizardState,
-                                onDismiss = {
-                                    showAddSensor = false
-                                    wizard.onDismissed()
-                                },
-                                onNameChanged = wizard::onNameChanged,
-                                onModelChanged = wizard::onModelChanged,
-                                onUseCurrentPosition = wizard::onUseCurrentPosition,
-                                onManualLatitudeChanged = wizard::onManualLatitudeChanged,
-                                onManualLongitudeChanged = wizard::onManualLongitudeChanged,
-                                onDetailsContinue = wizard::onDetailsContinue,
-                                onRetryFromDetails = wizard::retryFromDetails,
+                                onDismiss = dismissWizard,
+                                onStartClicked = wizard::onStartClicked,
+                                onSyncLocationClick = wizard::onSyncLocationClicked,
+                                onMapPinMoved = wizard::onMapPinMoved,
+                                onLocationNameChanged = wizard::onLocationNameChanged,
+                                onLocationContinue = wizard::onLocationContinue,
                                 onSecretRevealed = wizard::onSecretRevealed,
+                                onCopySecret = wizard::onCopySecret,
                                 onCredentialsContinue = wizard::onCredentialsContinue,
-                                onRescanClicked = wizard::onRescanClicked,
-                                onSsidSelected = wizard::onSsidSelected,
+                                onRescanNetworks = wizard::onRescanNetworks,
+                                onNetworkSelected = wizard::onNetworkSelected,
                                 onPasswordChanged = wizard::onPasswordChanged,
-                                onConfigureNode = wizard::onConfigureNode,
-                                onRefreshConfirm = wizard::onRefreshConfirm,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            MainScreen(
-                                modifier = Modifier.fillMaxSize(),
-                                onAddSensor = { showAddSensor = true }
+                                onWlanContinue = wizard::onWlanContinue,
+                                onCheckNow = wizard::onCheckNow,
+                                onBack = { wizard.onBack(dismissWizard) },
+                                onExitCancelled = wizard::onExitCancelled,
+                                onRequestExit = { wizard.requestExit(dismissWizard) }
                             )
                         }
                     } else {
