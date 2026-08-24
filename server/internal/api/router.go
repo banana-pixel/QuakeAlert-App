@@ -76,6 +76,11 @@ func (s *Server) Router(wsHandler http.HandlerFunc, log *slog.Logger) http.Handl
 			// lain (topic test_alerts saja, tanpa konsensus dan tanpa baris
 			// earthquake_events). Lihat testalert.go.
 			r.Post("/api/v1/admin/test-alert", s.HandleCreateTestAlert)
+			// Verifikasi node: sisi lain gerbang konsensus (migrasi 000005).
+			// Daftar pending dulu, konfirmasi satu per satu; body {"verified":
+			// false} menarik kembali kepercayaan pada node yang sudah sah.
+			r.Get("/api/v1/admin/nodes/pending", s.HandleListPendingNodes)
+			r.Post("/api/v1/admin/nodes/{stationID}/verify", s.HandleVerifyNode)
 		})
 	} else {
 		log.Warn("ADMIN_API_KEY tidak di-set — endpoint siaran admin tidak didaftarkan")

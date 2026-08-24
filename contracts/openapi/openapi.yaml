@@ -189,6 +189,20 @@ paths:
               example:
                 code: STATION_ALREADY_EXISTS
                 message: station_id sudah terdaftar
+        '429':
+          description: >
+            Batas laju provisioning: ~5x per jam per akun (cooldown 12 menit)
+            dan 20x per jam per IP (cooldown 3 menit). Node baru lahir dengan
+            `verified = false` (migrasi 000005) — heartbeat-nya diterima, tetapi
+            trigger-nya ditolak sampai operator mengonfirmasi lewat
+            `/api/v1/admin/nodes/{id}/verify`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: RATE_LIMITED
+                message: provisioning dibatasi 5x per jam per akun
 
   /api/v1/sensors:
     get:
@@ -634,6 +648,100 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/v1/admin/nodes/pending:
+    get:
+      tags: [nodes]
+      summary: Daftar node yang menunggu verifikasi operator
+      description: >
+        Semua node dengan `verified = false`, terbaru dulu. Node pending tetap
+        tampak di `/sensors` (heartbeat diterima) tetapi trigger-nya ditolak di
+        jalur ingest sehingga tidak pernah ikut voting menuju ambang 3-node
+        CONFIRMED.
+      operationId: listPendingNodes
+      security:
+        - adminKey: []
+      responses:
+        '200':
+          description: Daftar (bisa kosong — bukan keadaan galat)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PendingNode'
+        '401':
+          description: Header X-Admin-Key tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/admin/nodes/{stationID}/verify:
+    post:
+      tags: [nodes]
+      summary: Mengubah status verifikasi satu node
+      description: >
+        Body opsional; absen/kosong berarti setuju (`verified = true`) — kasus
+        umum skrip deploy/scripts/verify-node.sh. Kirim `{"verified": false}`
+        untuk menarik kembali kepercayaan: trigger node itu langsung ditolak di
+        jalur ingest tanpa menyentuh `is_active`. station_id yang salah bentuk
+        atau tidak dikenal menjawab 404 dan tidak pernah menyentuh basis data.
+      operationId: verifyNode
+      security:
+        - adminKey: []
+      parameters:
+        - name: stationID
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^NODE-[0-9A-F]{8}$'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                verified:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Status verifikasi diperbarui
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  station_id:
+                    type: string
+                    example: NODE-163A149F
+                  verified:
+                    type: boolean
+        '401':
+          description: Header X-Admin-Key tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: station_id salah bentuk atau tidak dikenal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: NODE_NOT_FOUND
+                message: station_id tidak ditemukan
+        '500':
+          $ref: '#/components/responses/InternalError'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -930,6 +1038,36 @@ components:
           type: string
           format: date-time
           example: "2026-08-23T06:19:18Z"
+
+    PendingNode:
+      type: object
+      required: [station_id, sensor_model, location_name, latitude, longitude, created_at]
+      properties:
+        station_id:
+          type: string
+          example: NODE-163A149F
+        sensor_model:
+          type: string
+          example: MPU 6050
+        location_name:
+          type: string
+          description: >
+            Nama tempat yang dapat ditemukan di peta, konvensi
+            "Kecamatan, Kabupaten/Kota, Provinsi".
+          example: Cimahi, Jawa Barat
+        latitude:
+          type: number
+          format: double
+          example: -6.87
+        longitude:
+          type: number
+          format: double
+          example: 107.54
+        created_at:
+          type: string
+          format: date-time
+          description: Saat node di-provision; daftar diurutkan terbaru dulu.
+          example: "2026-08-24T09:00:00Z"
 
     BroadcastsResponse:
       type: object

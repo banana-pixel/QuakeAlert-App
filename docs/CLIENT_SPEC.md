@@ -270,7 +270,18 @@ Yang **tidak** dilakukan, beserta alasannya, supaya tidak dibuka ulang tanpa sen
 
 Konvensi wajib untuk field itu: **"Kecamatan, Kabupaten/Kota, Provinsi"** — tempat yang bisa dicari pembaca di peta (contoh: `"Lembang, Kab. Bandung Barat, Jawa Barat"`). Server menormalkan spasi, lalu menolak nilai kosong, lebih dari 150 karakter, yang memuat `NODE-` (station id bukan tempat), atau yang memuat 5+ karakter identik berurutan (`"Bandung AAAAAAAA"` — bentuk khas nilai uji). Penolakan datang sebagai `400 INVALID_ARGUMENT`.
 
-Validasi itu hanya menyaring bentuk yang jelas bukan nama tempat; ia **tidak** bisa membuktikan sebuah string benar-benar menyebut lokasi node. Jawaban tahan lama adalah memberi nama event dari **gazetteer atau tabel batas administratif** berbasis centroid, dengan label node hanya sebagai fallback. Itu butuh sumber data batas wilayah dan diputuskan bersamaan dengan pengetatan kepercayaan `POST /nodes/provision` (endpoint itu masih terbuka untuk pemanggil anonim), jadi dicatat di sini sebagai keputusan, bukan pekerjaan yang sudah selesai.
+Validasi itu hanya menyaring bentuk yang jelas bukan nama tempat; ia **tidak** bisa membuktikan sebuah string benar-benar menyebut lokasi node. Jawaban tahan lama adalah memberi nama event dari **gazetteer atau tabel batas administratif** berbasis centroid, dengan label node hanya sebagai fallback. Itu butuh sumber data batas wilayah dan diputuskan bersamaan dengan keputusan kepercayaan provisioning di §5.6a, jadi dicatat di sini sebagai keputusan, bukan pekerjaan yang sudah selesai.
+
+### 5.6a Kepercayaan provisioning: dua tingkat, pending/verified (keputusan, migrasi 000005)
+
+`POST /api/v1/nodes/provision` tetap dapat dipanggil setiap pemegang JWT anonim — wizard "Add a Sensor" memang menuntut itu — sehingga kepercayaan tidak boleh didapat di endpoint yang sama. Setiap node baru lahir dengan `iot_nodes.verified = false`:
+
+- **Pending (verified = false):** heartbeat-nya diterima, jadi stasiunnya tampak di `/sensors`; trigger-nya ditolak di `internal/ingest/verifier.go` (`ErrNodeUnverified`, sebelum cek HMAC) sehingga **tidak pernah ikut voting** menuju ambang 3-node CONFIRMED.
+- **Verified:** operator mengonfirmasi lewat `GET /api/v1/admin/nodes/pending` + `POST /api/v1/admin/nodes/{stationID}/verify` (header `X-Admin-Key`, dibungkus `deploy/scripts/verify-node.sh`). `{"verified": false}` menarik kembali kepercayaan tanpa menyentuh `is_active`.
+
+Batas laju provisioning: cooldown 12 menit per akun (≈5/jam) dan 3 menit per IP (20/jam), `429 RATE_LIMITED`.
+
+Dua tingkat sengaja, bukan peran per-node: selama operatornya satu orang, peran tambahan tidak punya perilaku yang memakainya. Peran bermakna baru muncul bersama kepemilikan node oleh pihak ketiga.
 
 ### 5.7 Pengumuman operator: kanal sendiri, bukan kanal alert
 

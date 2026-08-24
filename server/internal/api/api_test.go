@@ -52,6 +52,14 @@ type fakeRepo struct {
 	fcmErr    error
 	fcmUpdate time.Time
 
+	// Verifikasi node admin
+	pendingNodes  []store.PendingNode
+	pendingErr    error
+	verifyErr     error
+	verifyMissing bool
+	verifiedID    string
+	verifiedTo    bool
+
 	// Events
 	events      []store.Event
 	eventsErr   error
@@ -201,6 +209,23 @@ func (f *fakeRepo) ListBroadcastsForUser(
 ) ([]store.Broadcast, error) {
 	f.broadcastUser, f.broadcastLimit = userID, limit
 	return f.broadcasts, f.listBroadErr
+}
+
+// --- Node verifikasi (admin) ---
+
+func (f *fakeRepo) ListUnverifiedNodes(_ context.Context) ([]store.PendingNode, error) {
+	if f.pendingErr != nil {
+		return nil, f.pendingErr
+	}
+	return f.pendingNodes, nil
+}
+
+func (f *fakeRepo) SetNodeVerified(_ context.Context, stationID string, verified bool) (bool, error) {
+	if f.verifyErr != nil {
+		return false, f.verifyErr
+	}
+	f.verifiedID, f.verifiedTo = stationID, verified
+	return !f.verifyMissing, nil
 }
 
 type fakeCipher struct{}

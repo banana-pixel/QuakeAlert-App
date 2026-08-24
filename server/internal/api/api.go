@@ -160,6 +160,8 @@ type Repo interface {
 	InsertChatMessage(ctx context.Context, channelID, senderID, pseudonym, locationTag, body, clientMessageID string) (*store.ChatMessage, error)
 	InsertBroadcast(ctx context.Context, title, body, regionCode string) (*store.Broadcast, error)
 	ListBroadcastsForUser(ctx context.Context, userID string, limit int) ([]store.Broadcast, error)
+	ListUnverifiedNodes(ctx context.Context) ([]store.PendingNode, error)
+	SetNodeVerified(ctx context.Context, stationID string, verified bool) (bool, error)
 }
 
 // SecretEncryptor mengenkripsi provisioning secret menjadi (ciphertext, nonce)
