@@ -10,6 +10,13 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!--
+      Add-a-Sensor wizard: WifiNetworkSpecifier (NodeLink.bindToNode) needs
+      CHANGE_NETWORK_STATE to bring up the bound secondary network that talks to
+      the node's SoftAP. Normal permission — granted at install, never prompted.
+    -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+
+    <!--
       Life-safety alert delivery (.clinerules/20 rule 3). USE_FULL_SCREEN_INTENT is
       what lets an earthquake notification raise WarningActivity over the lock screen
       without the user touching anything; from API 34 the grant is automatic only for
