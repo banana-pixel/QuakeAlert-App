@@ -1,6 +1,7 @@
 package id.web.quakealert.ui.addsensor
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -414,6 +416,9 @@ private fun SsidChoice(ssid: String, selected: Boolean, onSelected: () -> Unit) 
             .clip(shape)
             .background(if (selected) AccentBlueTranslucent else ChatInputFill)
             .border(Dimens.BorderThin, CardBorder, shape)
+            // Selectable — this row IS the choice; without it the list renders
+            // beautifully and does absolutely nothing.
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onSelected)
             .padding(
                 horizontal = Dimens.ChatInputFieldPaddingHorizontal,
                 vertical = Dimens.ChatInputFieldPaddingVertical
