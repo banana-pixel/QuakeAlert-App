@@ -7,8 +7,10 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.LinkProperties
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import id.web.quakealert.data.network.model.NodePortalConfigDto
 import id.web.quakealert.data.network.model.NodePortalConfigResponseDto
 import kotlinx.coroutines.Dispatchers
@@ -53,7 +55,10 @@ class NodeLink(context: Context) {
 
     /**
      * Asks the system to bring up the node network. Resumes with the bound
-     * [Network], or null when the user dismissed the dialog or it timed out.
+     * [Network] **once it has an IPv4 address** — [onAvailable][ConnectivityManager.NetworkCallback.onAvailable]
+     * alone fires before DHCP finishes, and a portal call made in that window
+     * fails with EHOSTUNREACH, which reads downstream as "no networks found".
+     * Null when the user dismissed the dialog or it timed out.
      *
      * Pre-Android-10 there is no specifier API; returns null immediately after
      * firing [openWifiSettings] so the caller can explain the manual step.
@@ -70,6 +75,7 @@ class NodeLink(context: Context) {
 
         val manager = connectivity ?: return null
         releaseNode()
+        Log.i(TAG, "binding to SoftAP \"$apSsid\"")
 
         val request = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
@@ -84,10 +90,25 @@ class NodeLink(context: Context) {
         val network: Network? = suspendCancellableCoroutine { continuation ->
             val callback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    continuation.resume(network)
+                    Log.i(TAG, "node network available (pre-DHCP): $network")
+                }
+
+                // The gate that matters: link properties carry the interface's
+                // addresses, so their arrival means DHCP finished and 192.168.4.1
+                // is actually reachable through this network.
+                override fun onLinkPropertiesChanged(
+                    network: Network,
+                    linkProperties: LinkProperties
+                ) {
+                    val hasV4 = linkProperties.getLinkAddresses().any { addr -> addr.address is java.net.Inet4Address }
+                    Log.i(TAG, "link properties changed, ipv4=$hasV4")
+                    if (hasV4 && continuation.isActive) {
+                        continuation.resume(network)
+                    }
                 }
 
                 override fun onUnavailable() {
+                    Log.w(TAG, "node network unavailable (dialog dismissed or timed out)")
                     continuation.resume(null)
                 }
             }
@@ -99,9 +120,12 @@ class NodeLink(context: Context) {
         }
 
         boundNetwork = network
-        if (network == null) boundCallback = null
+        if (network == null) boundCallback = null else Log.i(TAG, "bound: $network")
         return network
     }
+
+    /** Whether a node network is currently bound (portal calls need one). */
+    val isLinked: Boolean get() = boundNetwork != null
 
     /** Releases the bound node network so the phone returns to its normal Wi-Fi. */
     fun releaseNode() {
@@ -145,7 +169,12 @@ class NodeLink(context: Context) {
         if (boundNetwork == null) {
             Result.failure(IllegalStateException(NOT_LINKED_MESSAGE))
         } else {
-            runCatching(block)
+            try {
+                Result.success(block())
+            } catch (throwable: Exception) {
+                Log.w(TAG, "portal call failed", throwable)
+                Result.failure(throwable)
+            }
         }
 
     private fun clientFor(network: Network?): OkHttpClient {
@@ -174,6 +203,8 @@ class NodeLink(context: Context) {
     }
 
     companion object {
+        private const val TAG = "NodeLink"
+
         /** The SoftAP name the firmware broadcasts while provisioning. */
         const val NODE_AP_SSID = "QuakeSetup"
 

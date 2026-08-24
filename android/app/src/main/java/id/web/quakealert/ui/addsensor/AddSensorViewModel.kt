@@ -125,15 +125,52 @@ class AddSensorViewModel(application: Application) : AndroidViewModel(applicatio
     fun onCredentialsContinue() {
         if (_state.value.step == WizardStep.LINK) return
         _state.update { it.copy(step = WizardStep.LINK, isBusy = true) }
+        bindAndScan()
+    }
+
+    /**
+     * Re-attempts the link + scan. Deliberately *not* routed through
+     * [onCredentialsContinue]'s step guard — the first attempt can fail for a
+     * dozen mundane reasons (dialog dismissed, DHCP still settling, node booting),
+     * and a Rescan button that silently does nothing is how a user gets stranded.
+     */
+    fun onRescanClicked() {
+        _state.update { it.copy(isBusy = true, errorMessage = null) }
+        bindAndScan()
+    }
+
+    private fun bindAndScan() {
         viewModelScope.launch {
-            nodeLink.bindToNode()
-            val scan = nodeLink.scanNetworks()
-            _state.update { current ->
-                scan.fold(
-                    onSuccess = { ssids -> current.copy(scannedSsids = ssids, isBusy = false) },
-                    onFailure = { current.copy(isBusy = false, scannedSsids = emptyList()) }
-                )
+            // Always rebind: a previous dialog dismissal or timeout leaves no
+            // network to talk through, and the specifier join is what shows the
+            // system dialog again.
+            val network = nodeLink.bindToNode()
+            if (network == null) {
+                _state.update {
+                    it.copy(
+                        isBusy = false,
+                        errorMessage = LINK_DIALOG_MESSAGE
+                    )
+                }
+                return@launch
             }
+
+            nodeLink.scanNetworks().fold(
+                onSuccess = { ssids ->
+                    _state.update { current ->
+                        current.copy(scannedSsids = ssids, isBusy = false, errorMessage = null)
+                    }
+                },
+                onFailure = { throwable ->
+                    _state.update { current ->
+                        current.copy(
+                            isBusy = false,
+                            scannedSsids = emptyList(),
+                            errorMessage = throwable.message ?: SCAN_FAILED_MESSAGE
+                        )
+                    }
+                }
+            )
         }
     }
 
@@ -146,8 +183,6 @@ class AddSensorViewModel(application: Application) : AndroidViewModel(applicatio
     fun onPasswordChanged(password: String) {
         _state.update { it.copy(wifiPassword = password) }
     }
-
-    fun onRescanClicked() = onCredentialsContinue()
 
     /** LINK gate: configure the node, then start confirming. */
     fun onConfigureNode() {
@@ -264,6 +299,14 @@ class AddSensorViewModel(application: Application) : AndroidViewModel(applicatio
     companion object {
         /** Widest honest query: a sensor installed for a relative across town must still show up. */
         private const val MAX_CONFIRM_RANGE_KM = 500
+
+        private const val LINK_DIALOG_MESSAGE =
+            "The join dialog was dismissed or timed out. Tap Rescan and confirm the " +
+                "system prompt to connect to QuakeSetup."
+
+        private const val SCAN_FAILED_MESSAGE =
+            "Could not reach the sensor's setup page. Make sure you stayed connected to " +
+                "QuakeSetup and that the sensor is powered, then rescan."
 
         private const val PROVISION_FAILED_MESSAGE =
             "Could not register the new sensor. Check your connection and try again."
