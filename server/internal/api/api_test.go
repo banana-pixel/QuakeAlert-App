@@ -449,6 +449,56 @@ func TestReroll_RateLimited(t *testing.T) {
 
 // --- MEDIUM-2: konflik station_id → 409, bukan 500 ---
 
+func TestProvision_RateLimitedPerUser(t *testing.T) {
+	repo := &fakeRepo{}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+	body := `{"sensor_model":"MPU 6050","location_name":"Cimahi","latitude":-6.87,"longitude":107.54}`
+
+	first := do(h, authedRequest(http.MethodPost, "/api/v1/nodes/provision", body, testSecret, "user-x"))
+	if first.Code != http.StatusCreated {
+		t.Fatalf("provision pertama = %d, mau 201. body=%s", first.Code, first.Body.String())
+	}
+	second := do(h, authedRequest(http.MethodPost, "/api/v1/nodes/provision", body, testSecret, "user-x"))
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("provision kedua (user sama) = %d, mau 429", second.Code)
+	}
+	var e apiError
+	if err := json.Unmarshal(second.Body.Bytes(), &e); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if e.Code != "RATE_LIMITED" {
+		t.Fatalf("code = %q, mau RATE_LIMITED", e.Code)
+	}
+}
+
+func TestProvision_RateLimitedPerIP(t *testing.T) {
+	repo := &fakeRepo{}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+	body := `{"sensor_model":"MPU 6050","location_name":"Cimahi","latitude":-6.87,"longitude":107.54}`
+
+	// User berbeda lolos gerbang per-user, tetapi IP yang sama tertahan di
+	// gerbang kedua — identitas anonim gratis dicetak, jadi IP-lah pagar utama.
+	first := do(h, authedRequest(http.MethodPost, "/api/v1/nodes/provision", body, testSecret, "user-a"))
+	if first.Code != http.StatusCreated {
+		t.Fatalf("provision pertama = %d, mau 201. body=%s", first.Code, first.Body.String())
+	}
+
+	sameIP := do(h, authedRequest(http.MethodPost, "/api/v1/nodes/provision", body, testSecret, "user-b"))
+	if sameIP.Code != http.StatusTooManyRequests {
+		t.Fatalf("provision kedua dari IP sama = %d, mau 429", sameIP.Code)
+	}
+
+	// Permintaan yang ditolak gerbang IP tetap memakai kunci user-nya (dua
+	// gerbang tidak atomik satu sama lain), jadi kasus "IP lain" memakai
+	// identitas segar — bentuk pemakaian sungguhan: operator lain, jaringan lain.
+	req := authedRequest(http.MethodPost, "/api/v1/nodes/provision", body, testSecret, "user-c")
+	req.RemoteAddr = "203.0.113.7:4444"
+	other := do(h, req)
+	if other.Code != http.StatusCreated {
+		t.Fatalf("provision dari IP lain = %d, mau 201. body=%s", other.Code, other.Body.String())
+	}
+}
+
 func TestProvision_Conflict(t *testing.T) {
 	repo := &fakeRepo{createErr: store.ErrNodeAlreadyExists}
 	h := newTestServer(repo, NewMemoryRateLimiter())

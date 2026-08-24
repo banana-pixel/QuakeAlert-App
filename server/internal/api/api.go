@@ -25,6 +25,19 @@ const rerollWindow = 60 * time.Second
 // POST /auth/anonymous menciptakan baris user_profiles baru tanpa identitas).
 const authWindow = 30 * time.Second
 
+// Dua cooldown provisioning. RateLimiter berkontrak cooldown (satu aksi per
+// window), bukan penghitung, jadi angka "per jam" dijabarkan sebagai window:
+//
+//	provisionUserWindow 12 menit ≈ 5 provision/jam per JWT  (identitas anonim
+//	    gratis dicetak, jadi kunci per-user saja tidak menghalangi siapa pun)
+//	provisionIPWindow     3 menit = 20 provision/jam per IP   (satuan dev/test;
+//	    satu operator sungguhan mem-provision beberapa node sekaligus tanpa
+//	    tersandung, sebuah skrip penyalahguna tidak)
+const (
+	provisionUserWindow = 12 * time.Minute
+	provisionIPWindow   = 3 * time.Minute
+)
+
 // provisionSecretBytes adalah panjang entropy provisioning_secret (32 byte).
 const provisionSecretBytes = 32
 
@@ -286,6 +299,38 @@ type provisionResponse struct {
 // Secret disimpan terenkripsi AES-256-GCM (bukan hash) karena verifikasi HMAC
 // butuh key mentah (ADR-0003).
 func (s *Server) HandleProvision(w http.ResponseWriter, r *http.Request) {
+	// Dua gerbang laju sebelum menyentuh kripto atau DB. Kunci user dan IP
+	// diperiksa berurutan: identitas anonim murah, jadi IP-lah pagar utamanya,
+	// dan kunci user yang sudah terpakai pada permintaan yang ditolak IP tidak
+	// menguntungkan penyerang maupun merugikan operator sungguhan.
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "user tidak terautentikasi")
+		return
+	}
+	allowed, err := s.limiter.Allow(r.Context(), "provision:user:"+userID, provisionUserWindow)
+	if err != nil {
+		s.log.Error("rate limiter error (provision user)", "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal memeriksa rate limit")
+		return
+	}
+	if !allowed {
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED",
+			"provisioning dibatasi 5x per jam per akun")
+		return
+	}
+	allowed, err = s.limiter.Allow(r.Context(), "provision:ip:"+clientIP(r), provisionIPWindow)
+	if err != nil {
+		s.log.Error("rate limiter error (provision ip)", "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal memeriksa rate limit")
+		return
+	}
+	if !allowed {
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED",
+			"terlalu banyak provisioning dari jaringan ini, coba lagi nanti")
+		return
+	}
+
 	var req provisionRequest
 	if !s.decodeBody(w, r, &req) {
 		return
