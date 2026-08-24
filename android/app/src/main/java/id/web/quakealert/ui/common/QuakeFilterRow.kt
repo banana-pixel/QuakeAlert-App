@@ -62,6 +62,7 @@ fun QuakeFilterRow(
     unitSystem: UnitSystem,
     onModeSelected: (QuakeFilter) -> Unit,
     onFilterSheetClicked: (() -> Unit)? = null,
+    onAddSensorClicked: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -79,11 +80,17 @@ fun QuakeFilterRow(
             selected = filter.mode == QuakeFilter.NEAR,
             onClick = { onModeSelected(QuakeFilter.NEAR) }
         )
-        // Omitted, not disabled, when the caller has no sheet to offer: a visible
-        // control that does nothing when tapped reads as a broken app rather than a
-        // missing feature.
-        onFilterSheetClicked?.let { openSheet ->
+        // Both trailing controls are omitted, not disabled, when the caller has no
+        // action to offer: a visible control that does nothing when tapped reads as
+        // a broken app rather than a missing feature. The add-sensor pill sits left
+        // of the sheet button (Sensors design) so the filter stays the corner tool.
+        if (onAddSensorClicked != null || onFilterSheetClicked != null) {
             Spacer(modifier = Modifier.weight(1f))
+        }
+        onAddSensorClicked?.let { addSensor ->
+            FilterPill(label = "+ Add Sensor", selected = false, onClick = addSensor)
+        }
+        onFilterSheetClicked?.let { openSheet ->
             FilterSheetButton(
                 activeCriteriaCount = filter.activeCriteriaCount(sections),
                 onClick = openSheet
