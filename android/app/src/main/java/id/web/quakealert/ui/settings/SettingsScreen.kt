@@ -90,7 +90,6 @@ fun SettingsRoute(
     health: ServerHealth,
     onOpenUpdates: () -> Unit = {},
     modifier: Modifier = Modifier,
-    onAddSensor: () -> Unit = {},
     scrollState: ScrollState = rememberScrollState(),
     viewModel: SettingsViewModel = viewModel()
 ) {
@@ -176,7 +175,6 @@ fun SettingsRoute(
         onTestNotification = viewModel::onTestNotification,
         onTestAlertSound = { showTestAlertSound = true },
         onOpenUpdates = onOpenUpdates,
-        onAddSensor = onAddSensor,
         onBatterySettings = { context.openBatteryOptimizationSettings() },
         onFixNotifications = { context.openNotificationSettings() },
         // The same launcher "Sync Now" uses: granting the permission and taking a
@@ -279,7 +277,6 @@ fun SettingsScreen(
     onTestNotification: () -> Unit,
     onTestAlertSound: () -> Unit,
     onOpenUpdates: () -> Unit,
-    onAddSensor: () -> Unit = {},
     onBatterySettings: () -> Unit,
     onFixNotifications: () -> Unit,
     onFixLocation: () -> Unit,
@@ -382,24 +379,6 @@ fun SettingsScreen(
                     onCheckedChange = onAutoSyncToggled
                 )
             }
-
-            // --- Sensor Network -------------------------------------------
-            // The wizard's canonical entry point: an operator action among other
-            // operator actions, with room for the copy that sets expectations
-            // (the node stays Pending until an operator confirms it).
-            CenteredSectionBadge(title = "Sensor Network")
-
-            QuakeCard(
-                title = "Add a Sensor",
-                onClick = onAddSensor,
-                detail = {
-                    Text(
-                        text = "Pair a new station into your network",
-                        style = CardSubtitle,
-                        color = TextSecondary
-                    )
-                }
-            )
 
             // --- Alert & Notification -------------------------------------
             CenteredSectionBadge(title = "Alert & Notification")
