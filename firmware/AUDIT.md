@@ -84,6 +84,20 @@ Bila fleet tidak dapat di-flash serentak, tambahkan user kedua sementara (`quake
 ### 🟢 F-10 — Zero-block loop
 - **`.clinerules/30` #1:** dilarang `delay()` di loop utama. Firmware sudah pakai FreeRTOS task + `millis()` interval ✅. Pertahankan.
 
+### 🟡 F-12 — Jendela provisioning SoftAP terbuka & plaintext (TOFU)
+
+Ditemukan saat audit jalur wizard "Add a Sensor" (`network.cpp` /config, migrasi 000005):
+
+- **Sekarang:** `QuakeSetup` adalah AP TANPA password, dan `/config` berjalan HTTP polos (ESP32 WebServer tak punya TLS). Selama mode provisioning, siapa pun dalam jangkauan radio bisa (a) menyadap `hmac_key` + kredensial Wi-Fi yang lewat, atau (b) menulis `/config` lebih dulu dan membajak pendaftaran.
+- **Batas risikonya nyata:** jendela hanya terbuka saat node belum punya kredensial Wi-Fi tersimpan (portal mati segera setelah /config sukses via reboot), butuh kedekatan fisik, dan korban adalah pemilik node yang sedang memasangnya sendiri. Kelas TOFU (trust-on-first-use) yang sama dipakai hampir semua provisioning perangkat IoT rumahan.
+- **Jangan ditutup setengah hati:** mengenkripsi portal tanpa mengunci AP tidak melindungi apa pun (kuncinya ikut terlihat), dan mengunci AP dengan password statis di source sama saja dengan tidak mengunci.
+
+**Mitigasi bertahap kalau nanti dibutuhkan:**
+1. Murah: SoftAP WPA2 dengan password per-perangkat yang dicetak di label/stiker node — pengguna mengetikkannya di dialog join, penyadapan luar tidak lagi membaca apa pun.
+2. Lebih baik: kode pasangan sekali-pakai ditampilkan node (LED/OLED) dan wajib dikirim dalam payload `/config`; server-side equivalent sudah berlaku lewat `provisioning_secret`.
+
+Terkait tapi tercatat terpisah: akumulasi baris `verified = false` dari sesi wizard yang ditinggalkan — lihat `docs/CLIENT_SPEC.md` §5.6a (pekerjaan pembersih berkala, sengaja ditunda).
+
 ---
 
 ## Dependency (platformio.ini)
