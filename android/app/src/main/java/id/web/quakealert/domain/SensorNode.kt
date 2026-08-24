@@ -33,3 +33,24 @@ data class SensorNode(
     val rssiDbm: Int?,
     val latencyMs: Int?
 )
+
+/**
+ * The whole `/sensors` answer, not just its rows.
+ *
+ * The envelope's `range_km` and `active_sensors_count` used to be parsed and then
+ * thrown away while the ViewModel recounted stations client-side — letting the map
+ * badge claim a radius or a count the request never produced. Carrying the envelope
+ * through makes the server's own numbers the single source for both, and
+ * [hasStoredLocation] lets the health monitor distinguish "empty because the user
+ * shares no position" from "empty because the fleet is silent".
+ */
+data class SensorNetworkSnapshot(
+    /** The radius the *server* filtered by, in kilometres. */
+    val rangeKm: Int,
+    /** Stations the server counts as active — trusted and reporting within [rangeKm]. */
+    val activeSensorsCount: Int,
+    /** Every station in range, pending ones included. */
+    val nodes: List<SensorNode>,
+    /** Whether the caller holds a stored position at all. */
+    val hasStoredLocation: Boolean
+)

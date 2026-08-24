@@ -84,7 +84,11 @@ class QuakeNetwork private constructor(context: Context) {
             client = httpClient,
             json = json,
             authRepository = authRepository,
-            sessionStore = sessionStore
+            sessionStore = sessionStore,
+            // Provider, not the monitor itself: this lazy runs before
+            // [serverHealthMonitor] exists, and the reference is only dereferenced
+            // when fetchSensors actually reports.
+            serverHealthMonitor = { serverHealthMonitor }
         )
     }
 

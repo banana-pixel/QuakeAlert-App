@@ -19,6 +19,7 @@ import id.web.quakealert.domain.ChatChannel
 import id.web.quakealert.domain.ChatMessageEntry
 import id.web.quakealert.domain.EarthquakeEvent
 import id.web.quakealert.domain.OperatorUpdate
+import id.web.quakealert.domain.SensorNetworkSnapshot
 import id.web.quakealert.domain.SensorNode
 import id.web.quakealert.domain.UserLocation
 import kotlinx.coroutines.CancellationException
@@ -55,7 +56,13 @@ class QuakeApiClient(
     private val client: OkHttpClient,
     private val json: Json,
     private val authRepository: AuthRepository,
-    private val sessionStore: SessionStore
+    private val sessionStore: SessionStore,
+    /**
+     * Provider, not a value: the monitor is built beside this client and reads the
+     * socket through [QuakeNetwork], so eager wiring would be circular. Null in
+     * tests — reporting is an observation, never a precondition of fetching.
+     */
+    private val serverHealthMonitor: (() -> ServerHealthMonitor?)? = null
 ) {
 
     /**
@@ -129,24 +136,40 @@ class QuakeApiClient(
         }
 
     /**
-     * `GET /api/v1/sensors` — the station list with link health.
+     * `GET /api/v1/sensors` — the station roll *and* its envelope.
      *
      * The radius is measured from the position the *server* holds, not one sent
      * here — which is why the station list comes back empty until
      * [updateLocation] has run at least once.
      *
+     * Returns the whole envelope rather than just rows: `range_km` and
+     * `active_sensors_count` are the server's own account of what it filtered and
+     * counted, and throwing them away invites a client-side recount that can
+     * disagree with the map badge. A successful call also reports the fleet's state
+     * to [ServerHealthMonitor] from here — not from a ViewModel — so the health
+     * verdict does not depend on which screen is open.
+     *
      * @param rangeKm optional radius filter, clamped to this endpoint's 1..500
      *   (narrower than `/events`, which allows 2000). The server defaults to 50 km
      *   when omitted.
      */
-    suspend fun fetchSensors(rangeKm: Int? = null): Result<List<SensorNode>> = guarded {
+    suspend fun fetchSensors(rangeKm: Int? = null): Result<SensorNetworkSnapshot> = guarded {
         val url = sensorsUrl(rangeKm)
 
         val body = perform(
             request = getRequest(url),
             fallback = "Could not load sensor status"
         )
-        json.decodeFromString<SensorsResponseDto>(body).stations.toDomain()
+        val dto = json.decodeFromString<SensorsResponseDto>(body)
+        val snapshot = SensorNetworkSnapshot(
+            rangeKm = dto.rangeKm,
+            activeSensorsCount = dto.activeSensorsCount,
+            nodes = dto.stations.toDomain(),
+            hasStoredLocation = sessionStore.readUserLocation() != null
+        )
+        serverHealthMonitor?.invoke()
+            ?.reportSensorNetwork(sensorNetworkStatusOf(snapshot.hasStoredLocation, snapshot.activeSensorsCount))
+        snapshot
     }
 
     /**

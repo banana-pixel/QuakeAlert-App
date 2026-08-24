@@ -175,7 +175,8 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                     }
                     return@launch
                 }
-                roll = fetchSensors()
+                val snapshot = apiClient.fetchSensors(rangeKm = effectiveRangeKm()).getOrThrow()
+                roll = snapshot.nodes.toStationItems()
                 val locationLabel = userLocation?.locationName?.takeIf { it.isNotBlank() }
                 _uiState.update { state ->
                     val narrowed = state.filter.narrow(roll)
@@ -186,13 +187,13 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
                         // at nothing and mark a row that is no longer there.
                         selectedStationId = state.selectedStationId
                             ?.takeIf { id -> narrowed.any { it.id == id } },
-                        // The map badge counts *reporting* stations in the whole
-                        // roll, matching the server's `active_sensors_count`: an
-                        // offline node is in the list but is not coverage, and a
-                        // status filter hides rows without changing what is out
-                        // there.
+                        // The map badge carries the server's own active count —
+                        // trusted stations reporting in range — rather than a
+                        // client-side recount of the (possibly narrowed) roll. The
+                        // two agree today, but the envelope is the wire-level truth
+                        // and pending nodes must never read as coverage.
                         overview = state.overview.copy(
-                            sensorCount = roll.count { it.status == SensorStatus.ONLINE },
+                            sensorCount = snapshot.activeSensorsCount,
                             locationLabel = locationLabel ?: state.overview.locationLabel,
                             // The radius the *user* chose, which is null in "All":
                             // the request still measures from the stored position,
@@ -258,8 +259,7 @@ class SensorsViewModel(application: Application) : AndroidViewModel(application)
      * events feed this endpoint *requires* a token, so a failed bootstrap surfaces
      * here as the same error state.
      */
-    private suspend fun fetchSensors(): List<SensorStationItem> =
-        apiClient.fetchSensors(rangeKm = effectiveRangeKm()).getOrThrow().toStationItems()
+
 
     /**
      * The radius sent as `range_km`.
