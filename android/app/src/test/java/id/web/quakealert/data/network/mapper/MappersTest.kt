@@ -2,6 +2,7 @@ package id.web.quakealert.data.network.mapper
 
 import id.web.quakealert.data.network.model.EventDto
 import id.web.quakealert.data.network.model.EventsResponseDto
+import id.web.quakealert.data.network.model.ProvisionResponseDto
 import id.web.quakealert.data.network.model.SensorDto
 import id.web.quakealert.data.network.model.WsAlertMessageDto
 import id.web.quakealert.data.UnitSystem
@@ -274,8 +275,31 @@ class MappersTest {
     }
 
     @Test
-    fun `an unverified station is pending before it is online or offline`() {
-        // Migration 000005: trust is asked before health. A provisioned node that
+    fun `provision response decodes verbatim from the server shape`() {
+        // Field-for-field from provisionResponse (server/internal/api/api.go):
+        // every value is required, so a renamed key must fail loudly here rather
+        // than hand the wizard a node it can never link.
+        val body = """
+            {
+              "station_id": "NODE-163A149F",
+              "provisioning_secret": "sec_9f2c1d7a8b4e5f60a1b2c3d4e5f6a7b8",
+              "mqtt_broker": "broker.quakealert.id",
+              "mqtt_port": 8883,
+              "mqtt_tls": true
+            }
+        """.trimIndent()
+
+        val node = json.decodeFromString<ProvisionResponseDto>(body).toDomain()
+
+        assertEquals("NODE-163A149F", node.stationId)
+        assertEquals("sec_9f2c1d7a8b4e5f60a1b2c3d4e5f6a7b8", node.provisioningSecret)
+        assertEquals("broker.quakealert.id", node.mqttBroker)
+        assertEquals(8883, node.mqttPort)
+        assertTrue(node.mqttTls)
+    }
+
+    @Test
+    fun `an unverified station is pending before it is online or offline`() {        // Migration 000005: trust is asked before health. A provisioned node that
         // heartbeats is still Pending — never Online — until an operator confirms it.
         val awaiting = SensorDto(
             stationId = "NODE-D",

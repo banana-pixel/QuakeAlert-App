@@ -25,6 +25,7 @@ object QuakeApiConfig {
     const val PATH_AUTH_ANONYMOUS: String = "$API_PREFIX/auth/anonymous"
     const val PATH_EVENTS: String = "$API_PREFIX/events"
     const val PATH_SENSORS: String = "$API_PREFIX/sensors"
+    const val PATH_NODES_PROVISION: String = "$API_PREFIX/nodes/provision"
     const val PATH_USER_LOCATION: String = "$API_PREFIX/users/location"
     const val PATH_USER_FCM_TOKEN: String = "$API_PREFIX/users/fcm-token"
     const val PATH_USER_PSEUDONYM_REROLL: String = "$API_PREFIX/users/pseudonym/reroll"

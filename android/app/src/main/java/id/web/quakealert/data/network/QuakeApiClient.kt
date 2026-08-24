@@ -10,6 +10,8 @@ import id.web.quakealert.data.network.model.ChatMessageDto
 import id.web.quakealert.data.network.model.ChatMessagesResponseDto
 import id.web.quakealert.data.network.model.CreateChatMessageRequestDto
 import id.web.quakealert.data.network.model.EventsResponseDto
+import id.web.quakealert.data.network.model.ProvisionRequestDto
+import id.web.quakealert.data.network.model.ProvisionResponseDto
 import id.web.quakealert.data.network.model.RerollPseudonymResponseDto
 import id.web.quakealert.data.network.model.SensorsResponseDto
 import id.web.quakealert.data.network.model.UpdateFcmTokenRequestDto
@@ -19,6 +21,7 @@ import id.web.quakealert.domain.ChatChannel
 import id.web.quakealert.domain.ChatMessageEntry
 import id.web.quakealert.domain.EarthquakeEvent
 import id.web.quakealert.domain.OperatorUpdate
+import id.web.quakealert.domain.ProvisionedNode
 import id.web.quakealert.domain.SensorNetworkSnapshot
 import id.web.quakealert.domain.SensorNode
 import id.web.quakealert.domain.UserLocation
@@ -235,6 +238,43 @@ class QuakeApiClient(
         runCatching { json.decodeFromString<UpdateLocationResponseDto>(body).regionCode }
             .getOrNull()
             ?.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * `POST /api/v1/nodes/provision` — mints a node identity for the wizard.
+     *
+     * The response carries everything the node's `/config` portal needs: the
+     * [ProvisionedNode.stationId] that becomes its MQTT topic and consensus vote,
+     * the [ProvisionedNode.provisioningSecret] HMAC key (display-once — the server
+     * keeps only ciphertext), and the broker endpoint it should be pointed at.
+     * Rate-limited server-side (~5/hour per account, 20/hour per IP); a `429`
+     * surfaces as a failed [Result] with the server's message intact.
+     *
+     * Deliberately *not* cached anywhere: provisioning is a one-time act per node,
+     * and keeping a minted-but-unconfigured identity alive on the device invites
+     * orphan rows.
+     */
+    suspend fun provisionNode(
+        sensorModel: String,
+        locationName: String,
+        latitude: Double,
+        longitude: Double,
+        stationId: String? = null
+    ): Result<ProvisionedNode> = guarded {
+        val payload = ProvisionRequestDto(
+            stationId = stationId?.takeIf { it.isNotBlank() },
+            sensorModel = sensorModel,
+            locationName = locationName,
+            latitude = latitude,
+            longitude = longitude
+        )
+        val request = Request.Builder()
+            .url(QuakeApiConfig.url(QuakeApiConfig.PATH_NODES_PROVISION))
+            .post(json.encodeToString(payload).toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        val body = perform(request = request, fallback = "Could not register the new sensor")
+        json.decodeFromString<ProvisionResponseDto>(body).toDomain()
     }
 
     /**

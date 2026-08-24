@@ -1,6 +1,8 @@
 package id.web.quakealert.data.network.mapper
 
 import id.web.quakealert.data.network.model.SensorDto
+import id.web.quakealert.domain.ProvisionedNode
+import id.web.quakealert.data.network.model.ProvisionResponseDto
 import id.web.quakealert.domain.SensorNode
 import id.web.quakealert.ui.sensors.SensorStationItem
 import id.web.quakealert.ui.sensors.SensorStatus
@@ -38,6 +40,20 @@ fun SensorDto.toDomain(): SensorNode = SensorNode(
 )
 
 fun List<SensorDto>.toDomain(): List<SensorNode> = map { it.toDomain() }
+
+/**
+ * Provisioning wire → domain. Field-for-field: the response carries exactly the
+ * handoff the node's `/config` portal needs, and nothing here is defaulted away —
+ * a missing broker or secret must fail loudly, not silently configure a node that
+ * can never connect.
+ */
+fun ProvisionResponseDto.toDomain(): ProvisionedNode = ProvisionedNode(
+    stationId = stationId,
+    provisioningSecret = provisioningSecret,
+    mqttBroker = mqttBroker,
+    mqttPort = mqttPort,
+    mqttTls = mqttTls
+)
 
 /**
  * Domain → the Sensors screen's UI model.
