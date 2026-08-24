@@ -29,7 +29,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
-import android.view.WindowManager
 import id.web.quakealert.ui.theme.DestructiveActionFill
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.ModalCardBorder
@@ -59,9 +58,14 @@ import id.web.quakealert.ui.theme.WizardPanelStroke
  * `decorFitsSystemWindows = true` no matter what the activity did with
  * [androidx.activity.enableEdgeToEdge]. Compose therefore sees no IME inset inside a
  * dialog, and an `imePadding()` on the card silently does nothing: the keyboard opens
- * over the field being edited. Opting the dialog window out of decor fitting, and
- * asking for resize rather than pan, is what makes the inset arrive, so the card lifts
- * the same way the chat screen does in the activity window.
+ * over the field being edited. Opting the dialog window out of decor fitting is what
+ * makes the inset arrive.
+ *
+ * The soft-input mode is deliberately NOT set to ADJUST_RESIZE here: that would let
+ * the system resize the whole dialog surface while `imePadding()` on the card also
+ * reacts to the same keyboard, and the two mechanisms animating at different rates
+ * made the card visibly lurch whenever it opened. One compensation only — the inset —
+ * keeps the lift a single smooth motion.
  *
  * A [SideEffect] rather than a `LaunchedEffect`: the window must be configured before
  * the first layout that could read the inset, and re-applying it is free.
@@ -72,8 +76,6 @@ private fun ImeAwareDialogWindow() {
     SideEffect {
         val window = dialogWindow ?: return@SideEffect
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        @Suppress("DEPRECATION")
-        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 }
 

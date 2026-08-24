@@ -123,6 +123,9 @@ fun AddSensorWizardDialog(
     modifier: Modifier = Modifier
 ) {
     val busy = state.isBusy
+    // Hoisted so the body's scroll position survives every recomposition the keyboard
+    // inset animation triggers while typing.
+    val bodyScroll = rememberScrollState()
     // A ceiling rather than a fixed height: the card grows with its step but always
     // leaves the launching screen visible at the edges, which is what tells the user
     // this is an overlay they can leave.
@@ -142,7 +145,7 @@ fun AddSensorWizardDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(bodyScroll),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 StepBadge(state.currentStep)
