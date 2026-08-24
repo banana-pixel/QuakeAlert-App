@@ -69,6 +69,10 @@ type NodeSecret struct {
 	SecretNonce []byte
 	LastSeenTS  int64
 	IsActive    bool
+	// Verified adalah gerbang konsensus (migrasi 000005): node yang belum
+	// dikonfirmasi operator boleh heartbeat (tampak di /sensors), tetapi
+	// trigger-nya ditolak sehingga tidak pernah ikut voting menuju CONFIRMED.
+	Verified bool
 }
 
 var ErrNodeNotFound = errors.New("node tidak ditemukan")
@@ -76,13 +80,13 @@ var ErrNodeNotFound = errors.New("node tidak ditemukan")
 // GetNodeSecret mengambil secret terenkripsi + last_seen_ts untuk sebuah node.
 func (s *Store) GetNodeSecret(ctx context.Context, stationID string) (*NodeSecret, error) {
 	const q = `
-		SELECT station_id, secret_key_enc, secret_key_nonce, last_seen_ts, is_active
+		SELECT station_id, secret_key_enc, secret_key_nonce, last_seen_ts, is_active, verified
 		FROM iot_nodes
 		WHERE station_id = $1`
 	row := s.pool.QueryRow(ctx, q, stationID)
 
 	var n NodeSecret
-	err := row.Scan(&n.StationID, &n.SecretEnc, &n.SecretNonce, &n.LastSeenTS, &n.IsActive)
+	err := row.Scan(&n.StationID, &n.SecretEnc, &n.SecretNonce, &n.LastSeenTS, &n.IsActive, &n.Verified)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNodeNotFound
 	}
@@ -279,6 +283,57 @@ func (s *Store) CreateNode(ctx context.Context, n *NewNode) error {
 		return fmt.Errorf("insert iot_node: %w", err)
 	}
 	return nil
+}
+
+// PendingNode adalah satu baris daftar verifikasi operator: node yang sudah
+// terdaftar tetapi belum dikonfirmasi (migrasi 000005).
+type PendingNode struct {
+	StationID    string
+	SensorModel  string
+	LocationName string
+	Lat          float64
+	Lon          float64
+	CreatedAt    time.Time
+}
+
+// ListUnverifiedNodes mengembalikan seluruh node yang menunggu konfirmasi
+// operator, terbaru dulu. Dipakai endpoint admin GET /api/v1/admin/nodes/pending.
+func (s *Store) ListUnverifiedNodes(ctx context.Context) ([]PendingNode, error) {
+	const q = `
+		SELECT station_id, sensor_model, location_name,
+		       ST_Y(location::geometry) AS lat,
+		       ST_X(location::geometry) AS lon,
+		       created_at
+		FROM iot_nodes
+		WHERE NOT verified
+		ORDER BY created_at DESC`
+	rows, err := s.pool.Query(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("query unverified nodes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []PendingNode
+	for rows.Next() {
+		var n PendingNode
+		if err := rows.Scan(&n.StationID, &n.SensorModel, &n.LocationName, &n.Lat, &n.Lon, &n.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan unverified node: %w", err)
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// SetNodeVerified mengubah status verifikasi node. Mengembalikan false bila
+// station_id tidak dikenal — pemanggil API memetakannya ke 404, bukan 500,
+// karena ID yang salah adalah kesalahan operator yang dapat ditindaklanjuti.
+func (s *Store) SetNodeVerified(ctx context.Context, stationID string, verified bool) (bool, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE iot_nodes SET verified = $2 WHERE station_id = $1`, stationID, verified)
+	if err != nil {
+		return false, fmt.Errorf("update node verified: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // SensorStatus merepresentasikan satu baris status sensor untuk endpoint /sensors.
