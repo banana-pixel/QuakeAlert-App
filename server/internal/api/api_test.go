@@ -411,9 +411,9 @@ func TestListSensors_OnlineOffline(t *testing.T) {
 	repo := &fakeRepo{
 		loc: &store.UserLocation{HasLocation: true, Lat: -6.9, Lon: 107.6},
 		sensors: []store.SensorStatus{
-			{StationID: "NODE-A", IsActive: true, SecondsSincePing: 10},
-			{StationID: "NODE-B", IsActive: true, SecondsSincePing: 200}, // stale → Offline
-			{StationID: "NODE-C", IsActive: false, SecondsSincePing: 5},  // inactive → Offline
+			{StationID: "NODE-A", IsActive: true, Verified: true, SecondsSincePing: 10},
+			{StationID: "NODE-B", IsActive: true, Verified: true, SecondsSincePing: 200}, // stale → Offline
+			{StationID: "NODE-C", IsActive: false, Verified: true, SecondsSincePing: 5},  // inactive → Offline
 		},
 	}
 	h := newTestServer(repo, NewMemoryRateLimiter())
@@ -436,6 +436,39 @@ func TestListSensors_OnlineOffline(t *testing.T) {
 	}
 	if resp.Stations[0].Status != "Online" {
 		t.Fatalf("NODE-A harus Online, dapat %q", resp.Stations[0].Status)
+	}
+	if !resp.Stations[0].Verified {
+		t.Fatal("NODE-A harus terbaca verified")
+	}
+}
+
+// Node yang belum dikonfirmasi operator tetap tampak di daftar, tetapi
+// statusnya Pending — bukan Online walau heartbeat-nya segar — dan tidak
+// dihitung ke active_sensors_count.
+func TestListSensors_UnverifiedIsPendingAndNeverActive(t *testing.T) {
+	repo := &fakeRepo{
+		loc: &store.UserLocation{HasLocation: true, Lat: -6.9, Lon: 107.6},
+		sensors: []store.SensorStatus{
+			{StationID: "NODE-D", IsActive: true, Verified: false, SecondsSincePing: 3},
+			{StationID: "NODE-A", IsActive: true, Verified: true, SecondsSincePing: 10},
+		},
+	}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+	req := authedRequest(http.MethodGet, "/api/v1/sensors", "", testSecret, "u")
+	resp := do(h, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200", resp.Code)
+	}
+	var parsed sensorsResponse
+	if err := json.Unmarshal(resp.Body.Bytes(), &parsed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if parsed.Stations[0].Status != "Pending" || parsed.Stations[0].Verified {
+		t.Fatalf("NODE-D harus Pending (verified=false), dapat %+v", parsed.Stations[0])
+	}
+	if parsed.ActiveSensorsCount != 1 {
+		t.Fatalf("active = %d, mau 1 (pending tidak dihitung)", parsed.ActiveSensorsCount)
 	}
 }
 

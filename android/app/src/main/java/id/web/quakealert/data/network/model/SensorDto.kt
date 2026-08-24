@@ -12,7 +12,13 @@ import kotlinx.serialization.Serializable
  * Note there is **no battery field** — the ESP32 nodes are mains-powered and the
  * contract exposes link health ([rssiDbm], [latencyMs]) rather than charge.
  *
- * @param status "Online" | "Offline", capitalised exactly as the server sends it.
+ * @param status "Online" | "Offline" | "Pending", capitalised exactly as the
+ *   server sends it. "Pending" marks a provisioned node the operator has not yet
+ *   confirmed (migration 000005): it heartbeats, but its readings never reach
+ *   consensus and it is excluded from `active_sensors_count`.
+ * @param verified operator confirmation state; the server always sends it, so the
+ *   false default only fires on a malformed payload — trust is never granted by
+ *   absence.
  * @param lastPing human-readable relative time owned by the server, e.g. "33s ago".
  * @param rssiDbm signal strength in dBm (negative).
  */
@@ -26,7 +32,8 @@ data class SensorDto(
     @SerialName("status") val status: String,
     @SerialName("last_ping") val lastPing: String? = null,
     @SerialName("rssi_dbm") val rssiDbm: Int? = null,
-    @SerialName("latency_ms") val latencyMs: Int? = null
+    @SerialName("latency_ms") val latencyMs: Int? = null,
+    @SerialName("verified") val verified: Boolean = false
 )
 
 /**

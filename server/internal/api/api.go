@@ -428,6 +428,10 @@ type stationDTO struct {
 	LastPing     string  `json:"last_ping"`
 	RSSIdBm      int     `json:"rssi_dbm"`
 	LatencyMs    int     `json:"latency_ms"`
+	// Verified false → status "Pending" (migrasi 000005): node baru yang
+	// belum dikonfirmasi operator. Ia tetap tampak di daftar, tetapi tidak
+	// pernah dihitung aktif dan tidak pernah ikut konsensus.
+	Verified bool `json:"verified"`
 }
 
 type sensorsResponse struct {
@@ -484,7 +488,12 @@ func (s *Server) HandleListSensors(w http.ResponseWriter, r *http.Request) {
 	active := 0
 	for _, sc := range sensors {
 		status := "Offline"
-		if sc.IsActive && sc.SecondsSincePing <= onlineThresholdSec {
+		if !sc.Verified {
+			// Pending mengalahkan Online/Offline: kepercayaan adalah pertanyaan
+			// sebelum kesehatan, dan active_sensors_count hanya menjumlah node
+			// yang sudah dipercaya.
+			status = "Pending"
+		} else if sc.IsActive && sc.SecondsSincePing <= onlineThresholdSec {
 			status = "Online"
 			active++
 		}
@@ -498,6 +507,7 @@ func (s *Server) HandleListSensors(w http.ResponseWriter, r *http.Request) {
 			LastPing:     humanizeAgo(sc.SecondsSincePing),
 			RSSIdBm:      sc.LastRSSI,
 			LatencyMs:    sc.LastLatencyMs,
+			Verified:     sc.Verified,
 		})
 	}
 

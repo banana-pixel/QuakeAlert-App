@@ -10,6 +10,14 @@ import id.web.quakealert.ui.sensors.SensorTelemetry
 private const val STATUS_ONLINE = "Online"
 
 /**
+ * Server's word for a provisioned node awaiting operator confirmation
+ * (`Station.status` is "Pending", migration 000005). Checked before [STATUS_ONLINE]:
+ * trust is the question asked before health, so an unverified node never renders as
+ * Online no matter how fresh its heartbeat.
+ */
+private const val STATUS_PENDING = "Pending"
+
+/**
  * Wire → domain.
  *
  * `status` becomes a boolean here so an unexpected value cannot reach the UI as a
@@ -23,6 +31,7 @@ fun SensorDto.toDomain(): SensorNode = SensorNode(
     latitude = latitude,
     longitude = longitude,
     online = status.equals(STATUS_ONLINE, ignoreCase = true),
+    verified = verified,
     lastPing = lastPing?.takeIf { it.isNotBlank() },
     rssiDbm = rssiDbm,
     latencyMs = latencyMs
@@ -46,7 +55,11 @@ fun SensorNode.toStationItem(): SensorStationItem = SensorStationItem(
     stationId = stationId,
     location = locationName,
     chipLabel = sensorModel,
-    status = if (online) SensorStatus.ONLINE else SensorStatus.OFFLINE,
+    status = when {
+        !verified -> SensorStatus.PENDING
+        online -> SensorStatus.ONLINE
+        else -> SensorStatus.OFFLINE
+    },
     // Null Island is treated as "no fix", not as a location. The contract defaults
     // both coordinates to 0.0 for a node provisioned without one, and a station dot
     // 5000 km off West Africa is a lie the map would tell confidently; a station

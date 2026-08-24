@@ -346,6 +346,11 @@ type SensorStatus struct {
 	IsActive      bool
 	LastRSSI      int
 	LastLatencyMs int
+	// Verified (migrasi 000005): node pending tetap muncul di daftar, tetapi
+	// API menandainya sebagai status tersendiri dan tidak menghitungnya ke
+	// active_sensors_count — kepercayaan tidak boleh terlihat sama dengan
+	// kesehatan.
+	Verified bool
 	// SecondsSincePing = detik sejak last_heartbeat; dipakai untuk status
 	// Online/Offline & label "Ns ago".
 	SecondsSincePing int64
@@ -359,7 +364,7 @@ func (s *Store) ListSensorsWithin(ctx context.Context, lat, lon float64, rangeKm
 		SELECT station_id, sensor_model, location_name,
 		       ST_Y(location::geometry) AS lat,
 		       ST_X(location::geometry) AS lon,
-		       is_active, last_rssi, last_latency_ms,
+		       is_active, verified, last_rssi, last_latency_ms,
 		       EXTRACT(EPOCH FROM (NOW() - last_heartbeat))::bigint AS secs_since_ping
 		FROM iot_nodes
 		WHERE ST_DWithin(location, ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography, $3)
@@ -375,7 +380,7 @@ func (s *Store) ListSensorsWithin(ctx context.Context, lat, lon float64, rangeKm
 		var s SensorStatus
 		if err := rows.Scan(
 			&s.StationID, &s.SensorModel, &s.LocationName,
-			&s.Lat, &s.Lon, &s.IsActive, &s.LastRSSI, &s.LastLatencyMs,
+			&s.Lat, &s.Lon, &s.IsActive, &s.Verified, &s.LastRSSI, &s.LastLatencyMs,
 			&s.SecondsSincePing,
 		); err != nil {
 			return nil, fmt.Errorf("scan sensor: %w", err)

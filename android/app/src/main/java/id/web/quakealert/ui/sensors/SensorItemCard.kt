@@ -38,10 +38,12 @@ import id.web.quakealert.ui.theme.CardSurface
 import id.web.quakealert.ui.theme.CardTitle
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.MicroCaption
+import id.web.quakealert.ui.theme.PillFill
 import id.web.quakealert.ui.theme.SensorChipBorder
 import id.web.quakealert.ui.theme.SensorChipFill
 import id.web.quakealert.ui.theme.SensorNodeIdText
 import id.web.quakealert.ui.theme.SensorSelectedFill
+import id.web.quakealert.ui.theme.TextSecondary
 import id.web.quakealert.ui.theme.StatusOfflineDot
 import id.web.quakealert.ui.theme.StatusOfflineFill
 import id.web.quakealert.ui.theme.StatusOnlineDot
@@ -192,12 +194,15 @@ private fun DetailsColumn(item: SensorStationItem, modifier: Modifier = Modifier
 
         // Row 1: status pill + Last Ping, horizontally aligned.
         Row(horizontalArrangement = Arrangement.spacedBy(Dimens.SensorChipRowGap)) {
-            val online = item.status == SensorStatus.ONLINE
-            QuakePill(
-                text = if (online) "Online" else "Offline",
-                fill = if (online) StatusOnlineFill else StatusOfflineFill,
-                dotColor = if (online) StatusOnlineDot else StatusOfflineDot
-            )
+            val (label, fill, dot) = when (item.status) {
+                SensorStatus.ONLINE -> Triple("Online", StatusOnlineFill, StatusOnlineDot)
+                // Pending is trust, not health: the neutral pill (same fill as the
+                // telemetry pills) says "not yet vouched for" without borrowing the
+                // alarm of Offline red for a node that may be perfectly healthy.
+                SensorStatus.PENDING -> Triple("Pending", PillFill, TextSecondary)
+                SensorStatus.OFFLINE -> Triple("Offline", StatusOfflineFill, StatusOfflineDot)
+            }
+            QuakePill(text = label, fill = fill, dotColor = dot)
             QuakePill(text = item.telemetry.lastPing)
         }
 

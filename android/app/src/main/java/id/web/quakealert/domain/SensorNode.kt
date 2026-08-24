@@ -13,6 +13,9 @@ package id.web.quakealert.domain
  * @param online true when the server reports status "Online". Stored as a boolean
  *   rather than the raw string so an unexpected value can never leak into the UI
  *   as a third, unhandled state.
+ * @param verified operator confirmation (migration 000005): false means the node
+ *   renders as Pending — visible, but not trusted infrastructure and never counted
+ *   among active sensors.
  * @param lastPing human-readable relative time straight from the server
  *   (e.g. "33s ago") — the server owns this wording so every client agrees.
  * @param rssiDbm signal strength in dBm (negative integer).
@@ -25,6 +28,7 @@ data class SensorNode(
     val latitude: Double,
     val longitude: Double,
     val online: Boolean,
+    val verified: Boolean = false,
     val lastPing: String?,
     val rssiDbm: Int?,
     val latencyMs: Int?

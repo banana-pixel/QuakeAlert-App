@@ -9,11 +9,13 @@ import id.web.quakealert.ui.common.MapMarkerKind
 import id.web.quakealert.ui.common.QuakeFilterState
 
 /**
- * Connectivity state of a sensor station, driving the coloured status chip on a
+ * Trust/health state of a sensor station, driving the coloured status chip on a
  * [SensorItemCard]. The Figma design (node 1:1081) shows a green "Online" and a
- * red "Offline" treatment.
+ * red "Offline" treatment; [PENDING] is the third state migration 000005 added —
+ * a provisioned node awaiting operator confirmation, which heartbeats but whose
+ * readings never reach consensus.
  */
-enum class SensorStatus { ONLINE, OFFLINE }
+enum class SensorStatus { ONLINE, OFFLINE, PENDING }
 
 /**
  * Live telemetry read-outs shown as pills on a station card. When a station is
@@ -205,6 +207,9 @@ fun SensorsUiState.mapMarkers(): List<MapMarker> = buildList {
                 kind = when {
                     station.id == selectedStationId -> MapMarkerKind.SELECTED
                     station.status == SensorStatus.ONLINE -> MapMarkerKind.STATION_ONLINE
+                    // PENDING shares the offline dot on the map: until an operator
+                    // vouches for the node it is not counted as network capacity,
+                    // and the row's chip is where the trust distinction is spelled.
                     else -> MapMarkerKind.STATION_OFFLINE
                 }
             )

@@ -244,7 +244,8 @@ class MappersTest {
             status = "Offline",
             lastPing = null,
             rssiDbm = null,
-            latencyMs = null
+            latencyMs = null,
+            verified = true
         ).toDomain().toStationItem()
 
         assertEquals(SensorStatus.OFFLINE, station.status)
@@ -264,11 +265,42 @@ class MappersTest {
             status = "Degraded",
             lastPing = "33s ago",
             rssiDbm = -61,
-            latencyMs = 2
+            latencyMs = 2,
+            verified = true
         ).toDomain()
 
         assertTrue(!degraded.online)
         assertEquals(SensorStatus.ONLINE, degraded.copy(online = true).toStationItem().status)
+    }
+
+    @Test
+    fun `an unverified station is pending before it is online or offline`() {
+        // Migration 000005: trust is asked before health. A provisioned node that
+        // heartbeats is still Pending — never Online — until an operator confirms it.
+        val awaiting = SensorDto(
+            stationId = "NODE-D",
+            sensorModel = "MPU 6050",
+            locationName = "Cimahi, West Java, ID",
+            latitude = -6.87,
+            longitude = 107.54,
+            status = "Pending",
+            lastPing = "3s ago",
+            rssiDbm = -55,
+            latencyMs = 1,
+            verified = false
+        ).toDomain().toStationItem()
+        assertEquals(SensorStatus.PENDING, awaiting.status)
+
+        // Even a payload still saying Online cannot promote an unverified node.
+        val mislabeled = SensorDto(
+            stationId = "NODE-E",
+            sensorModel = "MPU 6050",
+            locationName = "Cimahi, West Java, ID",
+            status = "Online",
+            lastPing = "3s ago",
+            verified = false
+        ).toDomain().toStationItem()
+        assertEquals(SensorStatus.PENDING, mislabeled.status)
     }
 
     @Test
@@ -282,7 +314,8 @@ class MappersTest {
             status = "Online",
             lastPing = "33s ago",
             rssiDbm = -61,
-            latencyMs = 2
+            latencyMs = 2,
+            verified = true
         ).toDomain().toStationItem()
 
         assertEquals(-6.9175, located.latitude!!, 1e-6)
@@ -298,7 +331,8 @@ class MappersTest {
             status = "Online",
             lastPing = null,
             rssiDbm = null,
-            latencyMs = null
+            latencyMs = null,
+            verified = true
         ).toDomain().toStationItem()
 
         assertEquals(null, unlocated.latitude)
