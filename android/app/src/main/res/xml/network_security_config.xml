@@ -6,11 +6,14 @@
   base config keeps cleartext OFF app-wide: production traffic to
   api.quakealert.id can never silently downgrade to http://.
 
-  The single exception is the development loopback used by the Android emulator
-  (10.0.2.2 = the host machine running server/docker-compose.yml, plus localhost
-  for an on-device port forward). Scoping the exception to those two hosts is
-  strictly narrower than android:usesCleartextTraffic="true", which would permit
-  cleartext to every host including production.
+  The exceptions are development loopback and the sensor node's own provisioning
+  portal, which is inherently plaintext: the ESP32 SoftAP serves a plain WebServer
+  (firmware/src/network.cpp) with no TLS capability, and it is only ever reachable
+  while the phone holds a specifier-bound connection to that AP (device/NodeLink.kt)
+  - there is no route to 192.168.4.1 through any other network. Scoping the
+  exception to these hosts is strictly narrower than
+  android:usesCleartextTraffic="true", which would permit cleartext to every host
+  including production.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
@@ -21,5 +24,7 @@
         <!-- Direct loopback, e.g. `adb reverse tcp:8080 tcp:8080` on a device. -->
         <domain includeSubdomains="false">localhost</domain>
         <domain includeSubdomains="false">127.0.0.1</domain>
+        <!-- Sensor node's SoftAP gateway during Add-a-Sensor provisioning. -->
+        <domain includeSubdomains="false">192.168.4.1</domain>
     </domain-config>
 </network-security-config>
