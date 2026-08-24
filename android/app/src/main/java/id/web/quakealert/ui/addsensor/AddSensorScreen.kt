@@ -1,8 +1,8 @@
 package id.web.quakealert.ui.addsensor
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,47 +13,47 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import id.web.quakealert.R
 import id.web.quakealert.domain.ProvisionedNode
 import id.web.quakealert.ui.common.MapFocus
 import id.web.quakealert.ui.common.MapMarker
 import id.web.quakealert.ui.common.MapMarkerKind
-import id.web.quakealert.ui.common.QuakeMap
-import id.web.quakealert.ui.theme.AccentBlueTranslucent
+import id.web.quakealert.ui.common.QuakeModalHeader
+import id.web.quakealert.ui.common.QuakePageIndicator
+import id.web.quakealert.ui.common.QuakePrimaryButton
+import id.web.quakealert.ui.common.QuakeSecondaryButton
+import id.web.quakealert.ui.theme.AccentBlue
 import id.web.quakealert.ui.theme.BackgroundGradientBottom
-import id.web.quakealert.ui.theme.CardSurface
-import id.web.quakealert.ui.theme.BorderLight
 import id.web.quakealert.ui.theme.CardBorder
-import id.web.quakealert.ui.theme.CardSubtitle
 import id.web.quakealert.ui.theme.CardTitle
+import id.web.quakealert.ui.theme.CardSubtitle
+import id.web.quakealert.ui.theme.CardSurface
 import id.web.quakealert.ui.theme.ChatInputFill
 import id.web.quakealert.ui.theme.Dimens
 import id.web.quakealert.ui.theme.NunitoFontFamily
@@ -61,21 +61,24 @@ import id.web.quakealert.ui.theme.TextPrimary
 import id.web.quakealert.ui.theme.TextSecondary
 
 /**
- * The add-a-sensor wizard: one screen, four steps (Figma language of nodes 1:845 /
- * 1:1081 — same cards, pills and CTA shapes as the rest of the app).
+ * The add-a-sensor wizard as a modal window over whatever screen launched it
+ * (Figma language of nodes 1:845 / 1:1081; processing popup per node 152:970).
  *
- * Stateless by the project's UDF convention: [state] in, callbacks out, all logic
- * in [AddSensorState]'s pure functions and [AddSensorViewModel]'s side effects.
- * The step indicator reuses onboarding's 6 dp segment bars so "where am I" reads
- * the same way it does there.
- *
- * Placement input is deliberately a seeded preview + explicit entry rather than a
- * drag-the-pin map: [QuakeMap] is non-interactive by design (scrolling parents own
- * gestures), and the sensor is usually installed where the phone already is —
- * "Use my current location" — or somewhere you can type.
+ * Presentation rules:
+ *  - One [Dialog] window, platform-width disabled so the card can breathe; the
+ *    platform scrim keeps the launching screen dimmed behind it.
+ *  - Header is the shared [QuakeModalHeader]; its close button is THE exit, and
+ *    exiting from a non-terminal step asks once inside the card ("progress will
+ *    be lost") instead of silently discarding typed data - or instead of closing
+ *    mid-network-operation, which is refused outright ([state.isBusy]).
+ *  - Steps advance under onboarding's animated [QuakePageIndicator], with the
+ *    shared CTA capsules in the footer.
+ *  - While any network step runs, an in-card [ProcessingCard] covers the body:
+ *    the exact chrome of Figma 152:970 (black fill, white-10% stroke, cpu chip,
+ *    "Processing, please hang tight…").
  */
 @Composable
-fun AddSensorScreen(
+fun AddSensorWizardDialog(
     state: AddSensorState,
     onDismiss: () -> Unit,
     onNameChanged: (String) -> Unit,
@@ -94,120 +97,201 @@ fun AddSensorScreen(
     onRefreshConfirm: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(BackgroundGradientBottom)
-            .statusBarsPadding()
-            .imePadding()
-            .padding(horizontal = Dimens.ScreenHorizontalPadding)
+    // Mid-flow exit asks once; DETAILS has nothing to lose and ONLINE is done.
+    var confirmingExit by remember { mutableStateOf(false) }
+    val busy = state.isBusy
+
+    fun requestExit() {
+        if (busy) return // never strand a half-written node behind a mis-tap
+        if (state.step == WizardStep.DETAILS || state.confirmState == ConfirmState.ONLINE) {
+            onDismiss()
+        } else {
+            confirmingExit = true
+        }
+    }
+
+    Dialog(
+        onDismissRequest = ::requestExit,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnClickOutside = false,
+            dismissOnBackPress = !busy
+        )
     ) {
-        WizardHeader(step = state.step, onDismiss = onDismiss)
-
+        val shape = RoundedCornerShape(Dimens.SettingCardRadius)
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(Dimens.SettingsSectionSpacing)
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = Dimens.ScreenHorizontalPadding)
+                .clip(shape)
+                .background(CardSurface)
+                .border(Dimens.BorderThin, CardBorder, shape)
+                .imePadding()
+                .padding(vertical = Dimens.SettingCardPaddingVertical)
         ) {
-            when (state.step) {
-                WizardStep.DETAILS -> DetailsStep(
-                    state = state,
-                    onNameChanged = onNameChanged,
-                    onModelChanged = onModelChanged,
-                    onUseCurrentPosition = onUseCurrentPosition,
-                    onManualLatitudeChanged = onManualLatitudeChanged,
-                    onManualLongitudeChanged = onManualLongitudeChanged
-                )
+            Box(modifier = Modifier.weight(1f, fill = false)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = Dimens.ScreenHorizontalPadding),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    QuakeModalHeader(
+                        title = "Add a Sensor",
+                        onDismiss = ::requestExit,
+                        modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
+                    )
 
-                WizardStep.CREDENTIALS -> CredentialsStep(state, onSecretRevealed)
+                    QuakePageIndicator(
+                        pageCount = WizardStep.entries.size,
+                        currentPage = WizardStep.entries.indexOf(state.step),
+                        modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
+                    )
 
-                WizardStep.LINK -> LinkStep(
-                    state = state,
-                    onSsidSelected = onSsidSelected,
-                    onPasswordChanged = onPasswordChanged,
-                    onRescanClicked = onRescanClicked
-                )
+                    if (confirmingExit) {
+                        ExitConfirmStrip(
+                            onStay = { confirmingExit = false },
+                            onExit = onDismiss,
+                            modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
+                        )
+                    }
 
-                WizardStep.CONFIRM -> ConfirmStep(state, onRefreshConfirm)
-            }
+                    when (state.step) {
+                        WizardStep.DETAILS -> DetailsStep(
+                            state = state,
+                            onNameChanged = onNameChanged,
+                            onModelChanged = onModelChanged,
+                            onUseCurrentPosition = onUseCurrentPosition,
+                            onManualLatitudeChanged = onManualLatitudeChanged,
+                            onManualLongitudeChanged = onManualLongitudeChanged
+                        )
 
-            state.errorMessage?.let { message ->
-                WizardCard {
-                    Text(text = message, style = CardSubtitle, color = TextPrimary)
+                        WizardStep.CREDENTIALS -> CredentialsStep(state, onSecretRevealed)
+
+                        WizardStep.LINK -> LinkStep(
+                            state = state,
+                            onSsidSelected = onSsidSelected,
+                            onPasswordChanged = onPasswordChanged,
+                            onRescanClicked = onRescanClicked
+                        )
+
+                        WizardStep.CONFIRM -> ConfirmStep(state, onRefreshConfirm)
+                    }
+
+                    state.errorMessage?.let { message ->
+                        ErrorNote(message)
+                    }
+
+                    Spacer(Modifier.height(Dimens.HeaderSectionGap))
+                }
+
+                if (busy) {
+                    ProcessingOverlay(modifier = Modifier.matchParentSize())
                 }
             }
-        }
 
-        WizardFooter(state, onDismiss, onDetailsContinue, onCredentialsContinue, onConfigureNode)
+            WizardFooter(
+                state = state,
+                onDismiss = onDismiss,
+                onDetailsContinue = onDetailsContinue,
+                onCredentialsContinue = onCredentialsContinue,
+                onConfigureNode = onConfigureNode,
+                modifier = Modifier.padding(horizontal = Dimens.ScreenHorizontalPadding)
+            )
+        }
     }
 }
 
 // ============================================================
-// Header + step indicator
+// Processing popup (Figma 152:970)
+// ============================================================
+
+/**
+ * In-card busy cover: black fill, white-10% stroke, the cpu-chip glyph and the
+ * one line the design gives it. Covers only the wizard's body so the footer's
+ * disabled state stays visible context for why nothing is tappable.
+ */
+@Composable
+private fun ProcessingOverlay(modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(14.dp)
+    Column(
+        modifier = modifier
+            .padding(Dimens.SettingCardPaddingHorizontal)
+            .clip(shape)
+            .background(androidx.compose.ui.graphics.Color.Black)
+            .border(Dimens.BorderThin, CardBorder, shape)
+            .padding(25.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_cpu_chip),
+            contentDescription = null,
+            tint = TextPrimary,
+            modifier = Modifier.size(50.dp)
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = "Processing, please hang tight...",
+            color = TextPrimary,
+            fontFamily = NunitoFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+            lineHeight = 24.sp
+        )
+    }
+}
+
+// ============================================================
+// Exit confirmation strip
 // ============================================================
 
 @Composable
-private fun WizardHeader(step: WizardStep, onDismiss: () -> Unit) {
+private fun ExitConfirmStrip(
+    onStay: () -> Unit,
+    onExit: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(Dimens.ChatInputFieldRadius)
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(top = Dimens.HeaderSectionGap),
-        horizontalArrangement = Arrangement.spacedBy(Dimens.SensorChipRowGap),
+            .clip(shape)
+            .background(ChatInputFill)
+            .border(Dimens.BorderThin, CardBorder, shape)
+            .padding(
+                horizontal = Dimens.ChatInputFieldPaddingHorizontal,
+                vertical = Dimens.ChatInputFieldPaddingVertical
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "Add a Sensor",
+            text = "Exit? Progress will be lost.",
+            style = CardSubtitle,
             color = TextPrimary,
-            fontFamily = NunitoFontFamily,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 24.sp,
-            lineHeight = 26.sp,
             modifier = Modifier.weight(1f)
         )
-        CloseButton(onDismiss)
-    }
-    StepIndicator(
-        current = step,
-        modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
-    )
-}
-
-@Composable
-private fun CloseButton(onDismiss: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(ChatInputFill)
-            .semantics { contentDescription = "Close the add-sensor wizard" }
-            .padding(8.dp)
-    ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_alert_triangle),
-            contentDescription = null,
-            tint = TextPrimary
+        Text(
+            text = "Exit",
+            style = CardSubtitle,
+            color = TextPrimary,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .clip(RoundedCornerShape(Dimens.RadiusSmall))
+                .clickable(role = Role.Button, onClick = onExit)
+                .padding(6.dp)
         )
-    }
-}
-
-/** Onboarding's segment bars, one per step; filled up to the current step. */
-@Composable
-private fun StepIndicator(current: WizardStep, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        val currentOrdinal = WizardStep.entries.indexOf(current)
-        WizardStep.entries.forEachIndexed { index, _ ->
-            val reached = index <= currentOrdinal
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(100.dp))
-                    .background(if (reached) TextPrimary else BorderLight)
-            )
-        }
+        Text(
+            text = "Stay",
+            style = CardSubtitle,
+            color = TextPrimary,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .clip(RoundedCornerShape(Dimens.RadiusSmall))
+                .clickable(role = Role.Button, onClick = onStay)
+                .padding(6.dp)
+        )
     }
 }
 
@@ -226,13 +310,11 @@ private fun DetailsStep(
 ) {
     SectionLabel("Where is this sensor?")
     WizardCard {
-        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SettingsSectionSpacing)) {
-            // Seeded placement preview. Non-interactive by design (QuakeMap's
-            // scrolling-parent constraint); the pin states the choice visually.
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)) {
             state.latitude?.let { lat ->
                 state.longitude?.let { lon ->
-                    QuakeMap(
-                        focus = MapFocus(latitude = lat, longitude = longitudeZoom(lat)),
+                    id.web.quakealert.ui.common.QuakeMap(
+                        focus = MapFocus(latitude = lat, longitude = lon),
                         markers = listOf(
                             MapMarker("wizard-pin", lat, lon, MapMarkerKind.STATION_ONLINE)
                         ),
@@ -256,11 +338,7 @@ private fun DetailsStep(
             }
 
             if (state.latitude == null || state.longitude == null) {
-                PrimaryButton(text = "Use my current location") {
-                    // The ViewModel seeds from the stored fix at init; this button
-                    // exists for a wizard opened before any sync ever ran.
-                    onUseCurrentPosition(-6.9175, 107.6191)
-                }
+                SecondaryHint("No position yet - type coordinates below.")
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(Dimens.SensorChipRowGap)) {
                     WizardTextField(
@@ -281,9 +359,32 @@ private fun DetailsStep(
             }
         }
     }
+    SectionLabel("Sensor model")
+    ModelChoices(selected = state.sensorModel, onSelected = onModelChanged)
 }
 
-private fun longitudeZoom(lat: Double): Double = 11.5 + (lat / 90.0)
+@Composable
+private fun ModelChoices(selected: String, onSelected: (String) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Dimens.SensorChipRowGap)) {
+        SensorNameRules.MODEL_CHOICES.forEach { model ->
+            val isSelected = model == selected
+            val shape = RoundedCornerShape(Dimens.RadiusSmall)
+            Box(
+                modifier = Modifier
+                    .clip(shape)
+                    .background(if (isSelected) AccentBlue else ChatInputFill)
+                    .border(Dimens.BorderThin, CardBorder, shape)
+                    .clickable(role = Role.Button) { onSelected(model) }
+                    .padding(
+                        horizontal = Dimens.ChatInputFieldPaddingHorizontal,
+                        vertical = Dimens.ChatInputFieldPaddingVertical
+                    )
+            ) {
+                Text(text = model, style = CardTitle, color = TextPrimary)
+            }
+        }
+    }
+}
 
 // ============================================================
 // Step 2 - CREDENTIALS
@@ -294,7 +395,7 @@ private fun CredentialsStep(state: AddSensorState, onSecretRevealed: () -> Unit)
     val node = state.provisioned ?: return
     SectionLabel("This sensor's identity")
     WizardCard {
-        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SettingsSectionSpacing)) {
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)) {
             CredentialRow(label = "Station ID", value = node.stationId)
 
             // Display-once: the server stores only ciphertext, so this secret can
@@ -313,22 +414,14 @@ private fun CredentialsStep(state: AddSensorState, onSecretRevealed: () -> Unit)
                 )
             }
             if (!state.secretRevealed) {
-                SecondaryButton(text = "Show secret once", onClick = onSecretRevealed)
+                QuakeSecondaryButton(text = "Show secret once", onClick = onSecretRevealed)
             } else {
                 CopySecretButton(node)
             }
-            Text(
-                text = "It is embedded into the sensor during the next step and cannot be recovered later.",
-                style = CardSubtitle,
-                color = TextSecondary
-            )
+            SecondaryHint("It is embedded into the sensor during the next step and cannot be recovered later.")
         }
     }
-    Text(
-        text = "Next: connect this phone to the sensor's setup network.",
-        style = CardSubtitle,
-        color = TextSecondary
-    )
+    SecondaryHint("Next: connect this phone to the sensor's setup network.")
 }
 
 @Composable
@@ -345,7 +438,7 @@ private fun CredentialRow(label: String, value: String) {
 @Composable
 private fun CopySecretButton(node: ProvisionedNode) {
     val clipboard = LocalClipboardManager.current
-    SecondaryButton(text = "Copy secret") {
+    QuakeSecondaryButton(text = "Copy secret") {
         clipboard.setText(AnnotatedString(node.provisioningSecret))
     }
 }
@@ -363,15 +456,12 @@ private fun LinkStep(
 ) {
     SectionLabel("The sensor's home Wi-Fi")
     WizardCard {
-        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SettingsSectionSpacing)) {
-            Text(
-                text = "Networks seen by the sensor:",
-                style = CardSubtitle,
-                color = TextPrimary
-            )
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)) {
+            Text(text = "Networks seen by the sensor:", style = CardSubtitle, color = TextPrimary)
+
             if (state.scannedSsids.isEmpty() && !state.isBusy) {
                 Text(
-                    text = "None found yet — rescan after the sensor finishes booting.",
+                    text = "None found yet - rescan after the sensor finishes booting.",
                     style = CardSubtitle,
                     color = TextSecondary
                 )
@@ -383,7 +473,7 @@ private fun LinkStep(
                     onSelected = { onSsidSelected(ssid) }
                 )
             }
-            SecondaryButton(text = "Rescan", onClick = onRescanClicked)
+            QuakeSecondaryButton(text = "Rescan", onClick = onRescanClicked)
 
             if (state.selectedSsid.isNotEmpty()) {
                 WizardTextField(
@@ -414,11 +504,11 @@ private fun SsidChoice(ssid: String, selected: Boolean, onSelected: () -> Unit) 
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(if (selected) AccentBlueTranslucent else ChatInputFill)
+            .background(if (selected) AccentBlue else ChatInputFill)
             .border(Dimens.BorderThin, CardBorder, shape)
-            // Selectable — this row IS the choice; without it the list renders
+            // Selectable - this row IS the choice; without it the list renders
             // beautifully and does absolutely nothing.
-            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onSelected)
+            .clickable(role = Role.Button, onClick = onSelected)
             .padding(
                 horizontal = Dimens.ChatInputFieldPaddingHorizontal,
                 vertical = Dimens.ChatInputFieldPaddingVertical
@@ -443,7 +533,7 @@ private fun SsidChoice(ssid: String, selected: Boolean, onSelected: () -> Unit) 
 private fun ConfirmStep(state: AddSensorState, onRefreshConfirm: () -> Unit) {
     SectionLabel("Waiting for the sensor")
     WizardCard {
-        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SettingsSectionSpacing)) {
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap)) {
             when (state.confirmState) {
                 ConfirmState.WAITING -> {
                     Text(
@@ -478,17 +568,103 @@ private fun ConfirmStep(state: AddSensorState, onRefreshConfirm: () -> Unit) {
                 )
             }
             if (state.confirmState != ConfirmState.ONLINE) {
-                SecondaryButton(text = "Check now", onClick = onRefreshConfirm)
+                QuakeSecondaryButton(text = "Check now", onClick = onRefreshConfirm)
             }
         }
     }
 }
 
+// ============================================================
+// Footer + shared atoms
+// ============================================================
+
+@Composable
+private fun WizardFooter(
+    state: AddSensorState,
+    onDismiss: () -> Unit,
+    onDetailsContinue: () -> Unit,
+    onCredentialsContinue: () -> Unit,
+    onConfigureNode: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val (label, enabled, action) = when (state.step) {
+        WizardStep.DETAILS ->
+            Triple(
+                if (state.isBusy) "Registering…" else "Register sensor",
+                state.detailsValid && !state.isBusy,
+                onDetailsContinue
+            )
+
+        WizardStep.CREDENTIALS ->
+            Triple("Continue", !state.isBusy, onCredentialsContinue)
+
+        WizardStep.LINK ->
+            Triple(
+                if (state.isBusy) "Configuring…" else "Configure sensor",
+                state.linkValid && !state.isBusy,
+                onConfigureNode
+            )
+
+        WizardStep.CONFIRM ->
+            Triple(
+                if (state.confirmState == ConfirmState.ONLINE) "Done" else "Finish later",
+                true,
+                onDismiss
+            )
+    }
+
+    Column(modifier = modifier.padding(vertical = Dimens.HeaderSectionGap)) {
+        QuakePrimaryButton(text = label, enabled = enabled, onClick = action, modifier = Modifier.fillMaxWidth())
+        if (state.step == WizardStep.CONFIRM && state.confirmState != ConfirmState.ONLINE) {
+            Spacer(Modifier.height(Dimens.SettingsSectionSpacing))
+            QuakeSecondaryButton(text = "Close", onClick = onDismiss, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        color = TextPrimary,
+        fontFamily = NunitoFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 16.sp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = Dimens.HeaderSectionGap)
+    )
+}
+
+/** Quiet one-liner under a section; never carries anything actionable. */
+@Composable
+private fun SecondaryHint(text: String) {
+    Text(text = text, style = CardSubtitle, color = TextSecondary)
+}
+
+@Composable
+private fun ErrorNote(message: String) {
+    val shape = RoundedCornerShape(Dimens.ChatInputFieldRadius)
+    Text(
+        text = message,
+        style = CardSubtitle,
+        color = TextPrimary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(ChatInputFill)
+            .border(Dimens.BorderThin, CardBorder, shape)
+            .padding(
+                horizontal = Dimens.ChatInputFieldPaddingHorizontal,
+                vertical = Dimens.ChatInputFieldPaddingVertical
+            )
+    )
+}
 
 /**
- * The wizard's content card. Same chrome as [id.web.quakealert.ui.common.QuakeCard]
- * (CardSurface fill, thin CardBorder, SettingCardRadius) but a plain Column body:
- * the wizard's steps are forms and stacks, not title+trailing rows.
+ * The wizard's content card. Same chrome as the settings rows (CardSurface fill,
+ * thin CardBorder, SettingCardRadius) but a plain Column body: steps are forms
+ * and stacks, not title+trailing rows.
  */
 @Composable
 private fun WizardCard(
@@ -508,106 +684,6 @@ private fun WizardCard(
             ),
         verticalArrangement = Arrangement.spacedBy(Dimens.SettingCardTitleGap),
         content = content
-    )
-}
-
-// ============================================================
-// Footer + shared atoms
-// ============================================================
-
-@Composable
-private fun WizardFooter(
-    state: AddSensorState,
-    onDismiss: () -> Unit,
-    onDetailsContinue: () -> Unit,
-    onCredentialsContinue: () -> Unit,
-    onConfigureNode: () -> Unit
-) {
-    val (label, enabled, action) = when (state.step) {
-        WizardStep.DETAILS ->
-            Triple(if (state.isBusy) "Registering…" else "Register sensor", state.detailsValid && !state.isBusy, onDetailsContinue)
-
-        WizardStep.CREDENTIALS ->
-            Triple("Continue", !state.isBusy, onCredentialsContinue)
-
-        WizardStep.LINK ->
-            Triple(if (state.isBusy) "Configuring…" else "Configure sensor", state.linkValid && !state.isBusy, onConfigureNode)
-
-        WizardStep.CONFIRM ->
-            Triple(if (state.confirmState == ConfirmState.ONLINE) "Done" else "Finish later", true, onDismiss)
-    }
-
-    Column(modifier = Modifier.padding(vertical = Dimens.HeaderSectionGap)) {
-        PrimaryButton(text = label, enabled = enabled, onClick = action)
-        if (state.step == WizardStep.CONFIRM && state.confirmState != ConfirmState.ONLINE) {
-            Spacer(Modifier.height(Dimens.SettingsSectionSpacing))
-            SecondaryButton(text = "Close", onClick = onDismiss, modifier = Modifier.fillMaxWidth())
-        }
-    }
-}
-
-@Composable
-private fun PrimaryButton(
-    text: String,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        shape = RoundedCornerShape(40.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = AccentBlueTranslucent, contentColor = TextPrimary),
-        modifier = modifier
-            .fillMaxWidth()
-            .height(51.dp)
-            .border(width = 3.dp, color = BorderLight, shape = RoundedCornerShape(40.dp))
-    ) {
-        Text(
-            text = text,
-            color = TextPrimary,
-            fontFamily = NunitoFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp
-        )
-    }
-}
-
-@Composable
-private fun SecondaryButton(
-    text: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    OutlinedButton(
-        onClick = onClick,
-        shape = RoundedCornerShape(40.dp),
-        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-            containerColor = androidx.compose.ui.graphics.Color.Transparent,
-            contentColor = TextPrimary
-        ),
-        border = androidx.compose.foundation.BorderStroke(3.dp, BorderLight),
-        modifier = modifier.height(51.dp)
-    ) {
-        Text(
-            text = text,
-            color = TextPrimary,
-            fontFamily = NunitoFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp
-        )
-    }
-}
-
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        color = TextPrimary,
-        fontFamily = NunitoFontFamily,
-        fontWeight = FontWeight.Bold,
-        fontSize = 16.sp,
-        modifier = Modifier.padding(top = Dimens.HeaderSectionGap)
     )
 }
 
@@ -635,8 +711,6 @@ private fun WizardTextField(
         textStyle = CardTitle.copy(color = TextPrimary),
         singleLine = singleLine,
         cursorBrush = SolidColor(TextPrimary),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-        keyboardActions = KeyboardActions(onDone = { }),
         decorationBox = { innerTextField ->
             if (value.isEmpty()) {
                 Text(text = placeholder, style = CardTitle, color = TextSecondary)
@@ -659,9 +733,10 @@ private fun DetailsError.label(): String = when (this) {
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
-private fun AddSensorScreenDetailsPreview() {
+private fun AddSensorWizardPreview() {
     id.web.quakealert.ui.theme.QuakeAlertTheme {
-        AddSensorScreen(
+        Box(Modifier.fillMaxSize().background(BackgroundGradientBottom))
+        AddSensorWizardDialog(
             state = AddSensorState(locationName = "Cimahi", latitude = -6.87, longitude = 107.54),
             onDismiss = {},
             onNameChanged = {},

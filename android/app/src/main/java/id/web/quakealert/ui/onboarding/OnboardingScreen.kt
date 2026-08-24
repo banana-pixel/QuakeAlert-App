@@ -55,6 +55,9 @@ import androidx.core.content.ContextCompat
 import id.web.quakealert.R
 import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.ui.common.TestAlertSoundDialog
+import id.web.quakealert.ui.common.QuakePageIndicator
+import id.web.quakealert.ui.common.QuakePrimaryButton
+import id.web.quakealert.ui.common.QuakeSecondaryButton
 import id.web.quakealert.ui.theme.AccentBlueTranslucent
 import id.web.quakealert.ui.theme.BorderLight
 import id.web.quakealert.ui.theme.NunitoFontFamily
@@ -244,7 +247,7 @@ fun OnboardingScreen(
                     .fillMaxWidth()
                     .padding(horizontal = ScreenHorizontalPadding)
             ) {
-                PageIndicator(
+                QuakePageIndicator(
                     pageCount = pages.size,
                     currentPage = pagerState.currentPage,
                     modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -254,7 +257,7 @@ fun OnboardingScreen(
 
                 // Bottom actions: single CTA on the first page, Back/Next otherwise.
                 if (pagerState.currentPage == 0) {
-                    PrimaryButton(
+                    QuakePrimaryButton(
                         text = pages[0].actionText ?: "Start",
                         onClick = {
                             if (pages.size > 1) {
@@ -272,7 +275,7 @@ fun OnboardingScreen(
                         horizontalArrangement = Arrangement.spacedBy(20.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        SecondaryButton(
+                        QuakeSecondaryButton(
                             text = "Back",
                             onClick = {
                                 coroutineScope.launch {
@@ -281,7 +284,7 @@ fun OnboardingScreen(
                             },
                             modifier = Modifier.weight(1f)
                         )
-                        PrimaryButton(
+                        QuakePrimaryButton(
                             text = if (isLast) "Get Started" else "Next",
                             onClick = {
                                 if (isLast) {
@@ -399,93 +402,6 @@ fun OnboardingPageItem(
             }
         }
     }
-}
-
-/**
- * Determinate page indicator: a rounded track whose active white segment
- * animates to sit under the current page (anchored left).
- */
-@Composable
-private fun PageIndicator(
-    pageCount: Int,
-    currentPage: Int,
-    modifier: Modifier = Modifier
-) {
-    val totalWidth = 100.dp
-    val segment = if (pageCount > 0) totalWidth / pageCount else totalWidth
-    val activeWidth by animateDpAsState(targetValue = segment, label = "indicatorWidth")
-    val offset by animateDpAsState(targetValue = segment * currentPage, label = "indicatorOffset")
-
-    Box(
-        modifier = modifier
-            .width(totalWidth)
-            .height(6.dp)
-            .clip(RoundedCornerShape(100.dp))
-            .background(OverlayLight)
-    ) {
-        Box(
-            modifier = Modifier
-                .padding(start = offset)
-                .width(activeWidth)
-                .height(6.dp)
-                .clip(RoundedCornerShape(100.dp))
-                .background(TextPrimary)
-        )
-    }
-}
-
-/** Filled cyan/dark-blue CTA button (Start / Next / Get Started). */
-@Composable
-private fun PrimaryButton(
-    text: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Button(
-        onClick = onClick,
-        shape = RoundedCornerShape(40.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = AccentBlueTranslucent,
-            contentColor = TextPrimary
-        ),
-        modifier = modifier
-            .height(51.dp)
-            .border(width = 3.dp, color = BorderLight, shape = RoundedCornerShape(40.dp))
-    ) {
-        ButtonLabel(text)
-    }
-}
-
-/** Bordered, transparent-fill button (Back). */
-@Composable
-private fun SecondaryButton(
-    text: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    OutlinedButton(
-        onClick = onClick,
-        shape = RoundedCornerShape(40.dp),
-        colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = Color.Transparent,
-            contentColor = TextPrimary
-        ),
-        border = androidx.compose.foundation.BorderStroke(3.dp, BorderLight),
-        modifier = modifier.height(51.dp)
-    ) {
-        ButtonLabel(text)
-    }
-}
-
-@Composable
-private fun ButtonLabel(text: String) {
-    Text(
-        text = text,
-        color = TextPrimary,
-        fontFamily = NunitoFontFamily,
-        fontWeight = FontWeight.Bold,
-        fontSize = 15.sp
-    )
 }
 
 /**

@@ -17,8 +17,8 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import id.web.quakealert.ui.addsensor.AddSensorScreen
 import id.web.quakealert.ui.addsensor.AddSensorViewModel
+import id.web.quakealert.ui.addsensor.AddSensorWizardDialog
 import id.web.quakealert.ui.main.MainScreen
 import id.web.quakealert.ui.onboarding.OnboardingScreen
 import id.web.quakealert.ui.theme.BackgroundGradientBottom
@@ -75,7 +75,7 @@ fun AppRoot(
                         if (showAddSensor) {
                             val wizard: AddSensorViewModel = viewModel()
                             val wizardState by wizard.state.collectAsStateWithLifecycle()
-                            AddSensorScreen(
+                            AddSensorWizardDialog(
                                 state = wizardState,
                                 onDismiss = {
                                     showAddSensor = false
