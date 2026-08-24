@@ -42,7 +42,7 @@ func main() {
 	}
 
 	// Earthquake parameters: PGA=150 gal gives MMI VI (Strong)
-	pga := 150.0 // gal
+	pga := 300.0 // gal
 	durMs := int64(3500)
 	ts := time.Now().UnixMilli()
 
