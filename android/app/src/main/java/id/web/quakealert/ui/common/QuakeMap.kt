@@ -9,7 +9,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -401,3 +405,97 @@ private const val BASEMAP_STYLE_URL =
 
 /** The notice [MapAttribution] renders. Wording fixed by the two licences. */
 private const val BASEMAP_ATTRIBUTION = "© OpenStreetMap · © CARTO"
+
+// ============================================================
+// Interactive map variant (Add Sensor wizard, Location step)
+// ============================================================
+
+/**
+ * The interactive counterpart of [QuakeMap]: the same dark basemap, but pan and
+ * zoom stay live and the location is whatever the frame is centred on.
+ *
+ * Why a fixed centre pin rather than tap-to-place: the pin is drawn by the caller
+ * over the exact centre of the frame, so what the user sees under the crosshair is
+ * definitionally what gets reported. A tap target can miss by a thumb width, and on
+ * a 175dp map a thumb width is a neighbourhood.
+ *
+ * The coordinate is reported on camera *idle* rather than on every frame, so a long
+ * pan produces one geocode lookup at the end instead of thirty on the way. The
+ * camera honours [focus] only when it lands somewhere else entirely (> ~100 m from
+ * what is framed), which is exactly the GPS-sync case: a sync reads as "take me
+ * there", a pan as "the sensor is here".
+ *
+ * Gestures stay with MapLibre rather than a Compose `pointerInput` wrapper: the view
+ * owns its touch pipeline, so intercepting in Compose would either steal the pan or
+ * lose the race with it.
+ *
+ * @param focus where the camera should sit; honoured only when it differs from what
+ *   the camera currently frames (see above).
+ * @param onCenterSettled invoked with the framed WGS84 coordinate once a gesture
+ *   ends.
+ */
+@Composable
+fun LocationPickerMap(
+    focus: MapFocus,
+    onCenterSettled: (Double, Double) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val mapView = rememberMapView()
+    // The listener registers once against the map; this keeps it calling the
+    // *latest* callback across recompositions instead of a stale capture.
+    val currentOnCenterSettled by rememberUpdatedState(onCenterSettled)
+
+    AndroidView(
+        factory = {
+            mapView.apply {
+                getMapAsync { map ->
+                    map.uiSettings.apply {
+                        // Rotate and tilt add nothing to "where is this sensor" and
+                        // make accidental two-finger twists disorienting; pan, zoom
+                        // and double-tap zoom all stay live.
+                        setAllGesturesEnabled(true)
+                        isRotateGesturesEnabled = false
+                        isTiltGesturesEnabled = false
+                        isLogoEnabled = false
+                        isAttributionEnabled = false
+                        isCompassEnabled = false
+                    }
+
+                    // Registered exactly once: MapLibre owns its camera pipeline, so
+                    // re-adding per composition would stack duplicate callbacks.
+                    map.addOnCameraIdleListener {
+                        map.cameraPosition.target?.let { target ->
+                            currentOnCenterSettled(target.latitude, target.longitude)
+                        }
+                    }
+
+                    map.setStyle(BASEMAP_STYLE_URL)
+                }
+            }
+        },
+        update = { view ->
+            view.getMapAsync { map ->
+                // Camera: honour focus only when it moved meaningfully, so user pans
+                // are never fought by the recomposition their own pan triggered.
+                val target = map.cameraPosition.target
+                val moved = target == null ||
+                    kotlin.math.abs(target.latitude - focus.latitude) > RECENTER_THRESHOLD_DEG ||
+                    kotlin.math.abs(target.longitude - focus.longitude) > RECENTER_THRESHOLD_DEG
+                if (moved) {
+                    map.cameraPosition = CameraPosition.Builder()
+                        .target(LatLng(focus.latitude, focus.longitude))
+                        .zoom(focus.zoom)
+                        .build()
+                }
+            }
+        },
+        modifier = modifier
+    )
+}
+
+/**
+ * How far (in degrees) a new focus must sit from the framed centre before the
+ * camera is allowed to jump. ~100 m of ground: well under any GPS-sync hop,
+ * comfortably over map-tap jitter.
+ */
+private const val RECENTER_THRESHOLD_DEG = 0.001
