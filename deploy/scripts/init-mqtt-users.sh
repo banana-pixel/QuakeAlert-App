@@ -42,7 +42,7 @@ done
 OUT=mosquitto/passwd
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-: > "$TMP/passwd"
+: # pre-create dihapus: mosquitto_passwd -c menolak menimpa file yang sudah ada
 
 echo "[mqtt-users] membuat hash untuk 3 user"
 docker run --rm -i \
@@ -60,7 +60,7 @@ docker run --rm -i \
         mosquitto_passwd -b    /work/passwd "$MU" "$MP"
     '
 
-install -m 0640 "$TMP/passwd" "$OUT"
+docker run --rm -v "$TMP:/work:z" -v "$(pwd)/mosquitto:/out:z" eclipse-mosquitto:2 sh -c "cp /work/passwd /out/passwd && chown 1883:1883 /out/passwd && chmod 0640 /out/passwd"
 # uid 1883 = user mosquitto di dalam image; tanpa ini broker tidak bisa membaca
 # file-nya dan menolak SEMUA koneksi (allow_anonymous false).
 chown 1883:1883 "$OUT" 2>/dev/null ||
