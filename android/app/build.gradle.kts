@@ -124,7 +124,7 @@ android {
         }
         release {
             // ADR-0003: production transport is HTTPS/WSS only.
-            buildConfigField("String", "QUAKE_BASE_URL", "\"https://api.quakealert.id/\"")
+            buildConfigField("String", "QUAKE_BASE_URL", "\"https://api.quakealert.web.id/\"")
             // R8: shrink, optimise and obfuscate. The rules R8 cannot infer -
             // MapLibre's JNI callbacks, the serializers looked up by class, the
             // ServiceLoader-found main dispatcher - are in app/proguard-rules.pro,
