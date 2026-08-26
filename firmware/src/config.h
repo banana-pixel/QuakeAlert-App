@@ -100,6 +100,7 @@
 // 5. TIMING & STABILITY
 // ========================================
 #define HTTP_TIMEOUT_MS 3000
+#define WIFI_PROVISION_CONNECT_TIMEOUT_MS 15000  // /config: batas uji kredensial sebelum ditolak
 #define MPU_ERROR_THRESHOLD_NOTIF 25
 #define WIFI_RECONNECT_INTERVAL_MS 30000
 #define MQTT_RECONNECT_INTERVAL_MS 5000

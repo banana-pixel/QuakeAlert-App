@@ -86,6 +86,13 @@ enum class WizardFailure {
     /** The sensor refused or dropped the settings we handed it. */
     SETTINGS_NOT_ACCEPTED,
 
+    /**
+     * The sensor could not join the Wi-Fi network with the credentials given —
+     * typically a wrong password. Distinct from [SETTINGS_NOT_ACCEPTED] because
+     * the fix is different: re-enter credentials, not retry the same ones.
+     */
+    WIFI_CREDENTIALS_REJECTED,
+
     /** No position could be obtained from the device. */
     LOCATION_UNAVAILABLE,
 

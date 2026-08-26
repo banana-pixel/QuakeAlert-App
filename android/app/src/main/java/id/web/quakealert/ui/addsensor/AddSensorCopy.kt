@@ -109,6 +109,14 @@ internal fun failureCopy(failure: WizardFailure): ErrorCopy = when (failure) {
         action = ErrorAction.RETRY
     )
 
+    WizardFailure.WIFI_CREDENTIALS_REJECTED -> ErrorCopy(
+        title = "The sensor could not join the network",
+        message = "The sensor could not connect using this name and password. " +
+            "Check them and try again. Nothing was saved, so the sensor is still " +
+            "waiting for setup.",
+        action = ErrorAction.RETRY
+    )
+
     WizardFailure.LOCATION_UNAVAILABLE -> ErrorCopy(
         title = "Could not get your location",
         message = "QuakeAlert could not read your position just now. Check that " +

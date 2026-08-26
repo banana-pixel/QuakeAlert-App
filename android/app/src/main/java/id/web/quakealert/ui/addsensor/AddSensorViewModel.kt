@@ -12,6 +12,7 @@ import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.model.NodePortalConfigDto
 import id.web.quakealert.device.Coordinates
 import id.web.quakealert.device.NodeLink
+import id.web.quakealert.device.PortalRejectedException
 import id.web.quakealert.device.ReverseGeocoder
 import id.web.quakealert.device.locationSource
 import kotlinx.coroutines.Job
@@ -282,8 +283,19 @@ class AddSensorViewModel(application: Application) : AndroidViewModel(applicatio
                 },
                 onFailure = { throwable ->
                     Log.w(TAG, "portal rejected config", throwable)
+                    // The portal names the Wi-Fi join failure explicitly so the
+                    // wizard can ask for re-entry rather than a blind retry.
+                    val isWifiFailure = (throwable as? PortalRejectedException)
+                        ?.message == "wifi_connect_failed"
                     _state.update {
-                        it.copy(isBusy = false, failure = WizardFailure.SETTINGS_NOT_ACCEPTED)
+                        it.copy(
+                            isBusy = false,
+                            failure = if (isWifiFailure) {
+                                WizardFailure.WIFI_CREDENTIALS_REJECTED
+                            } else {
+                                WizardFailure.SETTINGS_NOT_ACCEPTED
+                            }
+                        )
                     }
                 }
             )

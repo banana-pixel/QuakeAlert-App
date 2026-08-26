@@ -137,6 +137,32 @@ void initWifi() {
             DynamicJsonDocument doc(1024);
             DeserializationError err = deserializeJson(doc, body);
             if (!err) {
+                // Uji kredensial SEBELUM menyimpan apa pun: password salah yang
+                // lolos akan melahirkan node bisu — tersimpan, reboot, lalu gagal
+                // connect dalam diam tanpa portal untuk memperbaikinya. AP_STA
+                // dipakai agar portal tetap hidup selama uji berjalan.
+                const char* testSsid = doc["ssid"] | "";
+                const char* testPass = doc["password"] | "";
+                Serial.printf("/config: testing WiFi '%s' ...\n", testSsid);
+                WiFi.mode(WIFI_AP_STA);
+                WiFi.begin(testSsid, testPass);
+
+                const uint32_t startMs = millis();
+                wl_status_t status = WiFi.status();
+                while ((status = WiFi.status()) != WL_CONNECTED &&
+                       millis() - startMs < WIFI_PROVISION_CONNECT_TIMEOUT_MS) {
+                    delay(250);
+                }
+                if (status != WL_CONNECTED) {
+                    WiFi.disconnect(false, true);  // buang kredensial salah dari STA
+                    WiFi.mode(WIFI_AP);            // kembali murni portal
+                    Serial.println("/config rejected: wifi_connect_failed");
+                    configServer->send(400, "application/json",
+                                       "{\"status\":\"error\",\"message\":\"wifi_connect_failed\"}");
+                    return;
+                }
+                Serial.println("/config: WiFi test OK.");
+
                 Preferences p;
                 p.begin("quake-app", false);
                 p.putString("ssid", doc["ssid"] | "");
