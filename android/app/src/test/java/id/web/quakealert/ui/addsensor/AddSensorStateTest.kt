@@ -1,5 +1,6 @@
 package id.web.quakealert.ui.addsensor
 
+import id.web.quakealert.domain.ProvisionedNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -211,5 +212,88 @@ class AddSensorStateTest {
             // Em dashes are banned app-wide; the wizard is where copy is densest.
             assertFalse("em dash in: \$sentence", sentence.contains('\u2014'))
         }
+    }
+
+    // --- shouldRevokeOnExit: the truth table behind the revoke-on-cancel rule ---
+
+    private fun provisionedNode() = ProvisionedNode(
+        stationId = "NODE-163A149F",
+        provisioningSecret = "secret",
+        mqttBroker = "b",
+        mqttPort = 8883,
+        mqttTls = true
+    )
+
+    @Test
+    fun `cancel before provisioning never revokes`() {
+        // No identity minted, no capability held: nothing to withdraw and nothing
+        // to authorize the withdrawal with.
+        assertFalse(AddSensorState(currentStep = AddSensorWizardStep.LOCATION).shouldRevokeOnExit)
+        assertFalse(AddSensorState(currentStep = AddSensorWizardStep.WELCOME).shouldRevokeOnExit)
+        assertFalse(AddSensorState(currentStep = AddSensorWizardStep.RATE_LIMIT).shouldRevokeOnExit)
+    }
+
+    @Test
+    fun `cancel after provisioning but before configuration revokes`() {
+        val credentials = AddSensorState(
+            currentStep = AddSensorWizardStep.CREDENTIALS,
+            provisioned = provisionedNode()
+        )
+        assertTrue(credentials.shouldRevokeOnExit)
+
+        // WLAN step too: joined the node network but /config has not succeeded,
+        // so `effectiveStationId` is still null — the server row is withdrawable.
+        assertTrue(
+            AddSensorState(
+                currentStep = AddSensorWizardStep.WLAN,
+                provisioned = provisionedNode()
+            ).shouldRevokeOnExit
+        )
+
+        // A portal rejection keeps the session on WLAN with no echo: still
+        // unconfigured, so exit must still revoke.
+        assertTrue(
+            AddSensorState(
+                currentStep = AddSensorWizardStep.WLAN,
+                provisioned = provisionedNode(),
+                failure = WizardFailure.SETTINGS_NOT_ACCEPTED
+            ).shouldRevokeOnExit
+        )
+    }
+
+    @Test
+    fun `successful completion never revokes`() {
+        // The portal echoed an effective station id: the node's NVS now carries
+        // this identity. Deleting the row would brick a configured device until a
+        // factory reset, so configuration is the client-side point of no return.
+        val finishing = AddSensorState(
+            currentStep = AddSensorWizardStep.FINISHING,
+            provisioned = provisionedNode(),
+            effectiveStationId = "NODE-163A149F",
+            confirmState = ConfirmState.ONLINE
+        )
+        assertFalse(finishing.shouldRevokeOnExit)
+
+        // Same at the moment of handoff (WLAN success applying onNodeConfigured).
+        val justConfigured = AddSensorState(
+            currentStep = AddSensorWizardStep.FINISHING,
+            provisioned = provisionedNode(),
+            effectiveStationId = "NODE-163A149F"
+        )
+        assertFalse(justConfigured.shouldRevokeOnExit)
+    }
+
+    @Test
+    fun `a node that was configured but never checked in is not revoked`() {
+        // SENSOR_NEVER_CHECKED_IN means the node IS configured and keeps retrying
+        // on its own; the row must survive for it to check in to.
+        val timedOut = AddSensorState(
+            currentStep = AddSensorWizardStep.FINISHING,
+            provisioned = provisionedNode(),
+            effectiveStationId = "NODE-163A149F",
+            attemptsLeft = 0,
+            failure = WizardFailure.SENSOR_NEVER_CHECKED_IN
+        )
+        assertFalse(timedOut.shouldRevokeOnExit)
     }
 }

@@ -37,3 +37,18 @@ data class ProvisionResponseDto(
     @SerialName("mqtt_port") val mqttPort: Int,
     @SerialName("mqtt_tls") val mqttTls: Boolean = true
 )
+
+/**
+ * Request body of `POST /api/v1/nodes/revoke` (`revokeRequest` in
+ * `server/internal/api/api.go`).
+ *
+ * The raw provisioning secret is the capability that authorizes the deletion —
+ * the server holds no owner column, so possession of the display-once secret IS
+ * the proof. It travels in the request body only, never in a URL, and is never
+ * logged by either side.
+ */
+@Serializable
+data class RevokeNodeRequestDto(
+    @SerialName("station_id") val stationId: String,
+    @SerialName("provisioning_secret") val provisioningSecret: String
+)

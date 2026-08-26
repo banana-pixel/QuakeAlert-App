@@ -221,11 +221,20 @@ fun AddSensorWizardDialog(
 
     // Asked in its own card on top of the wizard, not inside it: the question is
     // about the whole session, so it must not scroll away with one step's body.
+    // Copy is honest about both consequences: past provisioning the registration
+    // itself is withdrawn (POST /nodes/revoke), and the display-once credential
+    // is lost either way — which is why leaving before WLAN is configured cannot
+    // be resumed.
     if (state.showingExitConfirm) {
         QuakeConfirmDialog(
             title = "Discard sensor setup?",
-            message = "This setup is not finished. Leaving now discards it, and the " +
-                "credentials on screen cannot be shown again.",
+            message = if (state.shouldRevokeOnExit) {
+                "Leaving now cancels this sensor's registration and discards the " +
+                    "credentials on screen, which can never be shown again."
+            } else {
+                "This setup is not finished. Leaving now discards it, and the " +
+                    "credentials on screen cannot be shown again."
+            },
             confirmLabel = "Discard",
             dismissLabel = "Keep going",
             onConfirm = onDismiss,

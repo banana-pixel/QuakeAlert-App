@@ -234,6 +234,27 @@ data class AddSensorState(
             else -> true
         }
 
+    /**
+     * Whether exiting now would strand a minted-but-unconfigured node on the
+     * server — the condition under which [AddSensorViewModel.reset] must fire a
+     * revoke.
+     *
+     * The rule reads the state's own facts rather than tracking a separate flag:
+     *
+     *  - `provisioned != null` — an identity exists server-side at all. Before
+     *    provisioning succeeds there is nothing to revoke and no capability to
+     *    revoke it with; this single guard is what keeps cancel-before-provision
+     *    from ever issuing a request.
+     *  - `effectiveStationId == null` — the portal never accepted `/config`
+     *    ([onNodeConfigured] sets it). A configured node has burned its identity
+     *    into NVS: deleting its server row would brick it until a factory reset,
+     *    so configuration — not verification — is the point of no return for the
+     *    client. Verification stays server-authoritative in any case: even if
+     *    this rule were wrong, the server refuses to delete `verified = TRUE`.
+     */
+    val shouldRevokeOnExit: Boolean
+        get() = provisioned != null && effectiveStationId == null
+
     companion object {
         /**
          * Confirm polls `/sensors` every [CONFIRM_POLL_INTERVAL_MS] for up to ten

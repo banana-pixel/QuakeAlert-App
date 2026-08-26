@@ -60,6 +60,16 @@ class AddSensorViewModel(application: Application) : AndroidViewModel(applicatio
      */
     private var confirmJob: Job? = null
 
+    /**
+     * Monotonic session generation. Captured when a provisioning request starts
+     * and compared when its response lands: [reset] increments it, so a response
+     * that arrives after the user has left the wizard belongs to a dead session
+     * and must not resurrect wizard state ([onProvisioned] would otherwise drop a
+     * fresh session onto CREDENTIALS with a secret nobody saw). The late-minted
+     * row is revoked instead — this is race #1 of the approved lifecycle design.
+     */
+    private var sessionGeneration = 0L
+
     init {
         seedPinFromStoredFix()
     }
@@ -302,12 +312,29 @@ class AddSensorViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             _state.update { it.copy(isBusy = true, failure = null, locationName = resolvedName) }
             val details = _state.value
+            val generation = sessionGeneration
             apiClient.provisionNode(
                 sensorModel = details.sensorModel,
                 locationName = resolvedName,
                 latitude = requireNotNull(details.latitude),
                 longitude = requireNotNull(details.longitude)
             ).onSuccess { node ->
+                if (generation != sessionGeneration) {
+                    // The session was reset while this request was in flight: the
+                    // user has left, so applying [onProvisioned] would reopen a
+                    // wizard nobody is watching and strand a secret nobody read.
+                    // Withdraw the just-minted row immediately; failure here is
+                    // logged and left to the server sweep, same as any other
+                    // fire-and-forget revoke.
+                    Log.i(TAG, "provision answered after exit; revoking ${node.stationId}")
+                    network.applicationScope.launch {
+                        network.apiClient.revokeNode(node.stationId, node.provisioningSecret)
+                            .onFailure { throwable ->
+                                Log.w(TAG, "late-provision revoke failed for ${node.stationId}", throwable)
+                            }
+                    }
+                    return@onSuccess
+                }
                 _state.update { it.onProvisioned(node).copy(isBusy = false) }
             }.onFailure { throwable ->
                 Log.w(TAG, "provisioning failed", throwable)
@@ -454,11 +481,43 @@ class AddSensorViewModel(application: Application) : AndroidViewModel(applicatio
      *
      * Cancelling the confirm loop is part of the discard, not an optimisation: a
      * surviving poll would write its answer into the fresh session.
+     *
+     * The revoke is part of the same discard when [AddSensorState.shouldRevokeOnExit]
+     * held: the station id and secret are captured into locals BEFORE the state is
+     * cleared (the state is the only place they live), then the request is fired
+     * fire-and-forget on the process-wide network scope. Fire-and-forget on
+     * purpose: exit must stay instant, a transient failure must not trap the user
+     * in a wizard they asked to leave, and no failure here may be reported as
+     * success — an unreachable server leaves the orphan row behind for the
+     * server-side sweep to reap instead.
      */
     fun reset() {
+        // Invalidate any in-flight provisioning response before anything else:
+        // from here on, a late answer belongs to a dead session and is revoked
+        // rather than applied (see [provisionNode]).
+        sessionGeneration++
+
         confirmJob?.cancel()
         confirmJob = null
         nodeLink.releaseNode()
+
+        val exiting = _state.value
+        if (exiting.shouldRevokeOnExit) {
+            val stationId = exiting.provisioned?.stationId ?: return
+            val secret = exiting.provisioned?.provisioningSecret ?: return
+            network.applicationScope.launch {
+                network.apiClient.revokeNode(stationId, secret)
+                    .onFailure { throwable ->
+                        // Logged with the station id only — never the secret.
+                        // Not surfaced as UI: the wizard is already gone, and a
+                        // "revoke failed" toast after a successful exit would
+                        // claim a state (the row survived) without offering any
+                        // action. The 14-day server sweep owns this residue.
+                        Log.w(TAG, "revoke failed for $stationId", throwable)
+                    }
+            }
+        }
+
         _state.value = AddSensorState()
         seedPinFromStoredFix()
     }

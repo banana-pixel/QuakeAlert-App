@@ -12,6 +12,7 @@ import id.web.quakealert.data.network.model.CreateChatMessageRequestDto
 import id.web.quakealert.data.network.model.EventsResponseDto
 import id.web.quakealert.data.network.model.ProvisionRequestDto
 import id.web.quakealert.data.network.model.ProvisionResponseDto
+import id.web.quakealert.data.network.model.RevokeNodeRequestDto
 import id.web.quakealert.data.network.model.RerollPseudonymResponseDto
 import id.web.quakealert.data.network.model.SensorsResponseDto
 import id.web.quakealert.data.network.model.UpdateFcmTokenRequestDto
@@ -275,6 +276,44 @@ class QuakeApiClient(
 
         val body = perform(request = request, fallback = "Could not register the new sensor")
         json.decodeFromString<ProvisionResponseDto>(body).toDomain()
+    }
+
+    /**
+     * `POST /api/v1/nodes/revoke` — withdraws a minted-but-unconfigured node.
+     *
+     * Authorization is capability-based: [provisioningSecret] (raw, body-only —
+     * never in a URL) proves the caller holds the display-once secret, which is
+     * the only ownership the server records. The server deletes **only**
+     * `verified = FALSE` rows and answers `409 NODE_VERIFIED` otherwise, so a
+     * verified production sensor cannot be removed through this path no matter
+     * what the client believes.
+     *
+     * Idempotent by contract: an unknown station id comes back as HTTP 200 with
+     * `deleted=false`, so a retry after a lost response is indistinguishable from
+     * first success and both are reported here as success.
+     *
+     * The secret is not logged anywhere on this path: OkHttp interceptors see only
+     * headers/URL, and this method returns [Unit] so no caller can retain the
+     * payload.
+     */
+    suspend fun revokeNode(
+        stationId: String,
+        provisioningSecret: String
+    ): Result<Unit> = guarded {
+        val payload = RevokeNodeRequestDto(
+            stationId = stationId,
+            provisioningSecret = provisioningSecret
+        )
+        val request = Request.Builder()
+            .url(QuakeApiConfig.url(QuakeApiConfig.PATH_NODES_REVOKE))
+            .post(json.encodeToString(payload).toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        perform(request = request, fallback = "Could not withdraw the sensor registration")
+        // 200 is success whether deleted is true or false; non-2xx throws through
+        // perform() into Result.failure. The response body carries nothing the
+        // caller needs, so it is dropped unread rather than decoded.
+        Unit
     }
 
     /**
