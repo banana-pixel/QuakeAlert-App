@@ -198,6 +198,13 @@ func run(log *slog.Logger) error {
 	defer stopChatPurge()
 	go purgeChatLoop(chatCtx, st, log)
 
+	// Jaring pembersihan node pending terlantar: alasan keberadaannya sama dengan
+	// purge chat di atas — retensi tidak boleh bergantung ekstensi opsional — dan
+	// goroutine yang sama polanya: sweep awal + ticker + cancel saat shutdown.
+	pendingCtx, stopPendingSweep := context.WithCancel(context.Background())
+	defer stopPendingSweep()
+	go purgeAbandonedPendingLoop(pendingCtx, st, log)
+
 	// --- HTTP server (WebSocket WSS via reverse proxy TLS di produksi) ---
 	// Router chi: /api/v1/auth/anonymous publik, /api/v1/events auth opsional,
 	// sisanya + /ws wajib Bearer JWT (HS256).
@@ -408,6 +415,55 @@ func purgeChatLoop(ctx context.Context, st *store.Store, log *slog.Logger) {
 			return
 		case <-ticker.C:
 			purge()
+		}
+	}
+}
+
+// Retensi node pending yang ditinggalkan: 14 hari, diperiksa sekali sehari.
+//
+// Wizard mencetak baris iot_nodes di langkah LOCATION; sesi yang mati sebelum
+// ESP32 terkonfigurasi (proses dibunuh, respons provisioning hilang di jalan,
+// pengguna keluar tanpa sempat revoke) meninggalkan baris verified=FALSE yang
+// tidak pernah berdenyut. Jalur client-driven (POST /nodes/revoke) tidak bisa
+// menjangkau kasus itu — ponsel kehilangan capability-nya bersama prosesnya —
+// jadi pembersihan behavioral inilah jaring pengamannya.
+const (
+	pendingNodeRetention     = 14 * 24 * time.Hour
+	pendingNodeSweepInterval = 24 * time.Hour
+)
+
+// purgeAbandonedPendingLoop menghapus node pending yang tidak pernah heartbeat
+// melewati masa retensi. Pola sama dengan purgeChatLoop: goroutine terjadwal
+// (bukan pg_cron), berjalan sekali di awal untuk rekonsiliasi startup lalu
+// per interval, dengan timeout operasi per-tick dan pembatalan saat shutdown.
+//
+// Loop ini aman terhadap node sah: predikat penghapusan menuntut verified=FALSE
+// DAN ketiadaan heartbeat (lihat PurgeAbandonedPendingNodes), sehingga instalasi
+// nyata yang sedang menunggu konfirmasi operator tidak akan tersentuh berapa
+// pun lamanya menunggu.
+func purgeAbandonedPendingLoop(ctx context.Context, st *store.Store, log *slog.Logger) {
+	sweep := func() {
+		opCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		deleted, err := st.PurgeAbandonedPendingNodes(opCtx, pendingNodeRetention)
+		if err != nil {
+			log.Warn("gagal membersihkan node pending terlantar", "err", err)
+			return
+		}
+		if deleted > 0 {
+			log.Info("node pending terlantar dibersihkan", "rows", deleted)
+		}
+	}
+
+	sweep()
+	ticker := time.NewTicker(pendingNodeSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sweep()
 		}
 	}
 }

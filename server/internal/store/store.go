@@ -331,6 +331,54 @@ func (s *Store) ListUnverifiedNodes(ctx context.Context) ([]PendingNode, error) 
 	return out, rows.Err()
 }
 
+// DeleteUnverifiedNode menghapus baris node yang BELUM terverifikasi, dan hanya
+// itu. Predikat `verified = FALSE` ada DI DALAM SQL, bukan di handler: satu
+// statement DELETE bersyarat adalah atomik terhadap UPDATE verifikasi operator
+// (Postgres menserialisasi keduanya pada lock baris), sehingga node yang sudah
+// sah TIDAK MUNGKIN terhapus lewat jalur ini — meski balapan dengan klik verify
+// di admin, dan berapa pun keadaan kode pemanggil. Mengembalikan false bila
+// station_id tidak dikenal ATAU sudah terverifikasi (pemanggil API membedakan
+// keduanya via GetNodeSecret sebelum memanggil).
+func (s *Store) DeleteUnverifiedNode(ctx context.Context, stationID string) (bool, error) {
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM iot_nodes WHERE station_id = $1 AND verified = FALSE`, stationID)
+	if err != nil {
+		return false, fmt.Errorf("delete unverified node: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// PurgeAbandonedPendingNodes menghapus node yang terdaftar tetapi TIDAK PERNAH
+// mengirim heartbeat dalam masa retensi — kelas zombie provisioning: baris
+// dicetak wizard lalu sesi dibuang (proses mati, respons jaringan hilang)
+// sebelum ESP32 sempat dikonfigurasi.
+//
+// Dua predikat, keduanya wajib, dan itulah seluruh keselamatan loop ini:
+//   - `verified = FALSE`  → node produksi (terverifikasi operator) mustahil
+//     tersentuh, berapa pun umurnya;
+//   - `last_heartbeat < created_at + interval '90 seconds'` → hanya node yang
+//     tidak pernah "melapor tugas": instalasi sah yang menunggu konfirmasi
+//     operator tetap berdenyut (UpdateHeartbeat menulis last_heartbeat = NOW()),
+//     jadi usia saja tidak pernah menjadi alasan penghapusan. Ambang 90 s adalah
+//     onlineThresholdSec di internal/api — batas yang sama yang membedakan
+//     Online dari Offline.
+//
+// DELETE tanpa ORDER/LIMIT bersifat set-at-a-time dan idempoten: sweep berulang
+// pada basis data yang sudah bersih menghapus 0 baris. Mengembalikan jumlah
+// baris terhapus untuk observability; tidak ada field secret yang disentuh.
+func (s *Store) PurgeAbandonedPendingNodes(ctx context.Context, olderThan time.Duration) (int64, error) {
+	const q = `
+		DELETE FROM iot_nodes
+		WHERE verified = FALSE
+		  AND created_at < NOW() - $1::interval
+		  AND last_heartbeat < created_at + interval '90 seconds'`
+	tag, err := s.pool.Exec(ctx, q, olderThan.String())
+	if err != nil {
+		return 0, fmt.Errorf("purge abandoned pending nodes: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // SetNodeVerified mengubah status verifikasi node. Mengembalikan false bila
 // station_id tidak dikenal — pemanggil API memetakannya ke 404, bukan 500,
 // karena ID yang salah adalah kesalahan operator yang dapat ditindaklanjuti.
