@@ -244,6 +244,14 @@ size_t getHmacKeyCopy(char* destination, size_t destinationSize) {
         destination[0] = '\0';
         return 0;
     }
+
+    // Preferences::getString returns the length INCLUDING the NUL terminator.
+    // The NUL is not part of the secret; strip it so HMAC uses the exact
+    // key bytes the server stores (otherwise HMAC block-padding differs and
+    // every signature is rejected as "HMAC invalid").
+    if (destination[len - 1] == '\0') {
+        len -= 1;
+    }
     return len;
 }
 
