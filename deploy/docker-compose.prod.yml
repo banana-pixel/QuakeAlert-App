@@ -119,7 +119,11 @@ services:
 
   # --- PostGIS ---------------------------------------------------------------
   postgis:
-    image: postgis/postgis:16-3.4
+    # ARM64 (OCI aarch64): image resmi postgis/postgis TIDAK punya build
+    # linux/arm64 (github.com/postgis/docker-postgis issue #216), jadi dipakai
+    # imresamu/postgis dari maintainer resmi docker-postgis, di-pin per digest
+    # (PostGIS 3.4.4, alpine3.22) agar rebuild upstream tidak mengubah produksi.
+    image: imresamu/postgis@sha256:817959c176e1ceaab0da093fffb2be2152ca46bd1c3ab20d1b0cc67df57f7b5c
     container_name: quakealert-postgis
     restart: unless-stopped
     mem_limit: 350m
