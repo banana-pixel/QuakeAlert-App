@@ -21,6 +21,9 @@ package id.web.quakealert.domain
  *   or null when no position has ever been synced.
  * @param lastAlertLabel the last alert this device showed, already formatted
  *   ("Intensity IV near Cianjur, 20 minutes ago"), or null when it has never shown one.
+ * @param radiusLabel the fixed alert radius in the user's unit system ("200 km"),
+ *   for the healthy-state body line. The domain stays unit-blind: callers format
+ *   from [SafetyPolicy.ALERT_RADIUS_KM] with the same formatter History uses.
  */
 data class ProtectionStatus(
     val alertsEnabled: Boolean,
@@ -28,7 +31,8 @@ data class ProtectionStatus(
     val autoSyncEnabled: Boolean,
     val batteryUnrestricted: Boolean,
     val lastSyncLabel: String?,
-    val lastAlertLabel: String? = null
+    val lastAlertLabel: String? = null,
+    val radiusLabel: String = ""
 ) {
 
     /** Whether an alert would reach the screen at all: the user's switch and the grant. */
@@ -44,10 +48,10 @@ data class ProtectionStatus(
     val headline: String
         get() = when {
             !notificationsPermitted -> "Alerts blocked by system settings"
-            !alertsEnabled -> "Alerts are turned off"
+            !alertsEnabled -> "Earthquake protection disabled"
             lastSyncLabel == null -> "Watching, but your location is not set"
             !batteryUnrestricted -> "Watching, but alerts may arrive late"
-            else -> "Watching for earthquakes near you"
+            else -> "Earthquake protection active"
         }
 
     /**
@@ -68,7 +72,7 @@ data class ProtectionStatus(
             if (!notificationsPermitted) {
                 add("Notifications are blocked in system settings, so alerts cannot arrive.")
             }
-            if (!alertsEnabled) add("Alerts are switched off in QuakeAlert.")
+            if (!alertsEnabled) add("Earthquake warnings are turned off. Re-enable them in Settings.")
             if (lastSyncLabel == null) {
                 add(
                     if (autoSyncEnabled) {
@@ -85,7 +89,9 @@ data class ProtectionStatus(
             }
             // All clear: one calm row instead of the absence of rows, which would leave
             // the expanded notification looking empty rather than looking fine.
-            if (isEmpty()) add("Alerts can reach you. Location synced $lastSyncLabel.")
+            if (deliverable && lastSyncLabel != null && batteryUnrestricted) {
+                add("Watching within $radiusLabel of you.")
+            }
             add(lastAlertLabel?.let { "Last alert: $it" } ?: "No alerts since you installed QuakeAlert.")
         }
 }

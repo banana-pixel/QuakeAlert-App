@@ -55,6 +55,7 @@ fun WarningRoute(
     viewModel: WarningViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val protectionFacts by viewModel.protectionFacts.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val shareEvent: (QuakeHistoryItem) -> Unit = remember(context) {
@@ -87,6 +88,7 @@ fun WarningRoute(
 
     WarningScreen(
         uiState = uiState,
+        protectionFacts = protectionFacts,
         health = health,
         onOpenUpdates = onOpenUpdates,
         onSeeDetails = viewModel::onSeeDetailsClicked,
@@ -149,6 +151,7 @@ fun WarningRoute(
 @Composable
 fun WarningScreen(
     uiState: WarningUiState,
+    protectionFacts: ProtectionFacts = ProtectionFacts(),
     health: ServerHealth = ServerHealth.HEALTHY,
     onOpenUpdates: () -> Unit = {},
     onSeeDetails: () -> Unit,
@@ -230,6 +233,8 @@ fun WarningScreen(
     if (idle?.isProtectionStatusOpen == true) {
         ProtectionStatusModalDialog(
             radiusLabel = uiState.alertRadiusLabel,
+            alertsEnabled = protectionFacts.alertsEnabled,
+            notificationsPermitted = protectionFacts.notificationsPermitted,
             onDismiss = onProtectionStatusDismissed
         )
     }

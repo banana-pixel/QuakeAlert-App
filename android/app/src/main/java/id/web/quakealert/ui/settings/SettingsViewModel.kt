@@ -134,16 +134,44 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     /**
      * Toggles the user's own alert switch.
      *
+     * Turning it ON is immediate — re-enabling protection should never need a
+     * confirmation. Turning it OFF opens the confirm dialog instead of persisting:
+     * the switch flips visually only after [onNotificationsDisableConfirmed]. The
+     * pending flag is transient state; until confirmed, nothing has changed.
+     *
      * Turning it on without the OS grant is reported rather than silently stored as
      * "on": the switch would then claim alerts are enabled while the system drops
      * every notification.
      */
     fun onNotificationsToggled(enabled: Boolean) {
+        if (enabled) {
+            setNotificationsEnabled(true)
+            if (!getApplication<Application>().canPostNotifications()) {
+                post("Allow notifications in system settings for alerts to arrive")
+            }
+        } else {
+            _uiState.update { it.copy(pendingNotificationsDisable = true) }
+        }
+    }
+
+    /**
+     * "Cancel" on the turn-off dialog: discard the request, leave the setting alone.
+     */
+    fun onNotificationsDisableCancelled() {
+        _uiState.update { it.copy(pendingNotificationsDisable = false) }
+    }
+
+    /**
+     * "Turn off" on the dialog: now, and only now, does the setting persist off.
+     */
+    fun onNotificationsDisableConfirmed() {
+        _uiState.update { it.copy(pendingNotificationsDisable = false) }
+        setNotificationsEnabled(false)
+    }
+
+    private fun setNotificationsEnabled(enabled: Boolean) {
         repository.setNotificationsEnabled(enabled)
         _uiState.update { it.copy(notificationsEnabled = enabled) }
-        if (enabled && !getApplication<Application>().canPostNotifications()) {
-            post("Allow notifications in system settings for alerts to arrive")
-        }
     }
 
     /**

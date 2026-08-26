@@ -14,6 +14,7 @@ import id.web.quakealert.data.network.mapper.toHistoryItem
 import id.web.quakealert.device.AlertSiren
 import id.web.quakealert.device.DeviceCountry
 import id.web.quakealert.device.TorchController
+import id.web.quakealert.device.canPostNotifications
 import id.web.quakealert.domain.AlertGate
 import id.web.quakealert.domain.AlertType
 import id.web.quakealert.domain.EarthquakeEvent
@@ -31,12 +32,23 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.math.roundToInt
+
+/**
+ * The two delivery facts the Protection Status overlay reports: the user's alert
+ * switch and the OS notification grant. A plain pair rather than part of the sealed
+ * [WarningUiState] — see [WarningViewModel.protectionFacts].
+ */
+data class ProtectionFacts(
+    val alertsEnabled: Boolean = true,
+    val notificationsPermitted: Boolean = true
+)
 
 /**
  * Hosts the [WarningUiState] for the Warning screen and exposes it as a
@@ -72,6 +84,19 @@ import kotlin.math.roundToInt
 class WarningViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = AppSettingsRepository(application)
+
+    /**
+     * The two facts the Protection Status overlay states about delivery: the user's
+     * own switch and the OS notification grant. Collected into plain state rather
+     * than folded into [uiState] because they are read only when the overlay opens,
+     * and threading them through the sealed hierarchy would touch every variant for
+     * a value nothing else on the screen renders.
+     */
+    val protectionFacts: StateFlow<ProtectionFacts> = combine(
+        repository.notificationsEnabled,
+        flow { emit(getApplication<Application>().canPostNotifications()) }
+    ) { enabled, permitted -> ProtectionFacts(enabled, permitted) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProtectionFacts())
 
     private val network = QuakeNetwork.from(application)
 

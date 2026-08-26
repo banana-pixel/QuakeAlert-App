@@ -129,7 +129,7 @@ object StatusNotifier {
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
             // The app's name as sub-text: on a collapsed MIN row the headline is all the
-            // user sees, and "Watching for earthquakes near you" does not say who is.
+            // user sees, and "Earthquake protection active" does not say who is watching.
             .setSubText("QuakeAlert")
             .addAction(action)
             .build()

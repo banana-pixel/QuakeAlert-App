@@ -66,6 +66,9 @@ enum class AppLanguage(val label: String, val tag: String) {
  * @param isRerolling a pseudonym reroll is in flight.
  * @param isResetting a profile reset (new identity) is in flight.
  * @param showResetDialog whether the destructive-reset confirmation is open.
+ * @param pendingNotificationsDisable whether the turn-off-warnings confirmation is
+ *   open. Transient UI state only — the setting itself persists through
+ *   [AppSettingsRepository.setNotificationsEnabled] when the dialog is confirmed.
  * @param lightMode "Light Mode (Beta)" toggle — inert and badged "Coming Soon"
  *   while the app stays dark-theme only.
  * @param language selected app language. Also inert: the strings ship in English
@@ -94,6 +97,7 @@ data class SettingsUiState(
     val isRerolling: Boolean = false,
     val isResetting: Boolean = false,
     val showResetDialog: Boolean = false,
+    val pendingNotificationsDisable: Boolean = false,
     val lightMode: Boolean = false,
     val language: AppLanguage = AppLanguage.EN,
     val unitSystem: UnitSystem = UnitSystem.METRIC,

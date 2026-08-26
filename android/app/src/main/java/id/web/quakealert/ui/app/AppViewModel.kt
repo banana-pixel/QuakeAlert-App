@@ -4,11 +4,13 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import id.web.quakealert.data.AppSettingsRepository
+import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.data.network.QuakeNetwork
 import id.web.quakealert.data.network.mapper.QuakeFormat
 import id.web.quakealert.device.canPostNotifications
 import id.web.quakealert.device.isBatteryUnrestricted
 import id.web.quakealert.domain.ProtectionStatus
+import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.service.StatusNotifier
 import id.web.quakealert.service.WarningNotifier
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +46,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = AppSettingsRepository(application)
 
     private val network = QuakeNetwork.from(application)
+
+    /** Current unit system, for the status notification's radius line. */
+    private val unitSystem = MutableStateFlow(UnitSystem.METRIC)
+
+    init {
+        viewModelScope.launch {
+            repository.unitSystem.collect { unitSystem.value = it }
+        }
+    }
 
     /**
      * The two OS-owned facts behind the status notification, refreshed on every
@@ -141,20 +152,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             combine(preferences, systemState, repository.lastAlert) { prefs, system, lastAlert ->
-                if (!prefs.enabled) {
-                    null
-                } else {
-                    ProtectionStatus(
-                        alertsEnabled = prefs.alertsEnabled,
-                        notificationsPermitted = system.notificationsPermitted,
-                        autoSyncEnabled = prefs.autoSyncEnabled,
-                        batteryUnrestricted = system.batteryUnrestricted,
-                        lastSyncLabel = prefs.lastSyncAtMs?.let(::relativeLabel),
-                        lastAlertLabel = lastAlert?.let {
-                            "${it.summary}, ${relativeLabel(it.atMs)}"
-                        }
+                // No early-out on alertsEnabled: a switched-off app still posts its
+                // status, reading "Earthquake protection disabled" — the shade line is
+                // the one surface that speaks while nothing is running, and silence
+                // there would look like the app died rather than like a choice. Only
+                // the status-notification toggle itself clears it.
+                ProtectionStatus(
+                    alertsEnabled = prefs.alertsEnabled,
+                    notificationsPermitted = system.notificationsPermitted,
+                    autoSyncEnabled = prefs.autoSyncEnabled,
+                    batteryUnrestricted = system.batteryUnrestricted,
+                    lastSyncLabel = prefs.lastSyncAtMs?.let(::relativeLabel),
+                    lastAlertLabel = lastAlert?.let {
+                        "${it.summary}, ${relativeLabel(it.atMs)}"
+                    },
+                    radiusLabel = unitSystem.value.formatDistance(
+                        SafetyPolicy.ALERT_RADIUS_KM
                     )
-                }
+                )
             }
                 .distinctUntilChanged()
                 .collect { status ->

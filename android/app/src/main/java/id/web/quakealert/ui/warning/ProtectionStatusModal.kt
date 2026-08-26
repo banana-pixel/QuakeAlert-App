@@ -44,11 +44,16 @@ import kotlin.math.roundToInt
  * overlay it is there when asked for and gone otherwise.
  *
  * @param radiusLabel the fixed alert radius in the user's unit system.
+ * @param alertsEnabled the user's earthquake-warnings switch (Settings).
+ * @param notificationsPermitted the OS `POST_NOTIFICATIONS` grant; false means every
+ *   warning is dropped no matter what either switch says.
  * @param onDismiss invoked by the close button, back press or an outside tap.
  */
 @Composable
 fun ProtectionStatusModalDialog(
     radiusLabel: String,
+    alertsEnabled: Boolean,
+    notificationsPermitted: Boolean,
     onDismiss: () -> Unit
 ) {
     Dialog(
@@ -57,6 +62,8 @@ fun ProtectionStatusModalDialog(
     ) {
         ProtectionStatusModal(
             radiusLabel = radiusLabel,
+            alertsEnabled = alertsEnabled,
+            notificationsPermitted = notificationsPermitted,
             onDismiss = onDismiss,
             modifier = Modifier.padding(Dimens.ScreenHorizontalPadding)
         )
@@ -65,8 +72,11 @@ fun ProtectionStatusModalDialog(
 
 /**
  * Stateless card behind [ProtectionStatusModalDialog]: the shared
- * [QuakeModalHeader], the mode and its always-on badge, then the two rules in
- * force ([SafetyPolicy]).
+ * [QuakeModalHeader], the mode with a badge that states the actual state, then the
+ * two rules in force ([SafetyPolicy]).
+ *
+ * The badge is the honesty surface: it mirrors [ProtectionStatus.headline]'s ranking
+ * (permission blocked > user switch off > active) rather than ever claiming "always".
  *
  * Nothing here is tappable and it does not pretend to be — no switch shape, no
  * chevron. The coverage radius was a slider once; the setting itself was the
@@ -82,6 +92,8 @@ fun ProtectionStatusModalDialog(
 @Composable
 fun ProtectionStatusModal(
     radiusLabel: String,
+    alertsEnabled: Boolean,
+    notificationsPermitted: Boolean,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -105,7 +117,7 @@ fun ProtectionStatusModal(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(text = "Automatic", style = CardTitle, color = TextPrimary)
-            InfoPill(text = "Always on")
+            InfoPill(text = statusBadge(alertsEnabled, notificationsPermitted))
         }
 
         ProtectionRule(
@@ -122,8 +134,41 @@ fun ProtectionStatusModal(
                 "wherever you are. At that size there is no distance at which you " +
                 "did not need to know."
         )
+
+        if (!alertsEnabled || !notificationsPermitted) {
+            ProtectionRule(
+                title = if (alertsEnabled) {
+                    "Warnings cannot be delivered"
+                } else {
+                    // The badge already says "Turned off"; the row is the fix, not an
+                    // echo of the fact.
+                    "Re-enable earthquake warnings in Settings."
+                },
+                detail = if (alertsEnabled) {
+                    // Permission blocked: the app wants to warn, the OS will not post.
+                    "Notifications are blocked in system settings. Allow them for " +
+                        "QuakeAlert so warnings can reach your screen."
+                } else {
+                    // User switch off: point at where it lives.
+                    "The earthquake-warnings switch is on the Settings screen. " +
+                        "Turning it back on restores protection immediately."
+                }
+            )
+        }
     }
 }
+
+/**
+ * The badge text next to "Automatic", mirroring [ProtectionStatus.headline]'s
+ * ranking: a revoked grant is the loudest fact, then the user's own switch, then
+ * active protection. One word each — the rules below carry the explanation.
+ */
+private fun statusBadge(alertsEnabled: Boolean, notificationsPermitted: Boolean): String =
+    when {
+        !notificationsPermitted -> "Blocked"
+        !alertsEnabled -> "Turned off"
+        else -> "Active"
+    }
 
 /**
  * One rule inside [ProtectionStatusModal]: a bold claim and the reason for it.
@@ -143,6 +188,11 @@ private fun ProtectionRule(title: String, detail: String) {
 @Composable
 private fun ProtectionStatusModalPreview() {
     QuakeAlertTheme {
-        ProtectionStatusModal(radiusLabel = "200 km", onDismiss = {})
+        ProtectionStatusModal(
+            radiusLabel = "200 km",
+            alertsEnabled = true,
+            notificationsPermitted = true,
+            onDismiss = {}
+        )
     }
 }

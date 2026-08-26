@@ -171,6 +171,8 @@ fun SettingsRoute(
         onAutoSyncToggled = viewModel::onAutoSyncToggled,
         onSyncLocationNow = syncLocation,
         onNotificationsToggled = viewModel::onNotificationsToggled,
+        onNotificationsDisableConfirmed = viewModel::onNotificationsDisableConfirmed,
+        onNotificationsDisableCancelled = viewModel::onNotificationsDisableCancelled,
         onStatusNotificationToggled = viewModel::onStatusNotificationToggled,
         onTestNotification = viewModel::onTestNotification,
         onTestAlertSound = { showTestAlertSound = true },
@@ -273,6 +275,8 @@ fun SettingsScreen(
     onAutoSyncToggled: (Boolean) -> Unit,
     onSyncLocationNow: () -> Unit,
     onNotificationsToggled: (Boolean) -> Unit,
+    onNotificationsDisableConfirmed: () -> Unit,
+    onNotificationsDisableCancelled: () -> Unit,
     onStatusNotificationToggled: (Boolean) -> Unit,
     onTestNotification: () -> Unit,
     onTestAlertSound: () -> Unit,
@@ -569,6 +573,50 @@ fun SettingsScreen(
             onDismiss = onResetProfileDismissed
         )
     }
+
+    if (uiState.pendingNotificationsDisable) {
+        NotificationsDisableDialog(
+            onConfirm = onNotificationsDisableConfirmed,
+            onDismiss = onNotificationsDisableCancelled
+        )
+    }
+}
+
+/**
+ * Confirmation for turning earthquake warnings off.
+ *
+ * Re-enabling is immediate; only switching OFF asks, because OFF is the state whose
+ * cost — no warning during an actual quake — is paid later and elsewhere. The copy
+ * names that consequence rather than asking a generic "are you sure?".
+ */
+@Composable
+private fun NotificationsDisableDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardSurface,
+        title = { Text(text = "Turn off earthquake warnings?", style = CardTitle) },
+        text = {
+            Text(
+                text = "You won't receive earthquake warnings while this setting " +
+                    "is turned off.",
+                style = CardSubtitle,
+                color = TextSecondary
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(text = "Turn off", style = ChipLabel, color = MmiRed)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "Cancel", style = ChipLabel, color = TextPrimary)
+            }
+        }
+    )
 }
 
 /**
@@ -675,6 +723,8 @@ private fun SettingsScreenPreview() {
             onFixNotifications = {},
             onFixLocation = {},
             onNotificationsToggled = {},
+            onNotificationsDisableConfirmed = {},
+            onNotificationsDisableCancelled = {},
             onStatusNotificationToggled = {},
             onTestNotification = {},
             onTestAlertSound = {},

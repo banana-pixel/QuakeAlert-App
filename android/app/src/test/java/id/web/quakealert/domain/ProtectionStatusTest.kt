@@ -21,20 +21,28 @@ class ProtectionStatusTest {
         autoSyncEnabled: Boolean = true,
         batteryUnrestricted: Boolean = true,
         lastSyncLabel: String? = "2 minutes ago",
-        lastAlertLabel: String? = null
+        lastAlertLabel: String? = null,
+        radiusLabel: String = "200 km"
     ) = ProtectionStatus(
         alertsEnabled = alertsEnabled,
         notificationsPermitted = notificationsPermitted,
         autoSyncEnabled = autoSyncEnabled,
         batteryUnrestricted = batteryUnrestricted,
         lastSyncLabel = lastSyncLabel,
-        lastAlertLabel = lastAlertLabel
+        lastAlertLabel = lastAlertLabel,
+        radiusLabel = radiusLabel
     )
 
     @Test
     fun `everything in place is the only all-clear`() {
-        assertEquals("Watching for earthquakes near you", status().headline)
+        assertEquals("Earthquake protection active", status().headline)
         assertTrue(status().deliverable)
+    }
+
+    @Test
+    fun `healthy body names the coverage radius`() {
+        val lines = status().lines
+        assertTrue(lines.contains("Watching within 200 km of you."))
     }
 
     @Test
@@ -49,8 +57,9 @@ class ProtectionStatusTest {
     @Test
     fun `the user's own switch is reported as theirs, not as a fault`() {
         val off = status(alertsEnabled = false)
-        assertEquals("Alerts are turned off", off.headline)
-        assertTrue(off.lines.contains("Alerts are switched off in QuakeAlert."))
+        assertEquals("Earthquake protection disabled", off.headline)
+        assertTrue(off.lines.contains("Earthquake warnings are turned off. Re-enable them in Settings."))
+        assertFalse(off.deliverable)
     }
 
     @Test
@@ -89,7 +98,7 @@ class ProtectionStatusTest {
         // and four problems are four rows.
         val clear = status().lines
         assertEquals(2, clear.size)
-        assertEquals("Alerts can reach you. Location synced 2 minutes ago.", clear.first())
+        assertEquals("Watching within 200 km of you.", clear.first())
 
         assertEquals(2, status(batteryUnrestricted = false).lines.size)
         assertEquals(2, status(alertsEnabled = false).lines.size)
