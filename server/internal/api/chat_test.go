@@ -18,7 +18,7 @@ func (f *fakeFanout) BroadcastChat(e ChatEvent) { f.events = append(f.events, e)
 
 // chatServer membangun Server chat lengkap dengan router terautentikasi.
 func chatServer(repo Repo, limiter RateLimiter, fanout ChatFanout) (*Server, http.Handler) {
-	srv := NewServer(repo, fakeCipher{}, limiter,
+	srv := NewServer(repo, fakeDecryptCipher{}, limiter,
 		MQTTPublic{Broker: "b", Port: 8883, TLS: true},
 		AuthConfig{JWTSecret: []byte(testSecret), TokenTTL: testTokenTTL},
 		testLogger())

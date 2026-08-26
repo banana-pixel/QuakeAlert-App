@@ -28,7 +28,7 @@ func (f *fakeBroadcastFanout) BroadcastAdmin(b AdminBroadcast) { f.got = append(
 
 // newAdminServer membangun handler dengan kunci operator terpasang.
 func newAdminServer(repo Repo, fanout BroadcastFanout, key string) http.Handler {
-	srv := NewServer(repo, fakeCipher{}, NewMemoryRateLimiter(),
+	srv := NewServer(repo, fakeDecryptCipher{}, NewMemoryRateLimiter(),
 		MQTTPublic{Broker: "b", Port: 8883, TLS: true},
 		AuthConfig{JWTSecret: []byte(testSecret), TokenTTL: testTokenTTL},
 		testLogger())

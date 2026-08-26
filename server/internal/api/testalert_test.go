@@ -19,7 +19,7 @@ func (f *fakeTestAlertFanout) DispatchTestAlert(t TestAlert) { f.got = append(f.
 // terpasang. fanout nil sengaja dibiarkan mungkin: itu keadaan yang harus
 // menjawab 503, bukan 200.
 func newDrillServer(fanout TestAlertFanout, key string) http.Handler {
-	srv := NewServer(&fakeRepo{}, fakeCipher{}, NewMemoryRateLimiter(),
+	srv := NewServer(&fakeRepo{}, fakeDecryptCipher{}, NewMemoryRateLimiter(),
 		MQTTPublic{Broker: "b", Port: 8883, TLS: true},
 		AuthConfig{JWTSecret: []byte(testSecret), TokenTTL: testTokenTTL},
 		testLogger())

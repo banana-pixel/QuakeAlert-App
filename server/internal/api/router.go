@@ -46,6 +46,9 @@ func (s *Server) Router(wsHandler http.HandlerFunc, log *slog.Logger) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Use(AuthMiddleware(s.auth.JWTSecret, log))
 		r.Post("/api/v1/nodes/provision", s.HandleProvision)
+		// Pembatalan registrasi: capability = provisioning secret mentah
+		// (ADR-0003), hanya node verified=FALSE, idempoten. Lihat HandleRevokeNode.
+		r.Post("/api/v1/nodes/revoke", s.HandleRevokeNode)
 		r.Get("/api/v1/sensors", s.HandleListSensors)
 		r.Post("/api/v1/users/pseudonym/reroll", s.HandleRerollPseudonym)
 		r.Put("/api/v1/users/location", s.HandleUpdateLocation)

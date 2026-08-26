@@ -49,7 +49,7 @@ func TestHealthz_DatabaseDownIs503(t *testing.T) {
 // alert yang sudah terdispatch tetap sampai — keadaan 'terbatas', bukan 'mati'.
 func TestHealthz_MQTTDownStays200(t *testing.T) {
 	repo := &fakeRepo{}
-	srv := NewServer(repo, fakeCipher{}, NewMemoryRateLimiter(),
+	srv := NewServer(repo, fakeDecryptCipher{}, NewMemoryRateLimiter(),
 		MQTTPublic{Broker: "b", Port: 8883, TLS: true},
 		AuthConfig{JWTSecret: []byte(testSecret), TokenTTL: testTokenTTL},
 		testLogger())

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -162,6 +163,8 @@ type Repo interface {
 	ListBroadcastsForUser(ctx context.Context, userID string, limit int) ([]store.Broadcast, error)
 	ListUnverifiedNodes(ctx context.Context) ([]store.PendingNode, error)
 	SetNodeVerified(ctx context.Context, stationID string, verified bool) (bool, error)
+	DeleteUnverifiedNode(ctx context.Context, stationID string) (bool, error)
+	GetNodeSecret(ctx context.Context, stationID string) (*store.NodeSecret, error)
 	Ping(ctx context.Context) error
 }
 
@@ -169,6 +172,11 @@ type Repo interface {
 // AES-256-GCM sebelum disimpan (implementasi: crypto.Cipher).
 type SecretEncryptor interface {
 	Encrypt(plaintext []byte) (ciphertext, nonce []byte, err error)
+	// Decrypt membuka kembali secret tersimpan. Dipakai dua jalur yang sama
+	// sifatnya: verifikasi HMAC trigger (internal/ingest) dan pembuktian
+	// capability pada POST /nodes/revoke — keduanya membandingkan secret mentah
+	// dan keduanya butuh perbandingan constant-time.
+	Decrypt(ciphertext, nonce []byte) ([]byte, error)
 }
 
 // MQTTPublic adalah konfigurasi broker publik yang dikembalikan saat provisioning.
@@ -426,6 +434,134 @@ func (s *Server) HandleProvision(w http.ResponseWriter, r *http.Request) {
 		MQTTPort:           s.mqtt.Port,
 		MQTTTLS:            s.mqtt.TLS,
 	})
+}
+
+// --- Revoke handler ---
+
+// revokeWindow adalah cooldown pembatalan registrasi per user. Pembatalan bukan
+// aksi yang layak ditekan berulang-ulang dari wizard, tetapi endpoint ini
+// menerima secret mentah di body — pagar laju murah menutup jalur brute-force
+// sebelum kripto sempat dijalankan.
+const revokeWindow = 12 * time.Minute
+
+type revokeRequest struct {
+	StationID          string `json:"station_id"`
+	ProvisioningSecret string `json:"provisioning_secret"`
+}
+
+type revokeResponse struct {
+	StationID string `json:"station_id"`
+	Deleted   bool   `json:"deleted"`
+}
+
+// HandleRevokeNode menghapus node yang belum terverifikasi, dibuktikan dengan
+// secret provisioning mentahnya (capability-based: tidak ada kolom owner pada
+// iot_nodes, jadi kepemilikan DIBUKTIKAN lewat pengetahuan, bukan identitas).
+//
+// Alur keputusan:
+//
+//  1. JWT auth + rate limit per user (pagar luar; secret tak pernah masuk log).
+//  2. station_id divalidasi terhadap pola kontrak sebelum disentuh DB.
+//  3. GetNodeSecret → tidak ada baris = sudah pernah dibatalkan / tidak pernah
+//     ada → 200 {"deleted":false}: IDEMPOTEN, retry setelah sukses bukan error.
+//  4. Secret tersimpan di-decrypt (AES-256-GCM) dan dibandingkan constant-time
+//     dengan yang diklaim. Tidak cocok = 403 tanpa mengungkap apa pun tentang
+//     node lain.
+//  5. DeleteUnverifiedNode — predikat verified=FALSE ada DI DALAM SQL, jadi
+//     balapan dengan verifikasi operator terserialisasi di lock baris Postgres:
+//     tepat satu pemenang, dan node terverifikasi mustahil terhapus. 0 baris
+//     berarti node menjadi terverifikasi di antara langkah 3-4 → 409.
+//
+// Secret tidak PERNAH dicatat: log hanya memuat station_id dan hasil. Body
+// respons juga tidak memuatnya.
+func (s *Server) HandleRevokeNode(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "UNAUTHENTICATED", "user tidak terautentikasi")
+		return
+	}
+	allowed, err := s.limiter.Allow(r.Context(), "revoke:user:"+userID, revokeWindow)
+	if err != nil {
+		s.log.Error("rate limiter error (revoke)", "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal memeriksa rate limit")
+		return
+	}
+	if !allowed {
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED",
+			"pembatalan dibatasi, coba lagi nanti")
+		return
+	}
+
+	var req revokeRequest
+	if !s.decodeBody(w, r, &req) {
+		return
+	}
+	stationID := req.StationID
+	if !stationIDPattern.MatchString(stationID) {
+		// Salah bentuk adalah kesalahan panggilan, bukan rahasia yang bocor:
+		// 404 seperti pada verify admin, tanpa menyentuh basis data.
+		writeError(w, http.StatusNotFound, "NODE_NOT_FOUND",
+			"station_id harus berpola NODE-XXXXXXXX (hex kapital)")
+		return
+	}
+
+	node, err := s.repo.GetNodeSecret(r.Context(), stationID)
+	if errors.Is(err, store.ErrNodeNotFound) {
+		// Idempoten: membatalkan dua kali (retry jaringan, double-tap) harus
+		// sama hasilnya dengan sekali. Klien memperlakukan deleted=false ini
+		// sebagai sukses.
+		s.log.Info("revoke: node tidak dikenal (idempoten)", "station_id", stationID)
+		writeJSON(w, http.StatusOK, revokeResponse{StationID: stationID, Deleted: false})
+		return
+	}
+	if err != nil {
+		s.log.Error("gagal ambil node secret", "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal memuat node")
+		return
+	}
+	if node.Verified {
+		// Node yang sudah dipercaya operator keluar dari yurisdiksi pengguna:
+		// penarikan kepercayaan adalah aksi admin (verify-node), bukan pembatalan.
+		s.log.Warn("revoke ditolak: node sudah terverifikasi", "station_id", stationID)
+		writeError(w, http.StatusConflict, "NODE_VERIFIED",
+			"node sudah diverifikasi operator dan tidak dapat dibatalkan pengguna")
+		return
+	}
+
+	stored, err := s.cipher.Decrypt(node.SecretEnc, node.SecretNonce)
+	if err != nil {
+		// Gagal dekripsi adalah kerusakan internal (key_version mismatch dsb.);
+		// JANGAN jatuh ke perbandingan gagal-terbuka yang memicu 403.
+		s.log.Error("gagal dekripsi secret node", "station_id", stationID, "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal memverifikasi secret")
+		return
+	}
+	if subtle.ConstantTimeCompare(stored, []byte(req.ProvisioningSecret)) != 1 {
+		// 403 generik, timing-safe: pesan tidak membedakan salah-id vs salah-secret.
+		s.log.Warn("revoke ditolak: secret tidak cocok", "station_id", stationID)
+		writeError(w, http.StatusForbidden, "SECRET_MISMATCH",
+			"provisioning_secret tidak cocok untuk station_id ini")
+		return
+	}
+
+	deleted, err := s.repo.DeleteUnverifiedNode(r.Context(), stationID)
+	if err != nil {
+		s.log.Error("gagal hapus node pending", "station_id", stationID, "err", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "gagal menghapus node")
+		return
+	}
+	if !deleted {
+		// Secret benar, tapi baris lolos predikat verified=FALSE: operator
+		// mengonfirmasi node di antara GetNodeSecret dan DELETE. Balapan
+		// terserialisasi di SQL; sisi kita kalah dengan aman.
+		s.log.Warn("revoke kalah balapan verifikasi", "station_id", stationID)
+		writeError(w, http.StatusConflict, "NODE_VERIFIED",
+			"node sudah diverifikasi operator dan tidak dapat dibatalkan pengguna")
+		return
+	}
+
+	s.log.Info("node pending dibatalkan", "station_id", stationID)
+	writeJSON(w, http.StatusOK, revokeResponse{StationID: stationID, Deleted: true})
 }
 
 // --- Sensors handler ---

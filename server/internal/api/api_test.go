@@ -63,6 +63,13 @@ type fakeRepo struct {
 	verifiedID    string
 	verifiedTo    bool
 
+	// Revoke (POST /nodes/revoke)
+	nodeSecret     *store.NodeSecret
+	nodeSecretErr  error
+	deleteErr      error
+	deleteAffected bool
+	deletedID      string
+
 	// Events
 	events      []store.Event
 	eventsErr   error
@@ -233,6 +240,37 @@ func (f *fakeRepo) SetNodeVerified(_ context.Context, stationID string, verified
 	return !f.verifyMissing, nil
 }
 
+func (f *fakeRepo) GetNodeSecret(_ context.Context, _ string) (*store.NodeSecret, error) {
+	if f.nodeSecretErr != nil {
+		return nil, f.nodeSecretErr
+	}
+	if f.nodeSecret == nil {
+		return nil, store.ErrNodeNotFound
+	}
+	return f.nodeSecret, nil
+}
+
+func (f *fakeRepo) DeleteUnverifiedNode(_ context.Context, stationID string) (bool, error) {
+	if f.deleteErr != nil {
+		return false, f.deleteErr
+	}
+	f.deletedID = stationID
+	return f.deleteAffected, nil
+}
+
+// fakeDecryptCipher melengkapi fakeCipher dengan Decrypt yang merekonstruksi
+// plaintext dari skema "enc:<pt>" milik Encrypt — cukup untuk membuktikan alur
+// handler tanpa kripto nyata.
+type fakeDecryptCipher struct{ fakeCipher }
+
+func (fakeDecryptCipher) Decrypt(ct, _ []byte) ([]byte, error) {
+	const prefix = "enc:"
+	if len(ct) < len(prefix) || string(ct[:len(prefix)]) != prefix {
+		return nil, errors.New("ciphertext rusak")
+	}
+	return ct[len(prefix):], nil
+}
+
 type fakeCipher struct{}
 
 func (fakeCipher) Encrypt(pt []byte) (ct, nonce []byte, err error) {
@@ -265,7 +303,7 @@ const testSecret = "this-is-a-32-byte-minimum-secret!"
 const testTokenTTL = 24 * time.Hour
 
 func newTestServer(repo Repo, limiter RateLimiter) http.Handler {
-	srv := NewServer(repo, fakeCipher{}, limiter,
+	srv := NewServer(repo, fakeDecryptCipher{}, limiter,
 		MQTTPublic{Broker: "b", Port: 8883, TLS: true},
 		AuthConfig{JWTSecret: []byte(testSecret), TokenTTL: testTokenTTL},
 		testLogger())
@@ -1210,6 +1248,7 @@ func TestRouter_TingkatAkses(t *testing.T) {
 		{"events publik", http.MethodGet, "/api/v1/events", http.StatusOK},
 		{"sensors wajib auth", http.MethodGet, "/api/v1/sensors", http.StatusUnauthorized},
 		{"provision wajib auth", http.MethodPost, "/api/v1/nodes/provision", http.StatusUnauthorized},
+		{"revoke wajib auth", http.MethodPost, "/api/v1/nodes/revoke", http.StatusUnauthorized},
 		{"reroll wajib auth", http.MethodPost, "/api/v1/users/pseudonym/reroll", http.StatusUnauthorized},
 		{"lokasi wajib auth", http.MethodPut, "/api/v1/users/location", http.StatusUnauthorized},
 		{"fcm wajib auth", http.MethodPut, "/api/v1/users/fcm-token", http.StatusUnauthorized},
