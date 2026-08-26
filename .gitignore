@@ -60,6 +60,7 @@ server/pgdata/
 .env.prod
 deploy/.env.prod
 !deploy/.env.prod.example
+deploy/.env.staging
 # Hash password MQTT: bukan plaintext, tetapi cukup untuk serangan offline.
 deploy/mosquitto/passwd
 # Sertifikat + kunci privat broker, disalin dari volume Caddy oleh
@@ -70,3 +71,6 @@ deploy/mosquitto/certs/
 # mount read-only di compose tidak dibuatkan Docker sebagai direktori milik root.
 deploy/secrets/*
 !deploy/secrets/.gitkeep
+
+# Firebase config files (root-level staging copies; the app/ one is already ignored)
+google-services*.json
