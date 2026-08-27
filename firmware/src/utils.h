@@ -19,7 +19,6 @@ void setLocationStatusUnknown();
 void setLocationStatusSearching();
 void setLocationStatusWifiDisconnected();
 void setLastEventTime(const char* waktu);
-void setLastIntensity(const char* intensity);
 void setLastPga(const char* pgaText);
 void setNtpSyncStatus(bool synced);
 
@@ -30,7 +29,6 @@ bool getStationIdCopy(char* destination, size_t destinationSize);
 size_t getHmacKeyCopy(char* destination, size_t destinationSize);
 
 bool getLastEventTimeCopy(char* destination, size_t destinationSize);
-bool getLastIntensityCopy(char* destination, size_t destinationSize);
 
 bool getWaktuString(char* destination, size_t destinationSize);
 bool getUptimeString(char* destination, size_t destinationSize);
@@ -54,7 +52,11 @@ bool getClockOffsetMs(int64_t& offsetMs);
 // Dicatat oleh checkNtpSync() setiap kali jam yang SUDAH pernah sinkron dikoreksi.
 void setClockOffsetMs(int64_t offsetMs);
 
-const char* intensityToText(float pgaValue);
+// intensityToText() dihapus (D18/A11). Bandanya (0.5/2.8/6.2/12/22/40/75/139 gal)
+// menyimpang sekitar 3 derajat MMI dari centroid.go::MMIFromPGA pada 40 gal — dua
+// skala independen untuk satu besaran fisis. Intensitas adalah INTERPRETASI dan
+// tinggal di server, tempat interpretasinya dibuat; node melaporkan PGA, yaitu
+// pengukurannya.
 float calculateHeapFragmentationPercent(uint32_t freeHeap, uint32_t maxAllocHeap);
 
 #endif  // UTILS_H

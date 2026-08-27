@@ -39,10 +39,6 @@ void IRAM_ATTR DMPDataReady() {
 // yang perlu dilindungi mutex.
 static int64_t currentObsSeq = 0;
 
-const char* toIntensity(float pga_val) {
-    return intensityToText(pga_val);
-}
-
 bool initializeSensorInterrupts() {
     if (mpuInterruptSemaphore == nullptr) {
         return false;

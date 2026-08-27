@@ -142,7 +142,6 @@
 #define MQTT_HEARTBEAT_BUFFER_SIZE  320
 #define LOCATION_TEXT_BUFFER_SIZE   96
 #define STATION_ID_BUFFER_SIZE      16
-#define INTENSITY_TEXT_BUFFER_SIZE  24
 #define TIME_TEXT_BUFFER_SIZE       32
 
 // ========================================

@@ -144,7 +144,6 @@ extern Preferences preferences;
 // LAST EVENT INFO
 // ========================================
 extern char lastPgaStr[16];
-extern char lastIntensity[INTENSITY_TEXT_BUFFER_SIZE];
 extern char lastEventTime[TIME_TEXT_BUFFER_SIZE];
 
 // ========================================

@@ -8,7 +8,6 @@
 #include <Arduino.h>
 
 void IRAM_ATTR DMPDataReady();
-const char* toIntensity(float pga_val);
 void initMPU();
 void processSensorData();
 void sensorTask(void* pvParameters);

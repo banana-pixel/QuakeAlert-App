@@ -298,7 +298,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         char uptime[32];
         char currentTime[TIME_TEXT_BUFFER_SIZE];
         char eventTime[TIME_TEXT_BUFFER_SIZE];
-        char intensity[INTENSITY_TEXT_BUFFER_SIZE];
         char wifiStrength[24];
         char chipTemp[16];
 
@@ -307,7 +306,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         getUptimeString(uptime, sizeof(uptime));
         getWaktuString(currentTime, sizeof(currentTime));
         getLastEventTimeCopy(eventTime, sizeof(eventTime));
-        getLastIntensityCopy(intensity, sizeof(intensity));
 
         const long rssi = WiFi.RSSI();
         snprintf(
@@ -339,7 +337,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         doc["dmpStatus"] = DMPReady ? "Siap" : "Gagal";
         doc["chipTemp"] = chipTemp;
         doc["lastEventTime"] = eventTime;
-        doc["lastIntensity"] = intensity;
         doc["lastPga"] = lastPgaStr;
         doc["mpuOverflows"] = mpuOverflowCount;
         doc["restarts"] = bootCount;

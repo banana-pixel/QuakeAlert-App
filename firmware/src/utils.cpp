@@ -155,18 +155,6 @@ void setLastEventTime(const char* waktu) {
     }
 }
 
-void setLastIntensity(const char* intensity) {
-    if (stateMutex != nullptr) {
-        xSemaphoreTake(stateMutex, portMAX_DELAY);
-    }
-
-    copyStringLocked(lastIntensity, sizeof(lastIntensity), intensity);
-
-    if (stateMutex != nullptr) {
-        xSemaphoreGive(stateMutex);
-    }
-}
-
 void setLastPga(const char* pgaText) {
     if (stateMutex != nullptr) {
         xSemaphoreTake(stateMutex, portMAX_DELAY);
@@ -280,25 +268,6 @@ bool getLastEventTimeCopy(char* destination, size_t destinationSize) {
     return ok;
 }
 
-bool getLastIntensityCopy(char* destination, size_t destinationSize) {
-    if (destination == nullptr || destinationSize == 0) {
-        return false;
-    }
-
-    bool ok;
-    if (stateMutex != nullptr) {
-        xSemaphoreTake(stateMutex, portMAX_DELAY);
-    }
-
-    ok = copyStringLocked(destination, destinationSize, lastIntensity);
-
-    if (stateMutex != nullptr) {
-        xSemaphoreGive(stateMutex);
-    }
-
-    return ok;
-}
-
 bool getWaktuString(char* destination, size_t destinationSize) {
     if (destination == nullptr || destinationSize == 0) {
         return false;
@@ -399,35 +368,6 @@ void setClockOffsetMs(int64_t offsetMs) {
     if (stateMutex != nullptr) {
         xSemaphoreGive(stateMutex);
     }
-}
-
-const char* intensityToText(float pgaValue) {
-
-    if (pgaValue < 0.5f) {
-        return "I (Tidak Terasa)";
-    }
-    if (pgaValue < 2.8f) {
-        return "II-III (Lemah)";
-    }
-    if (pgaValue < 6.2f) {
-        return "IV (Ringan)";
-    }
-    if (pgaValue < 12.0f) {
-        return "V (Sedang)";
-    }
-    if (pgaValue < 22.0f) {
-        return "VI (Kuat)";
-    }
-    if (pgaValue < 40.0f) {
-        return "VII (Sangat Kuat)";
-    }
-    if (pgaValue < 75.0f) {
-        return "VIII (Merusak)";
-    }
-    if (pgaValue < 139.0f) {
-        return "IX (Hebat)";
-    }
-    return "X+ (Ekstrem)";
 }
 
 float calculateHeapFragmentationPercent(uint32_t freeHeap, uint32_t maxAllocHeap) {

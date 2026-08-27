@@ -109,7 +109,6 @@ uint16_t inBootSeq = 0;
 Preferences preferences;
 
 char lastPgaStr[16] = "N/A";
-char lastIntensity[INTENSITY_TEXT_BUFFER_SIZE] = "N/A";
 char lastEventTime[TIME_TEXT_BUFFER_SIZE] = "N/A";
 
 float stationLat = 0.0f;
@@ -184,7 +183,6 @@ static void loadBrokerConfig() {
 static void initPersistentState() {
     setLocationStatusSearching();
     setLastEventTime("N/A");
-    setLastIntensity("N/A");
     setLastPga("N/A");
 
     preferences.begin("quake-app", false);
@@ -293,7 +291,6 @@ void servePendingSlot(volatile EventReport& slot, bool isFinal) {
             snprintf(pgaText, sizeof(pgaText), "%.2f gal", reportPga);
 
             setLastEventTime(waktu);
-            setLastIntensity(toIntensity(reportPga));
             setLastPga(pgaText);
         }
 
