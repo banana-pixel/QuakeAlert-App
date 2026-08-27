@@ -2,10 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://quakealert.id/contracts/mqtt/heartbeat.schema.json",
   "title": "SensorHeartbeat",
-  "description": "Payload periodik (interval 60s) yang dipublish ESP32 ke topic 'sensor/<station_id>/heartbeat'. Dipakai server untuk menandai node online, RSSI, dan uptime. Seperti trigger, flag QoS 1 disetel di header tetapi PUBACK tidak ditunggu, jadi jangan mengandalkan pengiriman at-least-once; heartbeat yang hilang cukup digantikan oleh heartbeat berikutnya. Satuan kanonik: ts=ms epoch UTC, rssi=dBm, uptime_s=detik.",
+  "description": "Payload periodik (interval 60s) yang dipublish ESP32 ke topic 'sensor/<station_id>/heartbeat'. Dipakai server untuk menandai node online, RSSI, dan uptime. Seperti trigger, PUBACK tidak ditunggu, jadi jangan mengandalkan pengiriman at-least-once; heartbeat yang hilang cukup digantikan oleh heartbeat berikutnya. Payload ini TIDAK ditandatangani dan karena itu TIDAK PERNAH boleh mempengaruhi keputusan life-safety — ia diagnostik liveness, bukan bukti. Satuan kanonik: ts=ms epoch UTC, rssi=dBm, uptime_s=detik.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "rssi", "uptime_s", "ts"],
+  "required": [
+    "id",
+    "rssi",
+    "uptime_s"
+  ],
   "properties": {
     "id": {
       "type": "string",
@@ -27,8 +31,21 @@
     },
     "ts": {
       "type": "integer",
-      "description": "Timestamp heartbeat dalam milidetik epoch UTC (int64).",
+      "description": "Timestamp heartbeat dalam milidetik epoch UTC (int64). WAJIB kecuali clock_source='NONE', yaitu node yang jamnya belum tersinkronisasi dan karena itu tidak punya timestamp untuk dilaporkan. Node seperti itu HARUS menghilangkan field ini, bukan mengirim 0: 0 akan ditolak sebagai ts tidak wajar dan node-nya kembali menjadi tidak terlihat.",
       "minimum": 1700000000000
+    },
+    "clock_source": {
+      "type": "string",
+      "description": "Kualitas jam menurut node itu sendiri. NTP = tersinkronisasi. RTC = jam perangkat keras tanpa sinkronisasi jaringan (belum ada pada perangkat keras saat ini; nilainya sudah dicantumkan agar penambahannya bukan perubahan kontrak). NONE = tidak tersinkronisasi sama sekali; node tidak dapat menandatangani trigger dan HARUS menghilangkan 'ts'. Tanpa field ini, node dengan jam rusak akan diam total dan tidak dapat dibedakan dari node yang mati (O4) — inilah satu-satunya alasan field ini ada. Absen = node firmware lama; server menganggapnya NTP karena ia mengirim 'ts' yang lolos gerbang skew.",
+      "enum": [
+        "NTP",
+        "RTC",
+        "NONE"
+      ]
+    },
+    "clock_offset_ms": {
+      "type": "integer",
+      "description": "Koreksi terakhir yang diterapkan node pada jamnya sendiri, dalam milidetik (positif = jam node tertinggal lalu dimajukan). Diagnostik kualitas sinkronisasi; server tidak memakainya sebagai gerbang apa pun."
     }
   },
   "examples": [
@@ -37,6 +54,47 @@
       "rssi": -61,
       "uptime_s": 86400,
       "ts": 1723891234000
+    },
+    {
+      "id": "NODE-163A149F",
+      "rssi": -61,
+      "uptime_s": 86400,
+      "ts": 1723891234000,
+      "clock_source": "NTP",
+      "clock_offset_ms": 42
+    },
+    {
+      "id": "NODE-163A149F",
+      "rssi": -61,
+      "uptime_s": 95,
+      "clock_source": "NONE"
+    }
+  ],
+  "allOf": [
+    {
+      "$comment": "ts wajib KECUALI clock_source='NONE'. Ditulis sebagai if/then alih-alih menaruh ts di 'required' agar node tanpa jam tetap dapat melapor — itulah keseluruhan maksud O4.",
+      "if": {
+        "properties": {
+          "clock_source": {
+            "const": "NONE"
+          }
+        },
+        "required": [
+          "clock_source"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "ts"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "ts"
+        ]
+      }
     }
   ]
 }

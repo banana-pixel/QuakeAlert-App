@@ -2,10 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://quakealert.id/contracts/mqtt/trigger.schema.json",
   "title": "SensorTrigger",
-  "description": "Payload event-driven yang dipublish ESP32 ke topic 'sensor/<station_id>/trigger' saat mendeteksi getaran melewati ambang. Pengiriman TIDAK dijamin at-least-once: firmware menyetel flag QoS 1 pada header, namun PubSubClient tidak menunggu PUBACK (endPublish() selalu mengembalikan sukses), sehingga secara efektif perilakunya QoS 0. Ketahanan datang dari retry di firmware, bukan dari broker. Satuan kanonik: PGA=gal (cm/s^2), ts=ms epoch UTC, dur_ms=milidetik. Signature=HMAC-SHA256 hex 64-char atas string kanonik 'node_id|pga|dur_ms|ts' (pga 4 desimal fixed).",
+  "description": "Payload event-driven yang dipublish ESP32 ke topic 'sensor/<station_id>/trigger' saat mendeteksi getaran melewati ambang. DUA VERSI protokol hidup berdampingan permanen, dan versinya ditentukan oleh ADA/TIDAKNYA 'proto_ver' — bukan oleh flag konfigurasi. Tanpa 'proto_ver' payload adalah v1 legacy: string kanonik 'node_id|pga|dur_ms|ts', phase dianggap FINAL, dan onset getaran hanya dapat dibatasi dari atas (ts - dur_ms). Dengan 'proto_ver' payload adalah v2: string kanonik 'proto_ver|node_id|phase|obs_seq|attempt_no|pga|dur_ms|onset_ts|detrigger_ts|ts' dan onset diketahui menurut jam sensor. v1 TIDAK PERNAH dihentikan: node yang firmware-nya dirollback kembali menjadi node v1 dan tetap diterima. Pengiriman TIDAK dijamin at-least-once: firmware menyetel QoS 0 (PubSubClient tidak menunggu PUBACK, sehingga QoS 1 hanya akan menjadi klaim yang tidak ditegakkan). Ketahanan datang dari retry di firmware, bukan dari broker; 'obs_seq' + 'phase' yang membuat retry itu aman untuk dideduplikasi server. Satuan kanonik: PGA=gal (cm/s^2), semua timestamp=ms epoch UTC, dur_ms=milidetik. Signature=HMAC-SHA256 hex 64-char atas string kanonik versi yang sesuai (pga 4 desimal fixed).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["node_id", "pga", "dur_ms", "ts", "signature"],
+  "required": [
+    "node_id",
+    "pga",
+    "dur_ms",
+    "ts",
+    "signature"
+  ],
   "properties": {
     "node_id": {
       "type": "string",
@@ -34,8 +40,44 @@
     },
     "signature": {
       "type": "string",
-      "description": "HMAC-SHA256 hex lowercase 64 karakter atas 'node_id|pga|dur_ms|ts'.",
+      "description": "HMAC-SHA256 hex lowercase 64 karakter atas string kanonik. v1: 'node_id|pga|dur_ms|ts'. v2: 'proto_ver|node_id|phase|obs_seq|attempt_no|pga|dur_ms|onset_ts|detrigger_ts|ts', dengan detrigger_ts diserialisasi sebagai 0 bila tidak ada (PRELIM). attempt_no dan detrigger_ts berada DI DALAM tanda tangan: penghitung percobaan yang tidak ditandatangani adalah metadata yang dapat dikendalikan penyerang tentang laporan yang ditandatangani.",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "proto_ver": {
+      "type": "integer",
+      "description": "Versi protokol payload. ADA = v2, TIDAK ADA = v1 legacy. Nilai ini ikut ditandatangani, jadi menurunkan versi payload tidak dapat dilakukan tanpa kunci node.",
+      "enum": [
+        2
+      ]
+    },
+    "phase": {
+      "type": "string",
+      "description": "PRELIM = dipublish pada konfirmasi onset (~300 ms setelah onset), pga=puncak sejauh ini, dur_ms=waktu berjalan sejauh ini, tanpa detrigger_ts. FINAL = dipublish saat event ditutup, pga=puncak, dur_ms=durasi total, dengan detrigger_ts. TEPAT DUA publikasi per event; tidak ada UPDATE. Keduanya berbagi obs_seq yang sama dan hanya berbeda phase, sehingga PRELIM dan FINAL dari satu node adalah satu node — bukan dua — bagi konsensus.",
+      "enum": [
+        "PRELIM",
+        "FINAL"
+      ]
+    },
+    "obs_seq": {
+      "type": "integer",
+      "description": "Identitas observasi yang ditetapkan sensor: (boot_count << 16) | in_boot_seq. boot_count di bit tinggi berarti node yang reboot dan memulai ulang penghitung per-boot-nya tidak bertabrakan dengan riwayatnya sendiri, tanpa perlu menulis NVS per event. Bersama node_id dan phase inilah kunci deduplikasi yang benar.",
+      "minimum": 0
+    },
+    "attempt_no": {
+      "type": "integer",
+      "description": "Indeks percobaan kirim; 1 = publikasi pertama. Tanpa ini 'ts' tidak dapat ditafsirkan: laporan yang diulang tidak dapat dikeluarkan dari analisis timing, dan kehilangan paket tidak dapat dibedakan dari backlog broker.",
+      "minimum": 1,
+      "maximum": 255
+    },
+    "onset_ts": {
+      "type": "integer",
+      "description": "Instan onset getaran menurut jam sensor, ms epoch UTC. Ini onset SEBENARNYA, bukan batas atas: server menyimpannya dengan onset_ts_source='SENSOR'. Server memeriksa onset_ts <= ts dan ts - onset_ts >= dur_ms; jam yang melompat di tengah event gagal di pemeriksaan itu.",
+      "minimum": 1700000000000
+    },
+    "detrigger_ts": {
+      "type": "integer",
+      "description": "Instan event ditutup menurut jam sensor, ms epoch UTC. HANYA pada phase FINAL — pada PRELIM event-nya belum berakhir, jadi field ini harus tidak ada (bukan 0). Dicatat, dan menurut D21 TIDAK dipakai sebagai gerbang keputusan di fase mana pun dalam rencana ini.",
+      "minimum": 1700000000000
     }
   },
   "examples": [
@@ -45,6 +87,31 @@
       "dur_ms": 2800,
       "ts": 1723891234120,
       "signature": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    },
+    {
+      "proto_ver": 2,
+      "node_id": "NODE-163A149F",
+      "phase": "PRELIM",
+      "obs_seq": 196609,
+      "attempt_no": 1,
+      "pga": 0.4215,
+      "dur_ms": 300,
+      "onset_ts": 1723891233820,
+      "ts": 1723891234120,
+      "signature": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    },
+    {
+      "proto_ver": 2,
+      "node_id": "NODE-163A149F",
+      "phase": "FINAL",
+      "obs_seq": 196609,
+      "attempt_no": 1,
+      "pga": 1.8842,
+      "dur_ms": 2800,
+      "onset_ts": 1723891233820,
+      "detrigger_ts": 1723891236620,
+      "ts": 1723891236640,
+      "signature": "3bf4f1b2b0b822cd15d6c15b0f00a089f86d081884c7d659a2feaa0c55ad0150"
     }
   ]
 }
