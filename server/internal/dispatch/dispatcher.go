@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/banana-pixel/quakealert/server/internal/consensus"
+	"github.com/banana-pixel/quakealert/server/internal/ledger"
 	"github.com/banana-pixel/quakealert/server/internal/store"
 )
 
@@ -77,6 +78,14 @@ const AlertRadiusKm = 200
 // ini menjaga fan-out tidak menghabiskan koneksi keluar.
 const maxFCMConcurrency = 16
 
+// emissionWriter menerima satu baris keputusan dispatch. Implementasi:
+// *ledger.Writer. Interface, dan bukan tipe konkret, dengan alasan yang sama
+// seperti eventSaver: dispatcher tidak boleh punya cara untuk menulis ke basis
+// data secara sinkron.
+type emissionWriter interface {
+	RecordEmission(e *ledger.Emission)
+}
+
 // Dispatcher menyatukan output Consensus Engine ke tiga kanal: persistensi
 // PostGIS (hanya CONFIRMED), WebSocket Hub, dan FCM. Dirancang non-blocking
 // pada jalur life-safety: kegagalan satu kanal tidak menghentikan kanal lain.
@@ -92,6 +101,15 @@ type Dispatcher struct {
 	log          *slog.Logger
 	resolveAfter time.Duration
 
+	// ledger mencatat KEPUTUSAN dispatch (bukan hasil pengiriman). Nil =
+	// dinonaktifkan. Penulisannya asinkron dan berbatas; tidak ada jalur di file
+	// ini yang menunggunya.
+	ledger emissionWriter
+
+	// singleNodeGeoTopicGuard mencegah kluster satu-node memilih topik nasional.
+	// Default aktif; lihat guardBlocksGeoTopic.
+	singleNodeGeoTopicGuard bool
+
 	mu     sync.Mutex
 	active map[string]*AlertMessage // event_id yang menunggu resolusi (dedup timer)
 }
@@ -104,13 +122,25 @@ func NewDispatcher(saver eventSaver, hub *Hub, fcm FCMSender, resolveAfter time.
 		resolveAfter = defaultResolveAfter
 	}
 	return &Dispatcher{
-		saver:        saver,
-		hub:          hub,
-		fcm:          fcm,
-		log:          log,
-		resolveAfter: resolveAfter,
-		active:       make(map[string]*AlertMessage),
+		saver:                   saver,
+		hub:                     hub,
+		fcm:                     fcm,
+		log:                     log,
+		resolveAfter:            resolveAfter,
+		active:                  make(map[string]*AlertMessage),
+		singleNodeGeoTopicGuard: true,
 	}
+}
+
+// SetLedger memasang penulis alert_emissions (pola Set* yang sama dengan
+// apiSrv.Set*). Nil menonaktifkan pencatatan.
+func (d *Dispatcher) SetLedger(w emissionWriter) { d.ledger = w }
+
+// SetSingleNodeGeoTopicGuard mengaktifkan/menonaktifkan guard satu-node.
+// Default AKTIF; dapat dimatikan lewat SINGLE_NODE_GEO_TOPIC_GUARD=false untuk
+// pengujian lapangan pada instalasi yang benar-benar hanya punya satu node.
+func (d *Dispatcher) SetSingleNodeGeoTopicGuard(enabled bool) {
+	d.singleNodeGeoTopicGuard = enabled
 }
 
 // Dispatch adalah consensus.EventSink: dipanggil engine untuk setiap event yang
@@ -185,16 +215,23 @@ func (d *Dispatcher) Dispatch(ctx context.Context, ev *consensus.Event) {
 // bersamaan dengan token bertarget akan membangunkan seluruh perangkat nasional
 // pada setiap gempa kecil, persis yang penargetan ini hilangkan.
 func (d *Dispatcher) dispatchFCM(msg *AlertMessage) {
+	// decidedAt diambil SINKRON: ini waktu keputusan, bukan waktu pengiriman.
+	// Membacanya di dalam goroutine akan mencatat kapan FCM kebetulan
+	// terjadwal, yang bukan hal yang sedang diukur.
+	decidedAt := time.Now().UnixMilli()
+
 	if d.fcm == nil {
+		d.recordEmission(msg, ledger.AudienceNone, decidedAt)
 		return
 	}
 	data := BuildAlertData(msg)
 	severe := IsSevere(msg.MMI, msg.PGAGal)
+	guarded := d.guardBlocksGeoTopic(msg)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), fcmTimeout)
 		defer cancel()
 
-		if severe {
+		if severe && !guarded {
 			// Override intensitas: jarak tidak diperiksa sama sekali. Klien pun
 			// tidak akan menahannya — SafetyPolicy menerapkan aturan yang sama
 			// sebelum sirene, jadi keduanya sepakat tanpa perlu flag di payload.
@@ -207,11 +244,25 @@ func (d *Dispatcher) dispatchFCM(msg *AlertMessage) {
 			}); err != nil {
 				d.log.Error("gagal kirim FCM topic (severe)", "err", err, "event_id", msg.EventID)
 			}
+			d.recordEmission(msg, ledger.AudienceGeoTopicAll, decidedAt)
 			return
 		}
 
 		if tokens := d.nearbyTokens(ctx, msg); len(tokens) > 0 {
 			d.sendToTokens(ctx, tokens, data, msg)
+			d.recordEmission(msg, ledger.AudienceTokensRadius, decidedAt)
+			return
+		}
+
+		// Guard satu-node: fallback topik nasional TIDAK diambil. Satu sensor
+		// tidak dapat dibedakan dari satu sensor yang rusak, dan tidak ada
+		// perangkat dalam radius yang perlu dibangunkan, jadi jawaban yang benar
+		// adalah tidak mengirim apa pun — bukan membangunkan seluruh negeri.
+		if guarded {
+			d.log.Warn("guard satu-node: FCM tidak dikirim (tanpa token dalam radius, topik nasional ditahan)",
+				"event_id", msg.EventID, "type", msg.Type, "nodes", msg.NodeCount,
+				"mmi", msg.MMI, "pga_gal", msg.PGAGal, "severe", severe)
+			d.recordEmission(msg, ledger.AudienceNone, decidedAt)
 			return
 		}
 		// Fallback, bukan tambahan: topic tidak bisa dikecualikan per pelanggan,
@@ -226,7 +277,79 @@ func (d *Dispatcher) dispatchFCM(msg *AlertMessage) {
 		}); err != nil {
 			d.log.Error("gagal kirim FCM topic", "err", err, "event_id", msg.EventID, "type", msg.Type)
 		}
+		d.recordEmission(msg, ledger.AudienceGeoTopicAll, decidedAt)
 	}()
+}
+
+// guardBlocksGeoTopic melaporkan apakah pesan ini dilarang memilih GeoTopic.
+//
+// Sebuah kluster dengan SATU node penyumbang tidak boleh membangunkan seluruh
+// negeri, pada jalur severe maupun sebagai fallback tanpa token. Satu sensor
+// yang berteriak keras tidak dapat dibedakan dari satu sensor yang rusak,
+// terjatuh, atau tertabrak — dan justru bacaan besar itulah yang paling mungkin
+// merupakan kegagalan perangkat, bukan gempa. Bila jalur bertarget tidak
+// menghasilkan satu token pun, hasil yang benar adalah TANPA FCM
+// (audience = NONE), bukan siaran nasional.
+//
+// Guard dipasang di sini, di dalam dispatchFCM, dan bukan pada masing-masing
+// pemanggilan Send: dengan begitu ia mencakup KEDUA titik GeoTopic sekaligus
+// kedua pemanggil (Dispatch dan resolve), dan tidak ada cabang baru yang dapat
+// melewatinya. DispatchBroadcast dan DispatchTestAlert tidak melewati fungsi ini
+// dan memang tidak seharusnya: keduanya tindakan operator ke UpdatesTopic, bukan
+// hasil konsensus.
+func (d *Dispatcher) guardBlocksGeoTopic(msg *AlertMessage) bool {
+	return d.singleNodeGeoTopicGuard && msg.NodeCount <= 1
+}
+
+// recordEmission mengantre satu baris alert_emissions. Dipanggil SETELAH
+// keputusan audience benar-benar dieksekusi, sehingga nilai yang tercatat adalah
+// yang benar-benar dipublikasikan — bukan yang direncanakan.
+//
+// Hanya keputusan yang dicatat. Hasil pengiriman (jumlah klien WS, sukses/gagal
+// per token FCM) BUKAN bagian dari fase ini: menunggunya berarti menahan
+// pencatatan di belakang Google API, dan menulis-balik nanti berarti satu
+// goroutine lagi per event untuk data yang belum ada pemakainya.
+func (d *Dispatcher) recordEmission(msg *AlertMessage, audience string, decidedAt int64) {
+	if d.ledger == nil {
+		return
+	}
+
+	e := &ledger.Emission{
+		AlertType:   msg.Type,
+		Status:      emissionStatus(msg.Type),
+		NodeCount:   msg.NodeCount,
+		CentroidLat: &msg.CentroidLat,
+		CentroidLon: &msg.CentroidLon,
+		IsSevere:    IsSevere(msg.MMI, msg.PGAGal),
+		Audience:    audience,
+		DecidedAt:   decidedAt,
+		AlgoVer:     ledger.AlgoVer,
+	}
+	// event_id NULL bukan data yang hilang: ADVISORY hari ini tidak
+	// dipersistensi sama sekali, jadi ia tidak punya identitas event untuk
+	// dirujuk.
+	if msg.EventID != "" {
+		id := msg.EventID
+		e.EventID = &id
+	}
+	if msg.MMI != "" {
+		mmi := msg.MMI
+		e.MMI = &mmi
+	}
+	pga := msg.PGAGal
+	e.PGAGal = &pga
+
+	d.ledger.RecordEmission(e)
+}
+
+// emissionStatus memetakan tipe payload ke status sebagaimana diemisikan.
+// EVENT_RESOLVED hanya pernah menyusul event CONFIRMED: hanya CONFIRMED yang
+// dipersistensi, dan hanya event yang dipersistensi yang punya timer resolusi.
+func emissionStatus(alertType string) string {
+	if alertType == TypeAdvisory {
+		return string(consensus.StatusAdvisory)
+	}
+	return string(consensus.StatusConfirmed)
 }
 
 // nearbyTokens mengembalikan token dalam AlertRadiusKm dari centroid, atau
