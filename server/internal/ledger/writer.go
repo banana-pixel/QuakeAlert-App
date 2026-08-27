@@ -48,11 +48,17 @@ const (
 	AudienceNone         = "NONE"
 )
 
-// Nilai tetap protokol v1 untuk sensor_observations.
+// Nilai tetap kolom sensor_observations.
+//
+// PhasePrelim dan OnsetSourceSensor hanya dapat berasal dari payload v2:
+// observasi v1 selalu FINAL (ia dipublish saat event sudah selesai) dan
+// onset-nya selalu sebuah BATAS, bukan pengukuran.
 const (
 	SourceClassFixedESP32 = "FIXED_ESP32"
+	PhasePrelim           = "PRELIM"
 	PhaseFinal            = "FINAL"
 	OnsetSourcePublish    = "PUBLISH_BOUND"
+	OnsetSourceSensor     = "SENSOR"
 	VerifyResultOK        = "OK"
 )
 

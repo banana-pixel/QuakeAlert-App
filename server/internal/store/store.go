@@ -848,9 +848,9 @@ func (s *Store) ListEvents(ctx context.Context, limit, offset int, filter *Event
 type Observation struct {
 	NodeID               string
 	SourceClass          string // 'FIXED_ESP32'
-	Phase                string // 'FINAL'
+	Phase                string // 'PRELIM' | 'FINAL'
 	ProtoVer             *int16 // NULL pada v1
-	ObsSeq               *int64 // NULL sampai Fase 2
+	ObsSeq               *int64 // NULL pada v1
 	PGAGal               float64
 	DurMs                int64
 	PublishTS            int64 // ts payload (ms epoch UTC)
@@ -858,6 +858,8 @@ type Observation struct {
 	OnsetTS              *int64
 	OnsetTSUpperBound    *int64
 	OnsetTSSource        string
+	AttemptNo            *int16   // NULL pada v1 (migrasi 000007)
+	DetriggerTS          *int64   // NULL pada v1 dan pada PRELIM (migrasi 000007)
 	Lat                  *float64 // node_location, boleh NULL
 	Lon                  *float64
 	Signature            string
@@ -876,21 +878,24 @@ func (s *Store) InsertObservation(ctx context.Context, o *Observation) error {
 			node_id, source_class, phase, proto_ver, obs_seq,
 			pga_gal, dur_ms, publish_ts, received_ts,
 			onset_ts, onset_ts_upper_bound, onset_ts_source,
+			attempt_no, detrigger_ts,
 			node_location, signature, verify_result, suppressed_rejections
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6, $7, $8, $9,
 			$10, $11, $12,
-			CASE WHEN $13::double precision IS NULL OR $14::double precision IS NULL
+			$13, $14,
+			CASE WHEN $15::double precision IS NULL OR $16::double precision IS NULL
 			     THEN NULL
-			     ELSE ST_SetSRID(ST_MakePoint($13::double precision, $14::double precision), 4326)::geography
+			     ELSE ST_SetSRID(ST_MakePoint($15::double precision, $16::double precision), 4326)::geography
 			END,
-			NULLIF($15, ''), $16, $17
+			NULLIF($17, ''), $18, $19
 		)`
 	_, err := s.pool.Exec(ctx, q,
 		o.NodeID, o.SourceClass, o.Phase, o.ProtoVer, o.ObsSeq,
 		o.PGAGal, o.DurMs, o.PublishTS, o.ReceivedTS,
 		o.OnsetTS, o.OnsetTSUpperBound, o.OnsetTSSource,
+		o.AttemptNo, o.DetriggerTS,
 		o.Lon, o.Lat,
 		o.Signature, o.VerifyResult, o.SuppressedRejections,
 	)
@@ -900,8 +905,17 @@ func (s *Store) InsertObservation(ctx context.Context, o *Observation) error {
 	return nil
 }
 
-// AlertEmission adalah satu baris alert_emissions: satu KEPUTUSAN dispatch.
-// Bukan satu pengiriman — hasil delivery tidak dicatat pada fase ini.
+// AlertEmission adalah satu baris alert_emissions: satu KEPUTUSAN dispatch,
+// beserta hasil pengirimannya bila hasil itu memang dapat diobservasi.
+//
+// DecidedAt dan DeliveryAt adalah dua waktu yang berbeda dan keduanya perlu:
+// yang pertama adalah kapan keputusan dibuat, yang kedua kapan pengiriman
+// selesai. Selisih keduanya adalah satu-satunya ukuran biaya fan-out yang
+// dimiliki sistem ini.
+//
+// Keempat kolom hasil kirim bernilai NULL berarti "hasil tidak pernah
+// dilaporkan", BUKAN nol. Nol yang ditulis untuk jalur yang tidak dapat
+// mengamati pengiriman akan terbaca sebagai pengiriman yang gagal total.
 type AlertEmission struct {
 	EventID     *string // NULL untuk ADVISORY (tidak punya identitas event)
 	AlertType   string
@@ -915,6 +929,12 @@ type AlertEmission struct {
 	Audience    string // TOKENS_RADIUS_200KM | GEO_TOPIC_ALL | NONE
 	DecidedAt   int64  // ms epoch UTC, jam server
 	AlgoVer     string
+
+	// Hasil pengiriman (migrasi 000007). NULL = tidak diobservasi.
+	WSClientCount *int
+	FCMAttempted  *int
+	FCMSucceeded  *int
+	DeliveryAt    *int64
 }
 
 // InsertAlertEmission menulis satu baris alert_emissions.
@@ -925,19 +945,22 @@ func (s *Store) InsertAlertEmission(ctx context.Context, e *AlertEmission) error
 	const q = `
 		INSERT INTO alert_emissions (
 			event_id, alert_type, status, mmi, pga_gal, node_count,
-			centroid, is_severe, audience, decided_at, algo_ver
+			centroid, is_severe, audience, decided_at, algo_ver,
+			ws_client_count, fcm_attempted, fcm_succeeded, delivery_at
 		) VALUES (
 			$1::uuid, $2, $3, $4, $5, $6,
 			CASE WHEN $7::double precision IS NULL OR $8::double precision IS NULL
 			     THEN NULL
 			     ELSE ST_SetSRID(ST_MakePoint($7::double precision, $8::double precision), 4326)::geography
 			END,
-			$9, $10, $11, $12
+			$9, $10, $11, $12,
+			$13, $14, $15, $16
 		)`
 	_, err := s.pool.Exec(ctx, q,
 		e.EventID, e.AlertType, e.Status, e.MMI, e.PGAGal, e.NodeCount,
 		e.CentroidLon, e.CentroidLat,
 		e.IsSevere, e.Audience, e.DecidedAt, e.AlgoVer,
+		e.WSClientCount, e.FCMAttempted, e.FCMSucceeded, e.DeliveryAt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert alert_emission: %w", err)
