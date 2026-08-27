@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://quakealert.id/contracts/mqtt/trigger.schema.json",
   "title": "SensorTrigger",
-  "description": "Payload event-driven yang dipublish ESP32 ke topic 'sensor/<station_id>/trigger' (QoS 1) saat mendeteksi getaran melewati ambang. Satuan kanonik: PGA=gal (cm/s^2), ts=ms epoch UTC, dur_ms=milidetik. Signature=HMAC-SHA256 hex 64-char atas string kanonik 'node_id|pga|dur_ms|ts' (pga 4 desimal fixed).",
+  "description": "Payload event-driven yang dipublish ESP32 ke topic 'sensor/<station_id>/trigger' saat mendeteksi getaran melewati ambang. Pengiriman TIDAK dijamin at-least-once: firmware menyetel flag QoS 1 pada header, namun PubSubClient tidak menunggu PUBACK (endPublish() selalu mengembalikan sukses), sehingga secara efektif perilakunya QoS 0. Ketahanan datang dari retry di firmware, bukan dari broker. Satuan kanonik: PGA=gal (cm/s^2), ts=ms epoch UTC, dur_ms=milidetik. Signature=HMAC-SHA256 hex 64-char atas string kanonik 'node_id|pga|dur_ms|ts' (pga 4 desimal fixed).",
   "type": "object",
   "additionalProperties": false,
   "required": ["node_id", "pga", "dur_ms", "ts", "signature"],
@@ -29,7 +29,7 @@
     },
     "ts": {
       "type": "integer",
-      "description": "Timestamp deteksi dalam milidetik epoch UTC (int64). Server menolak jika menyimpang >30s dari waktu server atau <= last_seen_ts (anti-replay).",
+      "description": "Waktu PUBLISH dalam milidetik epoch UTC (int64) — BUKAN waktu onset getaran. Distempel saat publish dan distempel ULANG pada setiap percobaan kirim, sehingga selisihnya terhadap onset (publish delay) tidak terbatas dan tidak terobservasi dari payload v1, yang tidak membawa nomor percobaan. Server menolak ts di luar jendela freshness (trigger: -5 menit s.d. +30s terhadap jam server) atau <= last_seen_ts (anti-replay).",
       "minimum": 1700000000000
     },
     "signature": {

@@ -256,6 +256,107 @@ paths:
                 code: RATE_LIMITED
                 message: provisioning dibatasi 5x per jam per akun
 
+  /api/v1/nodes/revoke:
+    post:
+      tags: [nodes]
+      summary: Batalkan registrasi sensor yang belum terverifikasi
+      description: >
+        Menghapus node yang BELUM diverifikasi operator, dibuktikan dengan
+        provisioning_secret mentahnya. Kepemilikan bersifat capability-based:
+        iot_nodes tidak punya kolom owner, jadi hak menghapus dibuktikan lewat
+        PENGETAHUAN secret, bukan lewat identitas pemanggil. JWT tetap wajib,
+        tetapi hanya sebagai pagar laju.
+
+
+        Dipakai wizard "Add a Sensor" untuk membersihkan registrasi yang
+        ditinggalkan pengguna di tengah jalan, sehingga station_id tidak menjadi
+        baris pending yang tidak pernah berdenyut.
+
+
+        IDEMPOTEN: station_id yang tidak dikenal (atau sudah dibatalkan) menjawab
+        200 dengan `deleted: false`, bukan 404 — retry setelah sukses bukan error.
+        Node yang SUDAH terverifikasi tidak dapat dibatalkan pengguna (409):
+        penarikan kepercayaan adalah aksi operator.
+
+
+        provisioning_secret dikirim di body dan TIDAK pernah masuk log maupun
+        respons.
+      operationId: revokeNode
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeRequest'
+      responses:
+        '200':
+          description: >
+            Permintaan diproses. `deleted: true` bila baris pending benar-benar
+            dihapus; `deleted: false` bila station_id tidak dikenal (idempoten).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: >
+            provisioning_secret tidak cocok untuk station_id ini. Pesan sengaja
+            generik dan perbandingannya constant-time: respons tidak membedakan
+            salah-id dari salah-secret.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: SECRET_MISMATCH
+                message: provisioning_secret tidak cocok untuk station_id ini
+        '404':
+          description: >
+            station_id tidak berpola NODE-XXXXXXXX (hex kapital). Bentuk yang
+            salah ditolak sebelum menyentuh basis data. Perhatikan: station_id
+            berbentuk sah yang tidak ada di basis data menjawab 200
+            `deleted: false`, bukan 404.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: NODE_NOT_FOUND
+                message: station_id harus berpola NODE-XXXXXXXX (hex kapital)
+        '409':
+          description: >
+            Node sudah diverifikasi operator — di luar yurisdiksi pengguna. Juga
+            dikembalikan bila verifikasi terjadi TEPAT di antara pemeriksaan
+            secret dan DELETE: predikat `verified = FALSE` ada di dalam SQL,
+            sehingga balapan terserialisasi di lock baris Postgres dan node
+            terverifikasi mustahil terhapus.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: NODE_VERIFIED
+                message: node sudah diverifikasi operator dan tidak dapat dibatalkan pengguna
+        '429':
+          description: >
+            Batas laju pembatalan: cooldown 12 menit per akun. Endpoint ini
+            menerima secret mentah di body, jadi pagar laju berdiri SEBELUM
+            kripto dijalankan untuk menutup jalur brute-force.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: RATE_LIMITED
+                message: pembatalan dibatasi, coba lagi nanti
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/v1/sensors:
     get:
       tags: [sensors]
@@ -838,13 +939,17 @@ components:
           description: >
             Kode mesin yang stabil. Nilai yang dipakai server:
             INVALID_ARGUMENT, UNAUTHENTICATED, STATION_ALREADY_EXISTS,
-            RATE_LIMITED, INTERNAL.
+            RATE_LIMITED, INTERNAL, dan — khusus /api/v1/nodes/revoke —
+            SECRET_MISMATCH, NODE_NOT_FOUND, NODE_VERIFIED.
           enum:
             - INVALID_ARGUMENT
             - UNAUTHENTICATED
             - STATION_ALREADY_EXISTS
             - RATE_LIMITED
             - INTERNAL
+            - SECRET_MISMATCH
+            - NODE_NOT_FOUND
+            - NODE_VERIFIED
           example: INVALID_ARGUMENT
         message:
           type: string
@@ -933,6 +1038,37 @@ components:
           example: 8883
         mqtt_tls:
           type: boolean
+          example: true
+
+    RevokeRequest:
+      type: object
+      additionalProperties: false
+      required: [station_id, provisioning_secret]
+      properties:
+        station_id:
+          type: string
+          pattern: '^NODE-[0-9A-F]{8}$'
+          example: NODE-163A149F
+        provisioning_secret:
+          type: string
+          description: >-
+            Secret one-time dari ProvisionResponse, apa adanya. Membuktikan hak
+            menghapus; tidak pernah dicatat di log maupun dikembalikan.
+          example: sec_key_991823719283719
+
+    RevokeResponse:
+      type: object
+      required: [station_id, deleted]
+      properties:
+        station_id:
+          type: string
+          example: NODE-163A149F
+        deleted:
+          type: boolean
+          description: >-
+            true bila baris pending dihapus oleh permintaan ini; false bila
+            station_id tidak dikenal (sudah dibatalkan / tidak pernah ada).
+            Klien memperlakukan keduanya sebagai sukses.
           example: true
 
     SensorsResponse:

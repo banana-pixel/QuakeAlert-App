@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://quakealert.id/contracts/mqtt/heartbeat.schema.json",
   "title": "SensorHeartbeat",
-  "description": "Payload periodik (interval 60s, QoS 1) yang dipublish ESP32 ke topic 'sensor/<station_id>/heartbeat'. Dipakai server untuk menandai node online, RSSI, dan uptime. Satuan kanonik: ts=ms epoch UTC, rssi=dBm, uptime_s=detik.",
+  "description": "Payload periodik (interval 60s) yang dipublish ESP32 ke topic 'sensor/<station_id>/heartbeat'. Dipakai server untuk menandai node online, RSSI, dan uptime. Seperti trigger, flag QoS 1 disetel di header tetapi PUBACK tidak ditunggu, jadi jangan mengandalkan pengiriman at-least-once; heartbeat yang hilang cukup digantikan oleh heartbeat berikutnya. Satuan kanonik: ts=ms epoch UTC, rssi=dBm, uptime_s=detik.",
   "type": "object",
   "additionalProperties": false,
   "required": ["id", "rssi", "uptime_s", "ts"],
