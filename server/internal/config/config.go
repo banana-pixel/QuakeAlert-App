@@ -74,6 +74,27 @@ type Config struct {
 	MQTTPublicBroker string
 	MQTTPublicPort   int
 	MQTTPublicTLS    bool
+
+	// ObservationLedgerEnabled menyalakan pencatatan sensor_observations dan
+	// alert_emissions. Default AKTIF: tanpa ledger, satu-satunya jejak masukan
+	// sensor adalah log yang akan dirotasi. Mematikannya menghilangkan
+	// pencatatan, dan HANYA pencatatan — tidak ada satu pun keputusan
+	// peringatan yang berubah karenanya.
+	ObservationLedgerEnabled bool
+
+	// ObservationLedgerQueueSize adalah kapasitas antrean tulis ledger. Saat
+	// penuh, baris TERTUA dibuang dan counter drop naik; antrean TIDAK pernah
+	// memblokir produsennya, karena produsennya adalah jalur peringatan.
+	ObservationLedgerQueueSize int
+
+	// SingleNodeGeoTopicGuard melarang kluster satu-node memilih topik FCM
+	// nasional. Default AKTIF. Matikan hanya untuk instalasi uji yang memang
+	// hanya punya satu sensor dan menerima konsekuensinya.
+	//
+	// ALGO_VER SENGAJA TIDAK ADA DI SINI: versi algoritma harus mengikuti biner
+	// yang membuat keputusan, jadi ia konstanta compile-time (ledger.AlgoVer).
+	// Sebagai env var, operator dapat memberi label salah pada keputusan lampau.
+	SingleNodeGeoTopicGuard bool
 }
 
 // minAdminKeyLen adalah panjang minimum ADMIN_API_KEY. 32 byte acak (mis.
@@ -102,6 +123,10 @@ func Load() (*Config, error) {
 		MQTTPublicTLS:    getEnvBool("MQTT_PUBLIC_TLS", true),
 
 		AdminAPIKey: getEnv("ADMIN_API_KEY", ""),
+
+		ObservationLedgerEnabled:   getEnvBool("OBSERVATION_LEDGER_ENABLED", true),
+		ObservationLedgerQueueSize: getEnvInt("OBSERVATION_LEDGER_QUEUE_SIZE", 1024),
+		SingleNodeGeoTopicGuard:    getEnvBool("SINGLE_NODE_GEO_TOPIC_GUARD", true),
 
 		JWTTokenTTL: time.Duration(getEnvInt("JWT_TTL_HOURS", 720)) * time.Hour,
 	}

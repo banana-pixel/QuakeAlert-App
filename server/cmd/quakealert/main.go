@@ -23,6 +23,7 @@ import (
 	"github.com/banana-pixel/quakealert/server/internal/crypto"
 	"github.com/banana-pixel/quakealert/server/internal/dispatch"
 	"github.com/banana-pixel/quakealert/server/internal/ingest"
+	"github.com/banana-pixel/quakealert/server/internal/ledger"
 	"github.com/banana-pixel/quakealert/server/internal/store"
 )
 
@@ -58,7 +59,42 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	// --- Observation ledger (migrasi 000006) ---
+	// Dikonstruksi SEBELUM verifier dan dispatcher karena keduanya memegangnya.
+	// Satu goroutine drain; produsennya (jalur verifikasi trigger dan jalur
+	// keputusan dispatch) hanya mengantre dan tidak pernah menunggu.
+	//
+	// Nonaktif = pointer nil, bukan writer kosong: metode *ledger.Writer aman
+	// pada penerima nil, jadi penonaktifan tidak memerlukan cabang if di
+	// pemanggil mana pun.
+	var ledgerWriter *ledger.Writer
+	if cfg.ObservationLedgerEnabled {
+		ledgerWriter = ledger.NewWriter(st, cfg.ObservationLedgerQueueSize, log)
+
+		// Context terpisah dari bootCtx (yang punya timeout) dan dibatalkan lewat
+		// defer, mengikuti pola purgeChatLoop / purgeAbandonedPendingLoop.
+		ledgerCtx, stopLedger := context.WithCancel(context.Background())
+		defer stopLedger()
+		go ledgerWriter.Run(ledgerCtx)
+
+		// Stop() menunggu sisa antrean ditulis. Dijalankan lewat defer agar
+		// baris yang sudah diantre pada milidetik terakhir tetap sampai ke DB —
+		// pool pgx baru ditutup setelahnya (defer st.Close() terdaftar lebih awal,
+		// jadi berjalan lebih akhir).
+		defer ledgerWriter.Stop()
+
+		log.Info("observation ledger aktif", "queue_size", cfg.ObservationLedgerQueueSize)
+	} else {
+		log.Warn("observation ledger NONAKTIF — tidak ada rekaman masukan sensor maupun keputusan dispatch")
+	}
+
 	verifier := ingest.NewVerifier(st, cipher, log)
+	if ledgerWriter != nil {
+		// Dipasang hanya bila benar-benar ada. Menyimpan pointer nil ke dalam
+		// interface akan membuat pemeriksaan `!= nil` di pemanggil bernilai true
+		// dan tiap trigger membangun baris yang kemudian dibuang.
+		verifier.WithLedger(ledgerWriter)
+	}
 
 	// --- Dispatch tier: WebSocket Hub + FCM (opsional) ---
 	hub := dispatch.NewHub(log, wsOriginChecker(cfg.WSAllowedOrigins, log))
@@ -79,6 +115,13 @@ func run(log *slog.Logger) error {
 	}
 
 	dispatcher := dispatch.NewDispatcher(st, hub, fcm, cfg.CooldownDuration, log)
+	if ledgerWriter != nil {
+		dispatcher.SetLedger(ledgerWriter)
+	}
+	dispatcher.SetSingleNodeGeoTopicGuard(cfg.SingleNodeGeoTopicGuard)
+	if !cfg.SingleNodeGeoTopicGuard {
+		log.Warn("guard satu-node NONAKTIF — kluster satu sensor dapat menyiarkan ke topik FCM nasional")
+	}
 
 	// --- Consensus tier: spatial engine ---
 	// Cooldown = jeda antar-emisi + waktu menuju EVENT_RESOLVED (state machine).
