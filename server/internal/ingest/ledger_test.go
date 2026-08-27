@@ -82,6 +82,12 @@ func TestTriggerObservation_Mapping(t *testing.T) {
 			if o.OnsetTS != nil {
 				t.Errorf("onset_ts = %v, want nil (onset sebenarnya tak diketahui di v1)", *o.OnsetTS)
 			}
+			if o.AttemptNo != nil {
+				t.Errorf("attempt_no = %v, want nil pada v1 (tidak ada nomor percobaan di kabel)", *o.AttemptNo)
+			}
+			if o.DetriggerTS != nil {
+				t.Errorf("detrigger_ts = %v, want nil pada v1", *o.DetriggerTS)
+			}
 			// Lokasi di-snapshot oleh writer, bukan di pemetaan.
 			if o.Lat != nil || o.Lon != nil {
 				t.Error("pemetaan tidak boleh mengisi node_location (di-snapshot di luar hot path)")
@@ -90,18 +96,20 @@ func TestTriggerObservation_Mapping(t *testing.T) {
 	}
 }
 
-// TestObservationHasNoPhase2Columns menjaga agar kolom Fase 2 tidak menyelinap
-// masuk lebih awal. attempt_no dan detrigger_ts TIDAK DAPAT diisi oleh payload
-// v1 sama sekali (tidak ada nomor percobaan di kabel), jadi keberadaan fieldnya
-// akan menjadi kolom yang selamanya NULL sambil terlihat seperti data.
-func TestObservationHasNoPhase2Columns(t *testing.T) {
+// TestObservationHasNoLaterPhaseColumns menjaga agar kolom fase BERIKUTNYA tidak
+// menyelinap masuk lebih awal. attempt_no dan detrigger_ts dulu berada di daftar
+// ini dan sekarang TIDAK: keduanya dibawa payload v2 dan menjadi kolom nyata pada
+// Fase 2 (migrasi 000007). Yang tersisa adalah field korelasi Fase 3, yang hari
+// ini tidak punya sumber sama sekali dan karena itu hanya akan menjadi kolom
+// selamanya NULL yang terlihat seperti data.
+func TestObservationHasNoLaterPhaseColumns(t *testing.T) {
 	forbidden := map[string]bool{
-		"AttemptNo": true, "DetriggerTS": true, "IngestSeq": true, "CorrelationKey": true,
+		"IngestSeq": true, "CorrelationKey": true,
 	}
 	typ := reflect.TypeOf(ledger.Observation{})
 	for i := 0; i < typ.NumField(); i++ {
 		if forbidden[typ.Field(i).Name] {
-			t.Errorf("Observation punya field Fase 2 %q — Fase 1 tidak boleh membawanya", typ.Field(i).Name)
+			t.Errorf("Observation punya field fase berikutnya %q — Fase 2 tidak boleh membawanya", typ.Field(i).Name)
 		}
 	}
 }
