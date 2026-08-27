@@ -2,9 +2,11 @@
  * QuakeAlert ESP32 - MQTT Logic Implementation
  *
  * Contract-first: contracts/mqtt/trigger.schema.json & heartbeat.schema.json.
- * Topik dibangun runtime "sensor/<station_id>/<suffix>". trigger & heartbeat
- * publish QoS 1. trigger ditandatangani HMAC-SHA256 (crypto.cpp) memakai secret
- * per-node dari NVS (utils::getHmacKeyCopy).
+ * Topik dibangun runtime "sensor/<station_id>/<suffix>". Pengiriman adalah QoS 0
+ * (PubSubClient tidak menegakkan lebih dari itu); ketahanan trigger datang dari
+ * retry di handleAlerts() plus obs_seq+phase yang membuat retry aman
+ * dideduplikasi server. trigger ditandatangani HMAC-SHA256 (crypto.cpp) memakai
+ * secret per-node dari NVS (utils::getHmacKeyCopy).
  */
 
 #include "mqtt.h"
@@ -30,7 +32,7 @@ bool serializeDocToBuffer(JsonDocument& doc, char* buffer, size_t bufferSize, si
     return true;
 }
 
-bool publishBuffer(const char* topic, const char* payload, size_t payloadLength, uint8_t qos) {
+bool publishBuffer(const char* topic, const char* payload, size_t payloadLength) {
     if (topic == nullptr || payload == nullptr || payloadLength == 0) {
         return false;
     }
@@ -38,22 +40,12 @@ bool publishBuffer(const char* topic, const char* payload, size_t payloadLength,
         return false;
     }
 
-    // PubSubClient::publish tanpa QoS hanya mendukung QoS 0. Untuk QoS 1 gunakan
-    // beginPublish/write/endPublish yang menyetel flag QoS via header.
-    if (qos == 0) {
-        return mqttClient.publish(topic, reinterpret_cast<const uint8_t*>(payload), payloadLength, false);
-    }
-
-    // QoS 1 path: PubSubClient tidak menyimpan state PUBACK, namun broker tetap
-    // memproses DUP/PUBACK. beginPublish menandai QoS via retained/qos bit.
-    if (!mqttClient.beginPublish(topic, payloadLength, false)) {
-        return false;
-    }
-    const size_t written = mqttClient.write(reinterpret_cast<const uint8_t*>(payload), payloadLength);
-    if (!mqttClient.endPublish()) {
-        return false;
-    }
-    return written == payloadLength;
+    // PubSubClient::publish hanya mendukung QoS 0. Jalur "QoS 1" yang dulu ada di
+    // sini memakai beginPublish/write/endPublish dan TIDAK menghasilkan QoS 1:
+    // tidak ada PUBACK yang ditunggu, dan endPublish() mengembalikan 1 tanpa
+    // syarat sehingga pemeriksaannya vacuous. Yang tersisa hanyalah dua jalur
+    // kode untuk satu perilaku, dan satu di antaranya berbohong.
+    return mqttClient.publish(topic, reinterpret_cast<const uint8_t*>(payload), payloadLength, false);
 }
 }  // namespace
 
@@ -73,8 +65,8 @@ size_t buildTopic(char* out, size_t outSize, const char* suffix) {
     return static_cast<size_t>(written);
 }
 
-bool mqttPublishJson(const char* topic, const char* payload, size_t payloadLength, uint8_t qos) {
-    return publishBuffer(topic, payload, payloadLength, qos);
+bool mqttPublishJson(const char* topic, const char* payload, size_t payloadLength) {
+    return publishBuffer(topic, payload, payloadLength);
 }
 
 bool mqttPayloadToCString(const byte* payload, unsigned int length, char* output, size_t outputSize) {
@@ -93,11 +85,17 @@ bool mqttPayloadToCString(const byte* payload, unsigned int length, char* output
 }
 
 // ---------------------------------------------------------------------------
-// publishTrigger — contracts/mqtt/trigger.schema.json (QoS 1)
-// Payload: { node_id, pga, dur_ms, ts, signature }
-// signature = HMAC-SHA256 hex atas "node_id|pga|dur_ms|ts" (pga 4 desimal).
+// publishTrigger — contracts/mqtt/trigger.schema.json, protokol v2
+// Payload: { proto_ver, node_id, phase, obs_seq, attempt_no, pga, dur_ms,
+//            onset_ts, detrigger_ts?, ts, signature }
+// signature = HMAC-SHA256 hex atas string kanonik v2 (canonical.cpp).
+//
+// detrigger_ts DIHILANGKAN dari JSON pada PRELIM (kontrak: "harus tidak ada,
+// bukan 0") tetapi diserialisasi sebagai 0 di dalam string kanonik, karena string
+// kanonik ber-arity tetap: sebuah field yang hilang di sana akan menggeser seluruh
+// field sesudahnya dan mengubah arti tanda tangan.
 // ---------------------------------------------------------------------------
-bool publishTrigger(float pgaGal, uint32_t durMs) {
+bool publishTrigger(const TriggerPublish& obs) {
     if (!mqttClient.connected()) {
         return false;
     }
@@ -107,6 +105,17 @@ bool publishTrigger(float pgaGal, uint32_t durMs) {
     const int64_t tsMs = getEpochMillis();
     if (tsMs <= 0) {
         Serial.println("publishTrigger aborted: NTP not synced (no valid ts)");
+        return false;
+    }
+
+    // onset_ts adalah field yang DITANDATANGANI dan wajib pada v2. Tanpa onset
+    // yang valid observasi ini tidak dapat dikirim sebagai v2 sama sekali, dan
+    // mengirimnya sebagai v1 justru akan membuang informasi yang seluruh fase ini
+    // ada untuk menyediakannya — jadi batalkan dan biarkan retry mencoba lagi
+    // setelah NTP sinkron.
+    if (obs.onsetTsMs <= 0 || obs.onsetTsMs > tsMs) {
+        Serial.printf("publishTrigger aborted: onset_ts invalid (onset=%lld ts=%lld)\n",
+                      static_cast<long long>(obs.onsetTsMs), static_cast<long long>(tsMs));
         return false;
     }
 
@@ -123,7 +132,11 @@ bool publishTrigger(float pgaGal, uint32_t durMs) {
 
     // String kanonik + signature (byte-identik dgn server Go).
     char canonical[CANONICAL_BUFFER_SIZE];
-    const size_t canonLen = buildCanonicalString(canonical, sizeof(canonical), nodeId, pgaGal, durMs, tsMs);
+    const size_t canonLen = buildCanonicalStringV2(canonical, sizeof(canonical),
+                                                   PROTO_VER_V2, nodeId, obs.phase,
+                                                   obs.obsSeq, obs.attemptNo,
+                                                   obs.pgaGal, obs.durMs,
+                                                   obs.onsetTsMs, obs.detriggerTsMs, tsMs);
     if (canonLen == 0) {
         Serial.println("publishTrigger aborted: canonical string overflow");
         return false;
@@ -139,14 +152,22 @@ bool publishTrigger(float pgaGal, uint32_t durMs) {
     // pga diserialisasi sebagai number dengan 4 desimal fixed agar konsisten
     // byte-per-byte dengan string yang ditandatangani.
     char pgaBuf[16];
-    snprintf(pgaBuf, sizeof(pgaBuf), "%.4f", pgaGal);
+    snprintf(pgaBuf, sizeof(pgaBuf), "%.4f", obs.pgaGal);
 
     StaticJsonDocument<MQTT_TRIGGER_JSON_CAPACITY> doc;
-    doc["node_id"]   = nodeId;
-    doc["pga"]       = serialized(pgaBuf);
-    doc["dur_ms"]    = durMs;
-    doc["ts"]        = tsMs;
-    doc["signature"] = signature;
+    doc["proto_ver"]  = PROTO_VER_V2;
+    doc["node_id"]    = nodeId;
+    doc["phase"]      = obs.phase;
+    doc["obs_seq"]    = obs.obsSeq;
+    doc["attempt_no"] = obs.attemptNo;
+    doc["pga"]        = serialized(pgaBuf);
+    doc["dur_ms"]     = obs.durMs;
+    doc["onset_ts"]   = obs.onsetTsMs;
+    if (obs.detriggerTsMs > 0) {
+        doc["detrigger_ts"] = obs.detriggerTsMs;
+    }
+    doc["ts"]         = tsMs;
+    doc["signature"]  = signature;
 
     char jsonBuffer[MQTT_TRIGGER_BUFFER_SIZE];
     size_t jsonLength = 0;
@@ -159,9 +180,12 @@ bool publishTrigger(float pgaGal, uint32_t durMs) {
         return false;
     }
 
-    if (mqttPublishJson(topic, jsonBuffer, jsonLength, MQTT_TRIGGER_QOS)) {
-        Serial.printf("Trigger published (pga=%.4f dur=%lu ts=%lld)\n",
-                      pgaGal, static_cast<unsigned long>(durMs),
+    if (mqttPublishJson(topic, jsonBuffer, jsonLength)) {
+        Serial.printf("Trigger published (%s obs_seq=%lld attempt=%u pga=%.4f dur=%lu onset=%lld ts=%lld)\n",
+                      obs.phase, static_cast<long long>(obs.obsSeq),
+                      static_cast<unsigned>(obs.attemptNo), obs.pgaGal,
+                      static_cast<unsigned long>(obs.durMs),
+                      static_cast<long long>(obs.onsetTsMs),
                       static_cast<long long>(tsMs));
         return true;
     }
@@ -203,7 +227,7 @@ void sendHeartbeat() {
         return;
     }
 
-    mqttPublishJson(topic, jsonBuffer, jsonLength, MQTT_HEARTBEAT_QOS);
+    mqttPublishJson(topic, jsonBuffer, jsonLength);
 }
 
 void sendMqttStartupMessage() {
@@ -233,7 +257,7 @@ void sendMqttStartupMessage() {
     if (buildTopic(topic, sizeof(topic), MQTT_TOPIC_SUFFIX_STATUS) == 0) {
         return;
     }
-    mqttPublishJson(topic, jsonBuffer, jsonLength, 0);
+    mqttPublishJson(topic, jsonBuffer, jsonLength);
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -307,7 +331,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         char output[MQTT_STATUS_BUFFER_SIZE];
         size_t outLen = 0;
         if (serializeDocToBuffer(doc, output, sizeof(output), outLen)) {
-            mqttPublishJson(statusTopic, output, outLen, 0);
+            mqttPublishJson(statusTopic, output, outLen);
         }
 
     } else if (strcmp(message, "reboot") == 0) {
@@ -332,7 +356,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         char output[MQTT_STATUS_BUFFER_SIZE];
         size_t outLen = 0;
         if (serializeDocToBuffer(doc, output, sizeof(output), outLen)) {
-            mqttPublishJson(statusTopic, output, outLen, 0);
+            mqttPublishJson(statusTopic, output, outLen);
         }
     }
 }

@@ -6,6 +6,7 @@
 #include "config.h"
 #include "state.h"
 #include "utils.h"
+#include "canonical.h"
 
 #include <Wire.h>
 #include <WiFi.h>
@@ -32,6 +33,11 @@ void IRAM_ATTR DMPDataReady() {
         portYIELD_FROM_ISR();
     }
 }
+
+// obs_seq event yang sedang berjalan. File-static: onset dan detrigger keduanya
+// dieksekusi oleh SensorTask, jadi tidak ada pembaca lintas-task dan tidak ada
+// yang perlu dilindungi mutex.
+static int64_t currentObsSeq = 0;
 
 const char* toIntensity(float pga_val) {
     return intensityToText(pga_val);
@@ -212,6 +218,28 @@ void processSensorData() {
                 pga = correctedMagnitude;
                 Serial.println("[STA/LTA] Event confirmed - PGA tracking started.");
 
+                // obs_seq ditetapkan SEKALI di sini, pada onset, lalu dipakai oleh
+                // PRELIM maupun FINAL. Itulah yang membuat kedua publikasi menjadi
+                // SATU node bagi konsensus server, bukan dua.
+                inBootSeq++;
+                currentObsSeq = composeObsSeq(bootCount, inBootSeq);
+
+                // PRELIM: dipublish pada konfirmasi onset, jadi pga adalah puncak
+                // sejauh ini dan dur_ms adalah waktu berjalan sejak onset — bukan
+                // nilai final, dan kontrak memang tidak memintanya final.
+                portENTER_CRITICAL(&reportMux);
+                pendingPrelim.maxPga = pga;
+                pendingPrelim.duration = (millis() - eventStartTime) / 1000.0f;
+                pendingPrelim.timestamp = millis();
+                pendingPrelim.obsSeq = currentObsSeq;
+                pendingPrelim.onsetMillis = eventStartTime;
+                pendingPrelim.detriggerMillis = 0UL;
+                pendingPrelim.publishAttempts = 0;
+                pendingPrelim.lastAttemptMs = 0UL;
+                pendingPrelim.ready = true;
+                pendingPrelim.processed = false;
+                portEXIT_CRITICAL(&reportMux);
+
                 portENTER_CRITICAL(&eventTriggerMux);
                 eventTriggered = true;
                 portEXIT_CRITICAL(&eventTriggerMux);
@@ -235,12 +263,17 @@ void processSensorData() {
                 Serial.println("[STA/LTA] Event forced end (timeout)");
             }
 
+            const unsigned long detriggerMs = millis();
+
             portENTER_CRITICAL(&reportMux);
             // Jangan timpa laporan yang masih menunggu publish ulang: ganti
             // isinya saja (PGA/durasi event terbaru), retry counter tetap jalan.
             pendingReport.maxPga = pga;
-            pendingReport.duration = (millis() - eventStartTime) / 1000.0f;
-            pendingReport.timestamp = millis();
+            pendingReport.duration = (detriggerMs - eventStartTime) / 1000.0f;
+            pendingReport.timestamp = detriggerMs;
+            pendingReport.obsSeq = currentObsSeq;
+            pendingReport.onsetMillis = eventStartTime;
+            pendingReport.detriggerMillis = detriggerMs;
             pendingReport.ready = true;
             if (!pendingReport.processed) {
                 pendingReport.publishAttempts = 0;

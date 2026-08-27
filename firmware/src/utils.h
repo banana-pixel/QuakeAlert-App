@@ -37,6 +37,12 @@ bool getUptimeString(char* destination, size_t destinationSize);
 // Waktu epoch UTC dalam milidetik (int64). Mengembalikan 0 bila NTP belum sinkron.
 int64_t getEpochMillis();
 
+// Epoch UTC (ms) untuk sebuah instan millis() di masa lalu. 0 bila NTP belum
+// sinkron. Diperlukan karena seluruh pewaktuan sensor adalah millis(): tanpa
+// konversi ini onset_ts hanya dapat diambil pada saat publish, yaitu justru batas
+// atas yang protokol v2 ada untuk menggantikan.
+int64_t epochAtMillis(unsigned long atMillis);
+
 const char* intensityToText(float pgaValue);
 float calculateHeapFragmentationPercent(uint32_t freeHeap, uint32_t maxAllocHeap);
 

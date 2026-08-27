@@ -46,8 +46,14 @@
 // Panjang maksimum topik penuh: "sensor/" + node_id(<=32) + "/heartbeat" + NUL.
 #define MQTT_TOPIC_BUFFER_SIZE 64
 #define MQTT_CLIENT_ID_PREFIX "ESP32-Seismo-"
-#define MQTT_TRIGGER_QOS   1
-#define MQTT_HEARTBEAT_QOS 1
+// Tidak ada konstanta QoS lagi, dan itu bukan kelalaian: PubSubClient hanya
+// mengirim QoS 0, tidak menyimpan state PUBACK, dan tidak pernah mengirim ulang.
+// MQTT_TRIGGER_QOS 1 dan MQTT_HEARTBEAT_QOS 1 yang dulu ada di sini adalah klaim
+// at-least-once yang tidak ditegakkan oleh siapa pun — sebuah angka yang membuat
+// pembaca percaya broker menjamin sesuatu yang tidak dijaminnya. Ketahanan
+// trigger datang dari retry di handleAlerts() ditambah obs_seq+phase yang
+// membuat retry itu aman dideduplikasi server; heartbeat yang hilang cukup
+// digantikan heartbeat berikutnya.
 #define HMAC_HEX_LENGTH 64
 #define HMAC_KEY_MAX_LEN 128
 // Cukup untuk string kanonik v2 pada nilai TERBURUK (node_id 15 char, phase
@@ -56,9 +62,12 @@
 // diperkirakan: lihat test/canonical_host_test.cpp.
 #define CANONICAL_BUFFER_SIZE 160
 
-// Trigger payload (contracts/mqtt/trigger.schema.json): {node_id,pga,dur_ms,ts,signature}
-#define MQTT_TRIGGER_JSON_CAPACITY 256
-#define MQTT_TRIGGER_BUFFER_SIZE   256
+// Trigger payload v2 (contracts/mqtt/trigger.schema.json):
+// {proto_ver,node_id,phase,obs_seq,attempt_no,pga,dur_ms,onset_ts,detrigger_ts,
+//  ts,signature} — sebelas field, salah satunya signature 64 char, jadi 256
+// tidak lagi cukup untuk pool maupun buffer serialisasi.
+#define MQTT_TRIGGER_JSON_CAPACITY 512
+#define MQTT_TRIGGER_BUFFER_SIZE   512
 // NVS key untuk HMAC secret per-node (di-set saat provisioning).
 #define NVS_KEY_HMAC "hmac_key"
 // NVS key konfigurasi broker per-node (handoff wizard "Add a Sensor" lewat

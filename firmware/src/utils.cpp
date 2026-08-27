@@ -357,6 +357,17 @@ int64_t getEpochMillis() {
     return (int64_t)tv.tv_sec * 1000LL + (int64_t)(tv.tv_usec / 1000);
 }
 
+int64_t epochAtMillis(unsigned long atMillis) {
+    const int64_t nowEpoch = getEpochMillis();
+    if (nowEpoch <= 0) {
+        return 0;
+    }
+    // Selisih millis() sengaja dihitung pada tipe unsigned: ia benar melewati
+    // wrap-around 32-bit, sedangkan mengurangkan dua nilai yang sudah dilebarkan
+    // ke int64 tidak.
+    return nowEpoch - static_cast<int64_t>(millis() - atMillis);
+}
+
 const char* intensityToText(float pgaValue) {
 
     if (pgaValue < 0.5f) {

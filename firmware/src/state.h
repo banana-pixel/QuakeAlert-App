@@ -46,6 +46,18 @@ extern SemaphoreHandle_t mpuInterruptSemaphore;
 // ========================================
 // STRUCTURES
 // ========================================
+// EventReport adalah satu observasi yang menunggu publish. Ada DUA slot
+// (pendingPrelim, pendingReport) dan bukan satu, karena protokol v2 memublikasikan
+// tepat dua kali per event (PRELIM pada onset, FINAL saat event ditutup) dan
+// keduanya dapat sedang di-retry secara bersamaan: satu slot berarti FINAL akan
+// menimpa PRELIM yang belum terkirim, sehingga observasi paling dini — satu-satunya
+// yang punya nilai peringatan — justru yang hilang.
+//
+// onsetMillis/detriggerMillis disimpan sebagai millis(), BUKAN epoch. Seluruh
+// pewaktuan di sensor.cpp adalah millis(), dan konversi ke epoch dilakukan saat
+// publish (epochAtMillis): sebuah node yang NTP-nya baru sinkron SETELAH onset
+// tetap dapat melaporkan onset yang benar, sedangkan epoch yang dibekukan pada
+// saat onset akan selamanya 0.
 struct EventReport {
     bool ready;
     float maxPga;
@@ -54,6 +66,9 @@ struct EventReport {
     bool processed;
     uint8_t publishAttempts;   // jumlah percobaan publish trigger yang sudah dilakukan
     unsigned long lastAttemptMs; // millis() percobaan publish terakhir (untuk backoff)
+    int64_t obsSeq;              // (boot_count << 16) | in_boot_seq — sama utk PRELIM & FINAL
+    unsigned long onsetMillis;   // millis() onset terkonfirmasi
+    unsigned long detriggerMillis; // millis() event ditutup; hanya bermakna pada FINAL
 };
 
 // ========================================
@@ -66,6 +81,7 @@ extern SemaphoreHandle_t stateMutex;
 // ========================================
 // VOLATILE / SYNC STATE
 // ========================================
+extern volatile EventReport pendingPrelim;
 extern volatile EventReport pendingReport;
 extern volatile bool eventTriggered;
 extern volatile bool rebootRequestReceived;
@@ -119,6 +135,9 @@ extern uint32_t minHeapSeen;
 extern float maxHeapFragmentationSeen;
 extern unsigned long lastHeapCheck;
 extern int bootCount;
+// Penghitung observasi dalam boot ini (RAM, tidak persist). Bit rendah obs_seq;
+// bit tingginya bootCount, sehingga tidak ada penulisan NVS per event.
+extern uint16_t inBootSeq;
 extern Preferences preferences;
 
 // ========================================

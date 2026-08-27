@@ -63,7 +63,8 @@ SemaphoreHandle_t stateMutex = nullptr;
 portMUX_TYPE reportMux = portMUX_INITIALIZER_UNLOCKED;
 portMUX_TYPE eventTriggerMux = portMUX_INITIALIZER_UNLOCKED;
 
-volatile EventReport pendingReport = {false, 0.0f, 0.0f, 0UL, false, 0, 0UL};
+volatile EventReport pendingPrelim = {false, 0.0f, 0.0f, 0UL, false, 0, 0UL, 0, 0UL, 0UL};
+volatile EventReport pendingReport = {false, 0.0f, 0.0f, 0UL, false, 0, 0UL, 0, 0UL, 0UL};
 volatile bool eventTriggered = false;
 volatile bool rebootRequestReceived = false;
 
@@ -104,6 +105,7 @@ uint32_t minHeapSeen = 0xFFFFFFFF;
 float maxHeapFragmentationSeen = 0.0f;
 unsigned long lastHeapCheck = 0;
 int bootCount = 0;
+uint16_t inBootSeq = 0;
 Preferences preferences;
 
 char lastPgaStr[16] = "N/A";
@@ -245,54 +247,78 @@ static void startWorkerTasks() {
 // ========================================
 // ALERT HANDLER (glue: sensor -> mqtt)
 // ========================================
-void handleAlerts() {
-    // eventTriggered menandai onset terkonfirmasi. Trigger kanonik hanya boleh
-    // dipublish saat event SELESAI karena pga & durasi final baru diketahui di
-    // pendingReport (kontrak trigger butuh pga=peak gal, dur_ms=durasi total).
-    // Di sini kita hanya reset flag onset agar tidak menumpuk.
-    portENTER_CRITICAL(&eventTriggerMux);
-    if (eventTriggered) {
-        eventTriggered = false;
-        alertSent = true;
-    }
-    portEXIT_CRITICAL(&eventTriggerMux);
-
-    bool shouldSendReport = false;
+// servePendingSlot memublikasikan satu slot laporan bila ada yang menunggu, dengan
+// retry, backoff, dan kedaluwarsa yang sama untuk PRELIM dan FINAL.
+//
+// Satu fungsi untuk kedua fase, bukan dua salinan: perbedaan keduanya hanyalah
+// phase, ada/tidaknya detrigger_ts, dan siapa yang memperbarui tampilan "event
+// terakhir". Dua salinan dari logika retry ini akan menyimpang, dan yang menyimpang
+// adalah jalur yang lebih jarang dijalankan — justru PRELIM, satu-satunya
+// publikasi yang punya nilai peringatan.
+//
+// Fungsi global, bukan static / anonymous namespace: preprocessor .ino Arduino
+// membangkitkan prototipe global untuk setiap definisi fungsi di berkas ini, dan
+// prototipe itu akan bertabrakan dengan versi yang di-internal-linkage-kan.
+void servePendingSlot(volatile EventReport& slot, bool isFinal) {
+    bool shouldSend = false;
     float reportPga = 0.0f;
     float reportDuration = 0.0f;
+    int64_t obsSeq = 0;
+    unsigned long onsetMillis = 0UL;
+    unsigned long detriggerMillis = 0UL;
+    uint8_t attemptsSoFar = 0;
 
     portENTER_CRITICAL(&reportMux);
-    if (pendingReport.ready && !pendingReport.processed) {
-        shouldSendReport = true;
-        reportPga = pendingReport.maxPga;
-        reportDuration = pendingReport.duration;
-        pendingReport.processed = true;
+    if (slot.ready && !slot.processed) {
+        shouldSend = true;
+        reportPga = slot.maxPga;
+        reportDuration = slot.duration;
+        obsSeq = slot.obsSeq;
+        onsetMillis = slot.onsetMillis;
+        detriggerMillis = slot.detriggerMillis;
+        attemptsSoFar = slot.publishAttempts;
+        slot.processed = true;
     }
     portEXIT_CRITICAL(&reportMux);
 
-    if (shouldSendReport) {
-        const char* intensity = toIntensity(reportPga);
-        char waktu[TIME_TEXT_BUFFER_SIZE];
+    if (shouldSend) {
+        if (isFinal) {
+            // Tampilan lokal hanya mengikuti FINAL: PRELIM sengaja belum final, dan
+            // menampilkannya akan membuat layar melaporkan puncak yang lebih rendah
+            // daripada yang sebenarnya terjadi.
+            char waktu[TIME_TEXT_BUFFER_SIZE];
+            getWaktuString(waktu, sizeof(waktu));
 
-        getWaktuString(waktu, sizeof(waktu));
+            char pgaText[16];
+            snprintf(pgaText, sizeof(pgaText), "%.2f gal", reportPga);
 
-        char pgaText[16];
-        snprintf(pgaText, sizeof(pgaText), "%.2f gal", reportPga);
+            setLastEventTime(waktu);
+            setLastIntensity(toIntensity(reportPga));
+            setLastPga(pgaText);
+        }
 
-        setLastEventTime(waktu);
-        setLastIntensity(intensity);
-        setLastPga(pgaText);
+        // Epoch dikonversi dari millis() DI SINI, pada setiap percobaan: node yang
+        // NTP-nya baru sinkron setelah onset tetap melaporkan onset yang benar.
+        TriggerPublish obs = {};
+        obs.phase = isFinal ? PHASE_FINAL : PHASE_PRELIM;
+        obs.obsSeq = obsSeq;
+        // attempt_no 1-based: percobaan PERTAMA adalah 1, dan hanya pada nilai itu
+        // server memberlakukan batas ATAS koherensi onset (§14.4).
+        obs.attemptNo = (attemptsSoFar < 255) ? static_cast<uint8_t>(attemptsSoFar + 1) : 255;
+        obs.pgaGal = reportPga;
+        obs.durMs = static_cast<uint32_t>(reportDuration * 1000.0f);
+        obs.onsetTsMs = epochAtMillis(onsetMillis);
+        obs.detriggerTsMs = isFinal ? epochAtMillis(detriggerMillis) : 0;
 
-        // Publikasikan trigger sesuai contracts/mqtt/trigger.schema.json.
-        // durasi (detik, float) -> dur_ms (ms). PGA sudah dalam gal.
-        const uint32_t durMs = (uint32_t)(reportDuration * 1000.0f);
-        if (publishTrigger(reportPga, durMs)) {
-            totalEventsDetected++;
+        if (publishTrigger(obs)) {
+            if (isFinal) {
+                totalEventsDetected++;
+            }
             portENTER_CRITICAL(&reportMux);
-            pendingReport.ready = false;
-            pendingReport.processed = false;
-            pendingReport.publishAttempts = 0;
-            pendingReport.lastAttemptMs = 0;
+            slot.ready = false;
+            slot.processed = false;
+            slot.publishAttempts = 0;
+            slot.lastAttemptMs = 0;
             portEXIT_CRITICAL(&reportMux);
         } else {
             // Publish gagal (MQTT putus / NTP belum sinkron). JANGAN buang
@@ -300,19 +326,20 @@ void handleAlerts() {
             // dengan backoff. Laporan dinyatakan hilang hanya jika batas
             // percobaan ATAU batas usia terlampaui — dan selalu dengan log.
             portENTER_CRITICAL(&reportMux);
-            pendingReport.publishAttempts++;
-            pendingReport.lastAttemptMs = millis();
-            const uint8_t attempts = pendingReport.publishAttempts;
+            slot.publishAttempts++;
+            slot.lastAttemptMs = millis();
+            const uint8_t attempts = slot.publishAttempts;
             portEXIT_CRITICAL(&reportMux);
 
-            Serial.printf("Trigger publish failed (attempt %u/%u) — will retry\n",
-                          attempts, TRIGGER_MAX_ATTEMPTS);
+            Serial.printf("Trigger publish failed (%s attempt %u/%u) — will retry\n",
+                          obs.phase, attempts, TRIGGER_MAX_ATTEMPTS);
             if (attempts >= TRIGGER_MAX_ATTEMPTS) {
-                Serial.println("ERROR: trigger publish gave up after max attempts — EVENT LOST");
+                Serial.printf("ERROR: %s publish gave up after max attempts — OBSERVATION LOST\n",
+                              obs.phase);
                 portENTER_CRITICAL(&reportMux);
-                pendingReport.ready = false;
-                pendingReport.processed = false;
-                pendingReport.publishAttempts = 0;
+                slot.ready = false;
+                slot.processed = false;
+                slot.publishAttempts = 0;
                 portEXIT_CRITICAL(&reportMux);
             }
         }
@@ -322,19 +349,40 @@ void handleAlerts() {
     // backoff antar percobaan, dan beri batas usia jauh lebih longgar dari
     // semula agar event tidak dibuang saat MQTT sedang reconnect.
     portENTER_CRITICAL(&reportMux);
-    if (pendingReport.ready && pendingReport.processed) {
-        const unsigned long age = millis() - pendingReport.timestamp;
-        const unsigned long sinceAttempt = millis() - pendingReport.lastAttemptMs;
+    if (slot.ready && slot.processed) {
+        const unsigned long age = millis() - slot.timestamp;
+        const unsigned long sinceAttempt = millis() - slot.lastAttemptMs;
         if (age > TRIGGER_MAX_AGE_MS) {
-            Serial.println("ERROR: stale unpublished report expired — EVENT LOST");
-            pendingReport.ready = false;
-            pendingReport.processed = false;
-            pendingReport.publishAttempts = 0;
-        } else if (sinceAttempt >= TRIGGER_RETRY_BACKOFF_MS) {
-            pendingReport.processed = false;  // jalur handleAlerts() akan mencoba lagi
+            slot.ready = false;
+            slot.processed = false;
+            slot.publishAttempts = 0;
+            portEXIT_CRITICAL(&reportMux);
+            Serial.println("ERROR: stale unpublished observation expired — OBSERVATION LOST");
+            return;
+        }
+        if (sinceAttempt >= TRIGGER_RETRY_BACKOFF_MS) {
+            slot.processed = false;  // percobaan berikutnya akan mengambilnya lagi
         }
     }
     portEXIT_CRITICAL(&reportMux);
+}
+
+void handleAlerts() {
+    // eventTriggered menandai onset terkonfirmasi dan hanya dipakai untuk state
+    // tampilan/LED. Observasi PRELIM-nya sendiri tidak dibawa oleh flag ini
+    // melainkan oleh pendingPrelim, yang diisi SensorTask bersamaan dengan flag —
+    // sebuah flag tidak dapat membawa pga, onset, maupun obs_seq.
+    portENTER_CRITICAL(&eventTriggerMux);
+    if (eventTriggered) {
+        eventTriggered = false;
+        alertSent = true;
+    }
+    portEXIT_CRITICAL(&eventTriggerMux);
+
+    // PRELIM lebih dulu: ia yang punya nilai peringatan, dan bila MQTT hanya
+    // sempat mengirim satu paket, paket itu harus yang paling dini.
+    servePendingSlot(pendingPrelim, false);
+    servePendingSlot(pendingReport, true);
 }
 
 
