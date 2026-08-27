@@ -363,6 +363,13 @@ void checkNtpSync() {
 
     const unsigned long now = millis();
 
+    // Epoch menurut jam LAMA, dibaca sebelum status sinkron dilepas: inilah satu-
+    // satunya pembanding yang membuat clock_offset_ms dapat diukur. 0 berarti node
+    // belum pernah sinkron, dan sinkronisasi pertama memang tidak punya koreksi
+    // untuk dilaporkan — heartbeat menghilangkan field-nya, bukan mengirim 0.
+    const int64_t beforeEpoch = getEpochMillis();
+    const unsigned long beforeMillis = millis();
+
     if (isNtpSynced) {
         if (now - lastNtpSync > NTP_SYNC_INTERVAL_MS) {
             setNtpSyncStatus(false);
@@ -384,6 +391,15 @@ void checkNtpSync() {
     if (getLocalTime(&timeinfo, 2000)) {
         setNtpSyncStatus(true);
         lastNtpSync = now;
+        if (beforeEpoch > 0) {
+            const int64_t afterEpoch = getEpochMillis();
+            // Yang diukur adalah selisih terhadap ke mana jam LAMA akan menunjuk
+            // sekarang, bukan terhadap nilainya saat dibaca — waktu berjalan selama
+            // konfigurasi NTP, dan mengabaikannya akan melaporkan durasi sinkronisasi
+            // sebagai drift jam.
+            const int64_t expected = beforeEpoch + static_cast<int64_t>(millis() - beforeMillis);
+            setClockOffsetMs(afterEpoch - expected);
+        }
         Serial.println("NTP Synced Successfully");
     } else {
         setNtpSyncStatus(false);

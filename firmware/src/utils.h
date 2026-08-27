@@ -43,6 +43,17 @@ int64_t getEpochMillis();
 // atas yang protokol v2 ada untuk menggantikan.
 int64_t epochAtMillis(unsigned long atMillis);
 
+// Kualitas jam menurut node sendiri, nilai kontrak heartbeat: "NTP" atau "NONE".
+// "RTC" tidak pernah dikembalikan — perangkat keras saat ini tidak punya RTC.
+const char* getClockSource();
+
+// Koreksi terakhir yang diterapkan pada jam node (ms, positif = jam dimajukan).
+// false berarti belum ada koreksi yang terukur (sinkronisasi pertama tidak punya
+// pembanding), dan heartbeat HARUS menghilangkan field-nya alih-alih mengirim 0.
+bool getClockOffsetMs(int64_t& offsetMs);
+// Dicatat oleh checkNtpSync() setiap kali jam yang SUDAH pernah sinkron dikoreksi.
+void setClockOffsetMs(int64_t offsetMs);
+
 const char* intensityToText(float pgaValue);
 float calculateHeapFragmentationPercent(uint32_t freeHeap, uint32_t maxAllocHeap);
 

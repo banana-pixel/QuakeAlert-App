@@ -16,6 +16,11 @@
 
 
 namespace {
+// Koreksi jam terakhir. File-static, bukan global di state.h: hanya utils.cpp yang
+// membacanya dan hanya checkNtpSync() yang menulisnya lewat setter di bawah.
+int64_t clockOffsetMs = 0;
+bool clockOffsetKnown = false;
+
 bool copyStringLocked(char* destination, size_t destinationSize, const char* source) {
     if (destination == nullptr || destinationSize == 0) {
         return false;
@@ -366,6 +371,34 @@ int64_t epochAtMillis(unsigned long atMillis) {
     // wrap-around 32-bit, sedangkan mengurangkan dua nilai yang sudah dilebarkan
     // ke int64 tidak.
     return nowEpoch - static_cast<int64_t>(millis() - atMillis);
+}
+
+const char* getClockSource() {
+    return getEpochMillis() > 0 ? "NTP" : "NONE";
+}
+
+bool getClockOffsetMs(int64_t& offsetMs) {
+    bool known;
+    if (stateMutex != nullptr) {
+        xSemaphoreTake(stateMutex, portMAX_DELAY);
+    }
+    known = clockOffsetKnown;
+    offsetMs = clockOffsetMs;
+    if (stateMutex != nullptr) {
+        xSemaphoreGive(stateMutex);
+    }
+    return known;
+}
+
+void setClockOffsetMs(int64_t offsetMs) {
+    if (stateMutex != nullptr) {
+        xSemaphoreTake(stateMutex, portMAX_DELAY);
+    }
+    clockOffsetMs = offsetMs;
+    clockOffsetKnown = true;
+    if (stateMutex != nullptr) {
+        xSemaphoreGive(stateMutex);
+    }
 }
 
 const char* intensityToText(float pgaValue) {

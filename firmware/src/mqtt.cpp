@@ -195,8 +195,14 @@ bool publishTrigger(const TriggerPublish& obs) {
 }
 
 // ---------------------------------------------------------------------------
-// sendHeartbeat — contracts/mqtt/heartbeat.schema.json (QoS 1)
-// Payload: { id, rssi, uptime_s, ts }
+// sendHeartbeat — contracts/mqtt/heartbeat.schema.json
+// Payload: { id, rssi, uptime_s, ts?, clock_source, clock_offset_ms? }
+//
+// ts DIHILANGKAN, dan bukan dikirim sebagai 0, ketika jam belum tersinkronisasi
+// (O4). Node seperti itu tidak dapat menandatangani trigger sama sekali, jadi
+// heartbeat adalah satu-satunya cara ia terlihat; ts=0 akan ditolak sebagai ts
+// tidak wajar dan node-nya kembali menjadi tidak dapat dibedakan dari node mati.
+// Payload ini TIDAK ditandatangani dan karena itu diagnostik saja.
 // ---------------------------------------------------------------------------
 void sendHeartbeat() {
     if (!mqttClient.connected()) {
@@ -214,7 +220,17 @@ void sendHeartbeat() {
     doc["id"]       = nodeId;
     doc["rssi"]     = rssi;
     doc["uptime_s"] = uptimeSec;
-    doc["ts"]       = tsMs;
+    if (tsMs > 0) {
+        doc["ts"] = tsMs;
+    }
+    doc["clock_source"] = getClockSource();
+    int64_t offsetMs = 0;
+    if (getClockOffsetMs(offsetMs)) {
+        // Hanya dikirim bila benar-benar terukur: sinkronisasi PERTAMA tidak punya
+        // pembanding, dan 0 di sana berarti "tidak ada drift" — sebuah klaim yang
+        // tidak pernah diukur.
+        doc["clock_offset_ms"] = offsetMs;
+    }
 
     char jsonBuffer[MQTT_HEARTBEAT_BUFFER_SIZE];
     size_t jsonLength = 0;
