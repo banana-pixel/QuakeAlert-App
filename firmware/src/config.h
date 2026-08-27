@@ -50,7 +50,11 @@
 #define MQTT_HEARTBEAT_QOS 1
 #define HMAC_HEX_LENGTH 64
 #define HMAC_KEY_MAX_LEN 128
-#define CANONICAL_BUFFER_SIZE 96
+// Cukup untuk string kanonik v2 pada nilai TERBURUK (node_id 15 char, phase
+// PRELIM, obs_seq int64 maksimum, attempt_no 255, pga 2000.0000, dur_ms 60000,
+// tiga timestamp 13 digit) = 106 byte + NUL. Batas itu diuji, bukan
+// diperkirakan: lihat test/canonical_host_test.cpp.
+#define CANONICAL_BUFFER_SIZE 160
 
 // Trigger payload (contracts/mqtt/trigger.schema.json): {node_id,pga,dur_ms,ts,signature}
 #define MQTT_TRIGGER_JSON_CAPACITY 256

@@ -1,12 +1,14 @@
 /**
- * QuakeAlert ESP32 - HMAC-SHA256 canonicalization & signing.
+ * QuakeAlert ESP32 - HMAC-SHA256 signing.
+ *
+ * String kanonik yang ditandatangani hidup di canonical.h/.cpp — dipisahkan
+ * karena ia dapat (dan harus) diuji di host, sedangkan berkas ini bergantung
+ * pada mbedTLS. Header ini tetap meneruskan canonical.h agar pemanggil yang ada
+ * tidak berubah.
  *
  * Kontrak (contracts/mqtt/trigger.schema.json + .clinerules/30 #5):
- *   String kanonik = "node_id|pga|dur_ms|ts"
- *     - pemisah '|'
- *     - pga fixed 4 desimal (snprintf "%.4f")
- *     - dur_ms & ts integer desimal (ts = ms epoch UTC)
- *   signature = HMAC-SHA256 hex lowercase 64-char.
+ *   signature = HMAC-SHA256 hex lowercase 64-char atas string kanonik versi
+ *   yang sesuai.
  *
  * Implementasi ini WAJIB byte-identik dengan server Go
  * (server/internal/ingest/hmac.go). Known-answer test:
@@ -21,11 +23,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// Bangun string kanonik ke dalam buffer. Mengembalikan panjang string (>0)
-// atau 0 bila buffer terlalu kecil. pga diformat 4 desimal fixed.
-size_t buildCanonicalString(char* out, size_t outSize,
-                            const char* nodeId, float pgaGal,
-                            uint32_t durMs, int64_t tsMs);
+#include "canonical.h"
 
 // Hitung HMAC-SHA256 atas `canonical` dan tulis 64 char hex lowercase + NUL
 // ke `outHex` (butuh >= 65 byte). Mengembalikan true bila sukses.

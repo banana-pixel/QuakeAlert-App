@@ -2,42 +2,12 @@
  * QuakeAlert ESP32 - HMAC-SHA256 implementation (mbedTLS bundled in ESP32
  * Arduino framework — no external dependency).
  *
- * Canonical byte-stream must match server/internal/ingest/hmac.go exactly.
+ * String kanoniknya sendiri ada di canonical.cpp.
  */
 
 #include "crypto.h"
 
-#include <string.h>
-#include <stdio.h>
 #include <mbedtls/md.h>
-
-size_t buildCanonicalString(char* out, size_t outSize,
-                            const char* nodeId, float pgaGal,
-                            uint32_t durMs, int64_t tsMs) {
-    if (out == nullptr || outSize == 0 || nodeId == nullptr) {
-        return 0;
-    }
-
-    // pga fixed 4 desimal — identik dengan strconv.FormatFloat(pga,'f',4,64) di Go.
-    // snprintf "%.4f" membulatkan half-to-even/half-away sesuai libc; nilai PGA
-    // seismik (<2000 gal) aman dari perbedaan pembulatan pada 4 desimal.
-    char pgaStr[24];
-    int n = snprintf(pgaStr, sizeof(pgaStr), "%.4f", (double)pgaGal);
-    if (n <= 0 || (size_t)n >= sizeof(pgaStr)) {
-        return 0;
-    }
-
-    // ts & dur sebagai integer desimal. PRId64 tidak selalu tersedia di
-    // toolchain Arduino; gunakan format eksplisit.
-    int written = snprintf(out, outSize, "%s|%s|%lu|%lld",
-                           nodeId, pgaStr,
-                           (unsigned long)durMs,
-                           (long long)tsMs);
-    if (written <= 0 || (size_t)written >= outSize) {
-        return 0;
-    }
-    return (size_t)written;
-}
 
 bool computeHmacHex(const uint8_t* key, size_t keyLen,
                     const char* canonical, size_t canonicalLen,

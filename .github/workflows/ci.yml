@@ -1,10 +1,10 @@
 # Continuous integration for the QuakeAlert monorepo.
 #
-# Two independent jobs, because the two halves of the system fail for unrelated
+# Three independent jobs, because the halves of the system fail for unrelated
 # reasons and a Go compile error should not hide an Android lint regression. Each
 # is scoped by `paths` at the workflow level only loosely: a contract change under
-# contracts/ must run both, since ADR-0004 makes the OpenAPI document the source
-# both sides are meant to agree with.
+# contracts/ must run all of them, since ADR-0004 makes the OpenAPI document the
+# source every side is meant to agree with.
 name: CI
 
 on:
@@ -63,6 +63,20 @@ jobs:
         # missed or duplicated earthquake alert, which is the failure this project
         # exists to avoid.
         run: go test -race -count=1 ./...
+
+  firmware:
+    name: Firmware host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Canonical string host tests
+        # Tidak mengompilasi firmware (butuh toolchain ESP32); yang diuji adalah
+        # bagian yang HARUS byte-identik dengan server Go: string kanonik v1 & v2
+        # dan composeObsSeq. canonical.cpp sengaja bebas Arduino/mbedTLS justru
+        # agar pemeriksaan ini dapat berjalan di sini — dan sebuah uji yang tidak
+        # pernah dijalankan bukan uji.
+        run: firmware/scripts/canonical-host-test.sh
 
   android:
     name: Android app
