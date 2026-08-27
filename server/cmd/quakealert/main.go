@@ -150,7 +150,7 @@ func run(log *slog.Logger) error {
 	// Handler heartbeat -> perbarui telemetri liveness node (RSSI, latency,
 	// last_heartbeat) yang dibaca endpoint /sensors.
 	hbValidator := ingest.NewHeartbeatValidator(log)
-	hbHandler := func(ctx context.Context, h *ingest.Heartbeat, latencyMs int) {
+	hbHandler := func(ctx context.Context, h *ingest.Heartbeat, latencyMs *int) {
 		known, uerr := st.UpdateHeartbeat(ctx, h.ID, h.RSSI, latencyMs)
 		if uerr != nil {
 			log.Error("gagal update heartbeat", "station_id", h.ID, "err", uerr)

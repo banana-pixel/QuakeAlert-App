@@ -64,7 +64,7 @@ func newSubFixture(verifyErr error) *subFixture {
 func (f *subFixture) withHeartbeat() *subFixture {
 	v := NewHeartbeatValidator(hbTestLogger())
 	v.now = func() time.Time { return fixedNow }
-	f.sub.WithHeartbeat(v, func(_ context.Context, h *Heartbeat, _ int) {
+	f.sub.WithHeartbeat(v, func(_ context.Context, h *Heartbeat, _ *int) {
 		f.heartbeats = append(f.heartbeats, h.ID)
 	})
 	return f
@@ -205,6 +205,21 @@ func TestOnHeartbeat_TopicStationIDMismatch(t *testing.T) {
 	})
 	if len(f.heartbeats) != 1 || f.heartbeats[0] != "NODE-AAAAAAAA" {
 		t.Fatalf("heartbeat yang cocok harus diterima, dapat %v", f.heartbeats)
+	}
+}
+
+// TestOnHeartbeat_ClocklessNodeReachesHandler: jalur subscriber tidak boleh
+// menjatuhkan heartbeat tanpa jam. O4 hanya tercapai bila node itu benar-benar
+// sampai ke pemutakhiran last_heartbeat — di situlah ia berhenti terlihat mati.
+func TestOnHeartbeat_ClocklessNodeReachesHandler(t *testing.T) {
+	f := newSubFixture(nil).withHeartbeat()
+
+	f.sub.onHeartbeat(nil, fakeMessage{
+		topic:   "sensor/NODE-AAAAAAAA/heartbeat",
+		payload: []byte(`{"id":"NODE-AAAAAAAA","rssi":-61,"uptime_s":95,"clock_source":"NONE"}`),
+	})
+	if len(f.heartbeats) != 1 || f.heartbeats[0] != "NODE-AAAAAAAA" {
+		t.Fatalf("heartbeat tanpa jam harus diteruskan, dapat %v", f.heartbeats)
 	}
 }
 

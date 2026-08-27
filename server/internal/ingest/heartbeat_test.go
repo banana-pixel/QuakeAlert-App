@@ -28,7 +28,7 @@ func TestParseHeartbeat_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err = %v, mau nil", err)
 	}
-	if h.ID != "NODE-163A149F" || h.RSSI != -61 || h.UptimeS != 86400 || h.TS != 1723891234000 {
+	if h.ID != "NODE-163A149F" || h.RSSI != -61 || h.UptimeS != 86400 || h.TS == nil || *h.TS != 1723891234000 {
 		t.Fatalf("hasil parse salah: %+v", h)
 	}
 }
@@ -103,8 +103,8 @@ func TestHeartbeatValidator_LatencyDanClockSkew(t *testing.T) {
 				}
 				return
 			}
-			if latency != tc.wantLatency {
-				t.Fatalf("latency = %d ms, mau %d ms", latency, tc.wantLatency)
+			if latency == nil || *latency != tc.wantLatency {
+				t.Fatalf("latency = %v ms, mau %d ms", latency, tc.wantLatency)
 			}
 			if h.ID != "NODE-163A149F" {
 				t.Fatalf("station_id = %q", h.ID)
@@ -144,5 +144,101 @@ func TestStationIDFromTopic(t *testing.T) {
 				t.Fatalf("(%q, %v), mau (%q, %v)", id, ok, tc.wantID, tc.wantOK)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// O4 — node tanpa jam tersinkronisasi harus TERLIHAT, bukan hilang
+// ---------------------------------------------------------------------------
+
+// TestHeartbeat_ClockSourceNone adalah kriteria keluar O4: node yang jamnya belum
+// tersinkronisasi menghilangkan ts dan tetap diterima. Tanpa ini ia diam total
+// dan tidak dapat dibedakan dari node yang mati.
+func TestHeartbeat_ClockSourceNone(t *testing.T) {
+	v := newTestHeartbeatValidator()
+	raw := []byte(`{"id":"NODE-163A149F","rssi":-61,"uptime_s":95,"clock_source":"NONE"}`)
+
+	h, latency, err := v.Validate(raw)
+	if err != nil {
+		t.Fatalf("heartbeat tanpa jam ditolak: %v", err)
+	}
+	if h.TS != nil {
+		t.Errorf("ts = %v, want nil", *h.TS)
+	}
+	if h.HasClock() {
+		t.Error("HasClock = true untuk clock_source NONE")
+	}
+	// nil, bukan 0: 0 akan terbaca sebagai latency sempurna.
+	if latency != nil {
+		t.Errorf("latency = %d, want nil (tidak terukur)", *latency)
+	}
+}
+
+func TestHeartbeat_ClockSourceValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want error
+	}{
+		{
+			// Absen = node firmware lama; ts tetap wajib dan itulah yang membuat
+			// server berhak menganggapnya tersinkronisasi.
+			name: "clock_source absen, ts ada",
+			raw:  `{"id":"NODE-163A149F","rssi":-61,"uptime_s":10,"ts":1723891234000}`,
+		},
+		{
+			name: "NTP dengan ts dan offset",
+			raw:  `{"id":"NODE-163A149F","rssi":-61,"uptime_s":10,"ts":1723891234000,"clock_source":"NTP","clock_offset_ms":42}`,
+		},
+		{
+			// RTC belum ada di perangkat keras saat ini; nilainya sudah dikenal
+			// agar penambahannya bukan perubahan kontrak.
+			name: "RTC diterima",
+			raw:  `{"id":"NODE-163A149F","rssi":-61,"uptime_s":10,"ts":1723891234000,"clock_source":"RTC"}`,
+		},
+		{
+			name: "NTP tanpa ts",
+			raw:  `{"id":"NODE-163A149F","rssi":-61,"uptime_s":10,"clock_source":"NTP"}`,
+			want: ErrHeartbeatInvalidTS,
+		},
+		{
+			// Kontrak menyuruh node tanpa jam MENGHILANGKAN ts, bukan mengirim 0.
+			name: "ts 0 tetap ditolak",
+			raw:  `{"id":"NODE-163A149F","rssi":-61,"uptime_s":10,"ts":0}`,
+			want: ErrHeartbeatInvalidTS,
+		},
+		{
+			name: "NONE tetapi membawa ts",
+			raw:  `{"id":"NODE-163A149F","rssi":-61,"uptime_s":10,"ts":1723891234000,"clock_source":"NONE"}`,
+			want: ErrHeartbeatUnexpectedTS,
+		},
+		{
+			name: "clock_source tak dikenal",
+			raw:  `{"id":"NODE-163A149F","rssi":-61,"uptime_s":10,"ts":1723891234000,"clock_source":"GPS"}`,
+			want: ErrHeartbeatInvalidClockSource,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseHeartbeat([]byte(tc.raw))
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestHeartbeat_ClocklessSkipsSkewGate: heartbeat tanpa jam TIDAK boleh melewati
+// gerbang skew — tidak ada ts untuk dibandingkan, dan menerapkan gerbang itu
+// dengan nol akan menolak setiap node tanpa jam sebagai penyimpangan 55 tahun.
+func TestHeartbeat_ClocklessSkipsSkewGate(t *testing.T) {
+	v := newTestHeartbeatValidator()
+	// Jam server dipindah jauh; hasilnya harus tidak berubah.
+	v.now = func() time.Time { return fixedNow.Add(72 * time.Hour) }
+
+	if _, _, err := v.Validate([]byte(
+		`{"id":"NODE-163A149F","rssi":-61,"uptime_s":95,"clock_source":"NONE"}`)); err != nil {
+		t.Fatalf("heartbeat tanpa jam ditolak karena jam server: %v", err)
 	}
 }

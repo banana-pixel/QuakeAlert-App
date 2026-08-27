@@ -26,8 +26,10 @@ type TriggerVerifier interface {
 }
 
 // HeartbeatHandler dipanggil untuk setiap heartbeat yang lolos validasi.
-// latencyMs adalah latency satu-arah node→server hasil hitung validator.
-type HeartbeatHandler func(ctx context.Context, h *Heartbeat, latencyMs int)
+// latencyMs adalah latency satu-arah node→server hasil hitung validator, atau
+// nil bila node tidak mengirim ts (clock_source NONE) sehingga tidak ada apa pun
+// untuk diukur. nil berarti TIDAK TERUKUR, bukan nol.
+type HeartbeatHandler func(ctx context.Context, h *Heartbeat, latencyMs *int)
 
 // Subscriber menghubungkan MQTT ke pipeline verifikasi.
 type Subscriber struct {

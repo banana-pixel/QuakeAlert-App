@@ -123,10 +123,18 @@ func (s *Store) UpdateLastSeen(ctx context.Context, stationID string, ts int64) 
 // Sengaja TIDAK menyentuh last_seen_ts: kolom itu milik anti-replay trigger
 // ber-HMAC, sedangkan heartbeat tidak terautentikasi.
 // Mengembalikan false bila station_id tidak dikenal (0 baris ter-update).
-func (s *Store) UpdateHeartbeat(ctx context.Context, stationID string, rssi, latencyMs int) (bool, error) {
+//
+// latencyMs nil berarti latency tidak terukur pada heartbeat ini (node tanpa jam
+// tersinkronisasi, O4). Nilai LAMA dipertahankan lewat COALESCE, bukan ditimpa
+// dengan 0: nol akan terbaca di /sensors sebagai latency sempurna, yaitu
+// kebalikan dari keadaan sebenarnya. last_heartbeat tetap dimutakhirkan — itulah
+// yang membuat node tersebut tampak hidup alih-alih hilang.
+func (s *Store) UpdateHeartbeat(ctx context.Context, stationID string, rssi int, latencyMs *int) (bool, error) {
 	const q = `
 		UPDATE iot_nodes
-		SET last_rssi = $2, last_latency_ms = $3, last_heartbeat = NOW()
+		SET last_rssi = $2,
+		    last_latency_ms = COALESCE($3, last_latency_ms),
+		    last_heartbeat = NOW()
 		WHERE station_id = $1`
 	tag, err := s.pool.Exec(ctx, q, stationID, rssi, latencyMs)
 	if err != nil {
