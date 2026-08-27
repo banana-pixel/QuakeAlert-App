@@ -55,6 +55,25 @@ func BuildAlertData(a *AlertMessage) map[string]string {
 	if a.IsTest {
 		data["is_test"] = "true"
 	}
+	// Field siklus hidup Fase 3 (§8.3), dengan aturan yang sama seperti is_test:
+	// hanya ditambahkan bila BERISI. Payload jalur Fase 2 karenanya tetap
+	// identik dengan kontrak yang sudah dipasang klien terdahulu, dan tidak ada
+	// "event_state": "" yang dapat dibaca sebagai state bernama.
+	if a.EventState != "" {
+		data["event_state"] = a.EventState
+	}
+	if a.EventRevision > 0 {
+		data["event_revision"] = strconv.Itoa(a.EventRevision)
+	}
+	if a.OriginTS > 0 {
+		data["origin_ts"] = strconv.FormatInt(a.OriginTS, 10)
+	}
+	if a.OriginTSSource != "" {
+		data["origin_ts_source"] = a.OriginTSSource
+	}
+	if a.IndependentCellCount > 0 {
+		data["independent_cell_count"] = strconv.Itoa(a.IndependentCellCount)
+	}
 	return data
 }
 

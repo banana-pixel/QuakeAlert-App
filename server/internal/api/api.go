@@ -220,6 +220,10 @@ type Server struct {
 	// nil berarti belum dipasang: field mqtt dilaporkan "unknown" dan tidak
 	// ikut menentukan status (lihat SetMQTTHealthCheck).
 	mqttHealth func() bool
+	// evidence mencabut bukti sebuah node dari event yang masih terbuka saat
+	// operator menarik verifikasinya; nil berarti tidak ada pelacak event yang
+	// berjalan (lihat SetEvidenceInvalidator).
+	evidence EvidenceInvalidator
 }
 
 // NewServer membuat Server API. TokenTTL yang kosong diisi defaultTokenTTL.
@@ -228,6 +232,27 @@ func NewServer(repo Repo, cipher SecretEncryptor, limiter RateLimiter, mqtt MQTT
 		auth.TokenTTL = defaultTokenTTL
 	}
 	return &Server{repo: repo, cipher: cipher, limiter: limiter, mqtt: mqtt, auth: auth, log: log}
+}
+
+// EvidenceInvalidator mencabut seluruh bukti satu node dari event yang masih
+// terbuka (§7.5). Implementasi: *event.Tracker.
+//
+// Interface, dan bukan tipe konkret, dengan alasan yang sama seperti ChatFanout:
+// paket api tidak mengimpor paket keputusan mana pun, dan main yang
+// menjembatani. Konsekuensinya paket ini juga tidak menyebut kosakata alasan
+// transisi — reason kosong berarti EVIDENCE_INVALIDATED, yang memang arti
+// pencabutan verifikasi.
+type EvidenceInvalidator interface {
+	InvalidateContributor(ctx context.Context, nodeID, reason string)
+}
+
+// SetEvidenceInvalidator memasang jalur pencabutan bukti. Opsional: tanpa itu,
+// menarik verifikasi sebuah node tetap menolak trigger BERIKUTNYA (predikat
+// verified di internal/ingest), hanya tidak menyentuh event yang sedang
+// berlangsung — perilaku Fase 2, dan itulah yang terjadi saat
+// EVENT_TRACKER_ENABLED mati.
+func (s *Server) SetEvidenceInvalidator(inv EvidenceInvalidator) {
+	s.evidence = inv
 }
 
 // SetMQTTHealthCheck memasang probe kesehatan broker untuk /healthz. Setter,
@@ -1038,6 +1063,20 @@ type eventDTO struct {
 	TriggeredNodes int      `json:"triggered_nodes_count"`
 	CreatedAt      string   `json:"created_at"`            // RFC3339 UTC, dari started_at
 	ResolvedAt     *string  `json:"resolved_at,omitempty"` // absen selama HAPPENING
+
+	// Lima field siklus hidup Fase 3 (§10.2). omitempty, dan itu bukan kosmetik:
+	// baris pra-Fase-3 tidak punya nilainya, dan mengirim "" atau 0 akan terbaca
+	// klien sebagai state bernama atau sebagai revisi nol. Absen berarti "server
+	// tidak mencatatnya", yang tepat.
+	//
+	// triggered_nodes_count TETAP >= 3 di umpan ini: visibilitas publik
+	// (§11.4) hanya melepas event yang pernah CONFIRMED, jadi event_state di sini
+	// tidak pernah UNCONFIRMED walau enumnya menyebutnya.
+	EventState           string `json:"event_state,omitempty"`
+	Revision             int    `json:"event_revision,omitempty"`
+	OriginTS             int64  `json:"origin_ts,omitempty"`
+	OriginTSSource       string `json:"origin_ts_source,omitempty"`
+	IndependentCellCount int    `json:"independent_cell_count,omitempty"`
 }
 
 type eventsResponse struct {
@@ -1101,6 +1140,12 @@ func (s *Server) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 			LocationName:   e.LocationName,
 			TriggeredNodes: e.TriggeredNodes,
 			CreatedAt:      e.StartedAt.UTC().Format(time.RFC3339),
+
+			EventState:           e.EventState,
+			Revision:             e.Revision,
+			OriginTS:             e.OriginTS,
+			OriginTSSource:       e.OriginTSSource,
+			IndependentCellCount: e.IndependentCellCount,
 		}
 		if e.ResolvedAt != nil {
 			resolved := e.ResolvedAt.UTC().Format(time.RFC3339)

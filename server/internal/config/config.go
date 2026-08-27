@@ -87,6 +87,68 @@ type Config struct {
 	// memblokir produsennya, karena produsennya adalah jalur peringatan.
 	ObservationLedgerQueueSize int
 
+	// --- Fase 3: pelacakan siklus hidup event (§11.5) ---
+
+	// EventTrackerEnabled memilih jalur deteksi di main.go: false =
+	// consensus.Engine (perilaku Fase 2, byte-identik), true = event.Tracker.
+	// Default FALSE untuk deploy pertama; jalur lama tetap dapat dieksekusi
+	// selama tepat satu rilis (§11.3) sebelum Engine dihapus.
+	EventTrackerEnabled bool
+
+	// CorrelationWindow adalah W pada §6.3: dua observasi boleh menempel pada satu
+	// event bila |onset - origin_ts| <= W. Menggantikan CONSENSUS_WINDOW_MS, yang
+	// tetap dibaca sebagai fallback selama satu rilis — sebuah .env basi yang masih
+	// menyebut nama lama harus MEWARISI nilainya secara terlihat, bukan diam-diam
+	// memakai default baru yang lebih besar.
+	CorrelationWindow time.Duration
+
+	// AttachRadiusKm adalah jarak maksimum node ke sentroid event agar observasinya
+	// menempel (dahulu ClusterRadiusKm).
+	//
+	// Batas atasnya TIDAK divalidasi di sini: ia terikat pada LookupCellDeg dan
+	// MaxFleetLatitudeDeg lewat pertidaksamaan §6.3.1, dan kedua konstanta itu
+	// hidup di internal/event bersama pembuktiannya. event.NewTracker yang menolak
+	// radius di luar jangkauan grid pencariannya.
+	AttachRadiusKm float64
+
+	// IndependenceCellKm adalah sisi sel independensi geografis (§7.3). Ikut masuk
+	// ke algo_ver setiap baris keputusan, karena mengubahnya mengubah arti
+	// "independent_cell_count" pada baris-baris lampau.
+	IndependenceCellKm float64
+
+	// MinIndependentCells adalah jumlah sel independen minimum untuk CONFIRMED
+	// (§7.3): tiga sensor di satu meja bukan tiga bukti.
+	MinIndependentCells int
+
+	// MaxEventDiameterKm membatasi rentang geografis satu event (§6.4).
+	MaxEventDiameterKm float64
+
+	// EventResolveAfter adalah lama tanpa bukti baru sebelum event menjadi RESOLVED
+	// (dahulu COOLDOWN_MS, nilai sama, nama yang jujur).
+	EventResolveAfter time.Duration
+
+	// EventSweepInterval adalah periode tick sweeper (§5.4).
+	EventSweepInterval time.Duration
+
+	// EventTrackerMaxOpen membatasi peta event terbuka (§15.4). Di batas, event
+	// TERTUA dipaksa resolve — tidak pernah dibuang diam-diam.
+	EventTrackerMaxOpen int
+
+	// TerminalRetention adalah masa hidup tombstone (§6.8): selama ini, bukti yang
+	// datang terlambat untuk event yang sudah terminal DISERAP, bukan menjadi event
+	// kedua untuk gempa yang sama. Cocok dengan RECENT_WINDOW_MS di Android.
+	TerminalRetention time.Duration
+
+	// EventTrackerMaxTombstones membatasi jumlah tombstone, terpisah dari batas
+	// event terbuka (§15.4).
+	EventTrackerMaxTombstones int
+
+	// Warnings adalah pesan yang WAJIB dilog pemanggil setelah logger siap.
+	// Ada karena config tidak punya logger sendiri, sementara fallback nama env
+	// yang usang harus terlihat oleh operator — fallback senyap adalah cara
+	// termudah menjalankan produksi dengan jendela korelasi yang salah.
+	Warnings []string
+
 	// SingleNodeGeoTopicGuard melarang kluster satu-node memilih topik FCM
 	// nasional. Default AKTIF. Matikan hanya untuk instalasi uji yang memang
 	// hanya punya satu sensor dan menerima konsekuensinya.
@@ -129,7 +191,20 @@ func Load() (*Config, error) {
 		SingleNodeGeoTopicGuard:    getEnvBool("SINGLE_NODE_GEO_TOPIC_GUARD", true),
 
 		JWTTokenTTL: time.Duration(getEnvInt("JWT_TTL_HOURS", 720)) * time.Hour,
+
+		EventTrackerEnabled:       getEnvBool("EVENT_TRACKER_ENABLED", false),
+		AttachRadiusKm:            getEnvFloat("ATTACH_RADIUS_KM", 50),
+		IndependenceCellKm:        getEnvFloat("INDEPENDENCE_CELL_KM", 5),
+		MinIndependentCells:       getEnvInt("MIN_INDEPENDENT_CELLS", 2),
+		MaxEventDiameterKm:        getEnvFloat("MAX_EVENT_DIAMETER_KM", 120),
+		EventResolveAfter:         time.Duration(getEnvInt("EVENT_RESOLVE_AFTER_MS", 90000)) * time.Millisecond,
+		EventSweepInterval:        time.Duration(getEnvInt("EVENT_SWEEP_INTERVAL_MS", 5000)) * time.Millisecond,
+		EventTrackerMaxOpen:       getEnvInt("EVENT_TRACKER_MAX_OPEN", 256),
+		TerminalRetention:         time.Duration(getEnvInt("TERMINAL_RETENTION_MS", 900000)) * time.Millisecond,
+		EventTrackerMaxTombstones: getEnvInt("EVENT_TRACKER_MAX_TOMBSTONES", 512),
 	}
+
+	cfg.CorrelationWindow, cfg.Warnings = loadCorrelationWindow()
 
 	if origins := os.Getenv("WS_ALLOWED_ORIGINS"); origins != "" {
 		for _, o := range strings.Split(origins, ",") {
@@ -176,7 +251,84 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("COOLDOWN_MS harus > 0, dapat %s", cfg.CooldownDuration)
 	}
 
+	if err := cfg.validateEventTracker(); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+// defaultCorrelationWindowMs adalah W baku Fase 3 (§6.3). Lebih besar dari
+// CONSENSUS_WINDOW_MS Fase 2 (8000) karena ia mengukur jarak ke origin_ts, bukan
+// lebar satu jendela publish.
+const defaultCorrelationWindowMs = 20000
+
+// loadCorrelationWindow menerapkan aturan fallback satu-rilis: CORRELATION_WINDOW_MS
+// menang; bila ia tidak ada tetapi CONSENSUS_WINDOW_MS ada, nilai lama DIPAKAI dan
+// sebuah peringatan dikembalikan. Yang dihindari di sini adalah kegagalan senyap:
+// sebuah .env yang belum diperbarui akan menyempitkan jendela korelasi menjadi
+// kurang dari separuhnya, dan tidak ada satu pun log yang menyebutkannya.
+func loadCorrelationWindow() (time.Duration, []string) {
+	if v := os.Getenv("CORRELATION_WINDOW_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return time.Duration(n) * time.Millisecond, nil
+		}
+	}
+	if v := os.Getenv("CONSENSUS_WINDOW_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return time.Duration(n) * time.Millisecond, []string{fmt.Sprintf(
+				"CONSENSUS_WINDOW_MS=%d dipakai sebagai CORRELATION_WINDOW_MS (nama lama, "+
+					"didukung satu rilis); setel CORRELATION_WINDOW_MS secara eksplisit", n)}
+		}
+	}
+	return defaultCorrelationWindowMs * time.Millisecond, nil
+}
+
+// maxAcceptedTriggerAge MENCERMINKAN ingest.MaxTriggerAge. Disalin alih-alih
+// diimpor supaya paket config tetap tidak bergantung pada apa pun di dalam
+// server (dan lewat ingest, pada klien MQTT); config_test.go menjaga agar
+// keduanya tidak menyimpang.
+const maxAcceptedTriggerAge = 5 * time.Minute
+
+// validateEventTracker menolak konfigurasi tracker yang tidak masuk akal SAAT BOOT.
+// Divalidasi tanpa melihat EventTrackerEnabled: sebuah nilai salah yang menunggu
+// flag dinyalakan adalah nilai salah yang akan ditemukan pada saat terburuk.
+func (c *Config) validateEventTracker() error {
+	switch {
+	case c.CorrelationWindow <= 0:
+		return fmt.Errorf("CORRELATION_WINDOW_MS harus > 0, dapat %s", c.CorrelationWindow)
+	case c.AttachRadiusKm <= 0:
+		return fmt.Errorf("ATTACH_RADIUS_KM harus > 0, dapat %g", c.AttachRadiusKm)
+	case c.IndependenceCellKm <= 0:
+		return fmt.Errorf("INDEPENDENCE_CELL_KM harus > 0, dapat %g", c.IndependenceCellKm)
+	case c.MinIndependentCells < 1:
+		return fmt.Errorf("MIN_INDEPENDENT_CELLS harus >= 1, dapat %d", c.MinIndependentCells)
+	case c.MaxEventDiameterKm <= 0:
+		return fmt.Errorf("MAX_EVENT_DIAMETER_KM harus > 0, dapat %g", c.MaxEventDiameterKm)
+	case c.EventResolveAfter <= 0:
+		return fmt.Errorf("EVENT_RESOLVE_AFTER_MS harus > 0, dapat %s", c.EventResolveAfter)
+	case c.EventSweepInterval <= 0:
+		return fmt.Errorf("EVENT_SWEEP_INTERVAL_MS harus > 0, dapat %s", c.EventSweepInterval)
+	case c.EventSweepInterval > c.EventResolveAfter:
+		// Sweeper yang lebih lambat dari tenggat resolusi menunda RESOLVED tanpa
+		// batas atas yang berarti: tenggatnya menjadi periode sweep, bukan nilai
+		// yang disetel operator.
+		return fmt.Errorf("EVENT_SWEEP_INTERVAL_MS (%s) harus <= EVENT_RESOLVE_AFTER_MS (%s)",
+			c.EventSweepInterval, c.EventResolveAfter)
+	case c.EventTrackerMaxOpen < 1:
+		return fmt.Errorf("EVENT_TRACKER_MAX_OPEN harus >= 1, dapat %d", c.EventTrackerMaxOpen)
+	case c.EventTrackerMaxTombstones < 1:
+		return fmt.Errorf("EVENT_TRACKER_MAX_TOMBSTONES harus >= 1, dapat %d", c.EventTrackerMaxTombstones)
+	case c.TerminalRetention < maxAcceptedTriggerAge:
+		// Inti D28: tombstone harus hidup setidaknya selama usia trigger yang masih
+		// diterima verifier. Retensi yang lebih pendek berarti sebuah trigger yang
+		// sah namun terlambat dapat lolos verifikasi SETELAH tombstone-nya hilang,
+		// lalu membuat event kedua — peringatan publik kedua untuk satu gempa, yang
+		// justru dicegah oleh tombstone.
+		return fmt.Errorf("TERMINAL_RETENTION_MS (%s) harus >= usia trigger maksimum yang diterima (%s)",
+			c.TerminalRetention, maxAcceptedTriggerAge)
+	}
+	return nil
 }
 
 func decodeKey(hexStr string) ([32]byte, error) {
@@ -205,6 +357,15 @@ func getEnvInt(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
+		}
+	}
+	return def
+}
+
+func getEnvFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
 		}
 	}
 	return def

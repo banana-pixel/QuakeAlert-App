@@ -19,11 +19,14 @@ import id.web.quakealert.domain.AlertGate
 import id.web.quakealert.domain.AlertType
 import id.web.quakealert.domain.EarthquakeEvent
 import id.web.quakealert.domain.EmergencyContacts
+import id.web.quakealert.domain.EventState
 import id.web.quakealert.domain.EventStatus
 import id.web.quakealert.domain.SafetyPolicy
 import id.web.quakealert.domain.UserLocation
 import id.web.quakealert.domain.WsAlertMessage
 import id.web.quakealert.domain.distanceKmTo
+import id.web.quakealert.domain.standDownCopyFor
+import id.web.quakealert.domain.unconfirmedActivityLabel
 import id.web.quakealert.service.WarningNotifier
 import id.web.quakealert.ui.common.errorCopy
 import id.web.quakealert.ui.history.QuakeHistoryItem
@@ -386,7 +389,7 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
                 AlertType.EARTHQUAKE_ADVISORY -> _uiState.update { state ->
                     if (state is WarningUiState.Idle) {
                         state.copy(
-                            banner = advisoryBanner(recentActivity.bannerLabel),
+                            banner = advisoryBanner(message, recentActivity.bannerLabel),
                             isLoading = false
                         )
                     } else {
@@ -394,7 +397,10 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
                     }
                 }
 
-                AlertType.EVENT_RESOLVED -> standDown()
+                // Both RESOLVED and CANCELLED arrive as this one type; the state is
+                // what tells an all-clear from a withdrawn report, and it changes
+                // nothing about the stand-down itself — only what the user is told.
+                AlertType.EVENT_RESOLVED -> standDown(message.eventState)
             }
         }
     }
@@ -493,7 +499,7 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
      * the emergency card, so a torch that survived the stand-down would be one the
      * user has no way left to turn off.
      */
-    private fun standDown() {
+    private fun standDown(eventState: EventState? = null) {
         siren.release()
         torch.stop()
         // Also takes down the ongoing push notification, which is deliberately
@@ -501,9 +507,16 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
         WarningNotifier.clear(getApplication())
         activeAlertDetails = null
         val snapshot = restingSnapshot(recentActivity)
+        // A withdrawn report is not an ended earthquake, and the banner is the one
+        // surface that can say which happened. A build that does not recognise the
+        // state falls back to all-clear wording, exactly as before.
+        val copy = standDownCopyFor(eventState)
         _uiState.update { state ->
             WarningUiState.Idle(
-                banner = snapshot.banner,
+                banner = SeismicActivityBanner(
+                    title = copy.title,
+                    activityLabel = copy.detail
+                ),
                 sectionTitle = snapshot.sectionTitle,
                 tips = snapshot.tips,
                 unitSystem = state.unitSystem
@@ -757,11 +770,24 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
          * Idle banner shown while an unconfirmed tremor is being evaluated. Same
          * variant as the resting banner, so the layout is untouched — only the
          * read-out changes.
+         *
+         * When the frame says UNCONFIRMED, the read-out describes THIS tremor instead
+         * of the 30-day activity count: what the user needs to know is that one or two
+         * stations are shaking and that separated stations have not confirmed it. It
+         * must not read as a confirmation, and it may not imply magnitude, epicentre
+         * or an arrival time — none of which this network estimates (server §7.4,
+         * §13.3). Without a recognised state the banner keeps the previous behaviour,
+         * so a pre-Phase-3 server changes nothing here.
          */
-        fun advisoryBanner(activityLabel: String) = SeismicActivityBanner(
-            title = "Possible Tremor Detected",
-            activityLabel = activityLabel
-        )
+        fun advisoryBanner(message: WsAlertMessage, activityLabel: String) =
+            SeismicActivityBanner(
+                title = "Possible Tremor Detected",
+                activityLabel = if (message.eventState == EventState.UNCONFIRMED) {
+                    unconfirmedActivityLabel(message.nodeCount)
+                } else {
+                    activityLabel
+                }
+            )
 
         /** Unresolved and inside the same window the realtime path uses. */
         fun EarthquakeEvent.isOngoing(nowMs: Long = System.currentTimeMillis()): Boolean =

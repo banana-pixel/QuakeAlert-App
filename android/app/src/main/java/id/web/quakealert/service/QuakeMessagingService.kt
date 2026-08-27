@@ -81,12 +81,23 @@ class QuakeMessagingService : FirebaseMessagingService() {
         if (message.type == AlertType.EVENT_RESOLVED) {
             network.alertDedup.markIfNew(message)
             WarningNotifier.clear(applicationContext)
+            // CANCELLED and RESOLVED share this wire type and differ only in
+            // event_state (the type enum is frozen so an un-updated install still
+            // clears its alarm); both take the notification down, and only the wording
+            // the app shows on return differs.
+            Log.i(TAG, "push stand-down ${message.eventId}: ${message.eventState}")
             return
         }
 
         // Advisories are 1–2 unconfirmed nodes. They never wake the device — the app
         // shows them as a banner when it is open. Escalating them here would train
         // users to dismiss the real thing.
+        //
+        // Since server Phase 3 an advisory is not published to FCM at all, so this is
+        // now a safety net rather than a live branch. It stays: what makes an
+        // advisory banner-only is this check, not the server's send list, and a
+        // configuration change on one deployment must not be able to turn an
+        // unconfirmed tremor into a full-screen alarm.
         if (message.type == AlertType.EARTHQUAKE_ADVISORY) return
 
         if (!message.isRecent()) {

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://quakealert.id/contracts/mqtt/alert.schema.json",
   "title": "EarthquakeAlert",
-  "description": "Payload push server -> klien pada topic 'alerts/earthquake' (QoS 1). Memberitakan hasil konsensus: EARTHQUAKE_ALERT (>=3 node unik, CONFIRMED), EARTHQUAKE_ADVISORY (1-2 node, banner kuning tanpa persistensi), atau EVENT_RESOLVED (all-clear). CATATAN FORWARD-LOOKING: saat ini server mendistribusikan alert melalui WebSocket (foreground) dan FCM (background) — kanal MQTT ini disiapkan sebagai kontrak integrasi berikutnya dan BELUM dipublish oleh server. Bentuk payload disamakan dengan AlertMessage WS (server/internal/dispatch/ws.go) dan data kontrak FCM (contracts/fcm/alert_payload.json) agar klien memakai satu model parse untuk semua kanal. Satuan kanonik: pga_gal=gal (cm/s^2), timestamp=ms epoch UTC (int64), koordinat=WGS84 (centroid, BUKAN episenter).",
+  "description": "Payload push server -> klien pada topic 'alerts/earthquake' (QoS 1). Memberitakan hasil konsensus: EARTHQUAKE_ALERT (>=3 node unik, CONFIRMED), EARTHQUAKE_ADVISORY (1-2 node, banner kuning; sejak Fase 3 event-nya BERIDENTITAS dan tersimpan, sehingga dapat dinaikkan derajatnya lalu ditarik), atau EVENT_RESOLVED (all-clear). CATATAN FORWARD-LOOKING: saat ini server mendistribusikan alert melalui WebSocket (foreground) dan FCM (background) — kanal MQTT ini disiapkan sebagai kontrak integrasi berikutnya dan BELUM dipublish oleh server. Bentuk payload disamakan dengan AlertMessage WS (server/internal/dispatch/ws.go) dan data kontrak FCM (contracts/fcm/alert_payload.json) agar klien memakai satu model parse untuk semua kanal. Satuan kanonik: pga_gal=gal (cm/s^2), timestamp=ms epoch UTC (int64), koordinat=WGS84 (centroid, BUKAN episenter).",
   "type": "object",
   "additionalProperties": false,
   "required": ["type", "pga_gal", "centroid_lat", "centroid_lon", "location_name", "timestamp", "node_count"],
@@ -15,7 +15,7 @@
     "event_id": {
       "type": "string",
       "format": "uuid",
-      "description": "UUID event dari earthquake_events (dipersistensikan). HANYA terisi untuk ALERT dan EVENT_RESOLVED; pada ADVISORY field ini kosong (\"\") karena event tidak dipersistensikan. Klien wajib toleran terhadap string kosong dan memakainya untuk deduplikasi (identitas unik per gempa).",
+      "description": "UUID event, dibuat server sebelum penulisan apa pun. Sejak Fase 3 terisi pada SETIAP frame, termasuk ADVISORY: identitas event tidak lagi berasal dari baris basis data, sehingga sebuah dugaan berkeyakinan rendah pun dapat dideduplikasi, dinaikkan derajatnya, lalu ditarik memakai id yang sama. Frame dari server pra-Fase-3 masih dapat membawa string kosong pada ADVISORY, jadi klien tetap wajib toleran terhadapnya.",
       "examples": ["8f804561-1558-45ad-8982-1ab9193be589", ""]
     },
     "mmi": {
@@ -62,8 +62,38 @@
     "node_count": {
       "type": "integer",
       "minimum": 1,
-      "description": "Jumlah node unik yang memicu konsensus. ALERT >= 3; ADVISORY 1-2.",
+      "description": "Jumlah node unik yang menyumbang bukti. ALERT >= 3; ADVISORY 1-2. Satu node dihitung SEKALI berapa pun observasi yang dikirimnya (PRELIM dan FINAL dari node yang sama adalah satu penyumbang).",
       "examples": [4]
+    },
+    "event_state": {
+      "type": "string",
+      "enum": ["UNCONFIRMED", "CONFIRMED", "RESOLVED", "CANCELLED"],
+      "description": "State siklus hidup event (Fase 3). ADITIF: enum 'type' TIDAK bertambah nilainya, sehingga klien terpasang yang tidak mengenal field ini tetap memahami setiap frame — CANCELLED tiba sebagai EVENT_RESOLVED dan dibersihkan sebagai all-clear meski klien tidak dapat mengatakan MENGAPA. Absen berarti frame berasal dari jalur pra-Fase-3.",
+      "examples": ["CONFIRMED"]
+    },
+    "event_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Revisi monoton per event. Dipakai klien untuk MEMBUANG frame yang datang terlambat: frame dengan revision lebih kecil daripada yang sudah ditampilkan untuk event_id yang sama tidak boleh mengganti tampilan.",
+      "examples": [3]
+    },
+    "origin_ts": {
+      "type": "integer",
+      "minimum": 1700000000000,
+      "description": "Jangkar onset event dalam ms epoch UTC: perkiraan kapan TANAH mulai bergerak. Berbeda dari 'timestamp', yang berarti kapan baris event ini lahir di server — keduanya pernah dikonflasikan dan tidak boleh lagi.",
+      "examples": [1723891234000]
+    },
+    "origin_ts_source": {
+      "type": "string",
+      "enum": ["SENSOR", "PUBLISH_BOUND"],
+      "description": "Asal origin_ts. SENSOR = onset terukur sensor. PUBLISH_BOUND = BATAS ATAS yang diturunkan dari publish_ts - dur_ms (node protokol v1 tidak mengirim onset), galatnya sebesar keterlambatan publish. Ada supaya sebuah batas tidak pernah menyamar sebagai pengukuran.",
+      "examples": ["SENSOR"]
+    },
+    "independent_cell_count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Jumlah sel geografis independen yang menyumbang bukti. Menjawab MENGAPA sebuah event terkonfirmasi atau tidak: tiga sensor di satu meja bukan tiga bukti, jadi CONFIRMED menuntut lebih dari satu sel.",
+      "examples": [3]
     }
   },
   "examples": [
@@ -77,7 +107,12 @@
       "centroid_lon": 107.6191,
       "location_name": "Bandung, West Java, ID",
       "timestamp": 1723891234120,
-      "node_count": 4
+      "node_count": 4,
+      "event_state": "CONFIRMED",
+      "event_revision": 3,
+      "origin_ts": 1723891234000,
+      "origin_ts_source": "SENSOR",
+      "independent_cell_count": 3
     }
   ]
 }

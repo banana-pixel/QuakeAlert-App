@@ -1483,9 +1483,14 @@ components:
     EarthquakeEvent:
       type: object
       description: >
-        Satu baris earthquake_events. Hanya event CONFIRMED (>= 3 node unik)
-        dipersistensikan, jadi seluruh isi endpoint ini sudah terkonfirmasi
-        konsensus — ADVISORY (1-2 node) tidak pernah muncul di sini.
+        Satu baris earthquake_events. Umpan ini hanya melepas event yang PERNAH
+        CONFIRMED (>= 3 node unik pada >= 2 sel independen), jadi seluruh isinya
+        sudah terkonfirmasi konsensus. Sejak Fase 3 event UNCONFIRMED (1-2 node)
+        juga dipersistensikan agar dapat ditingkatkan lalu dicabut, tetapi ia
+        tidak pernah menjadi klaim publik dan karena itu tidak pernah muncul di
+        sini — termasuk setelah ia berakhir. Konsekuensinya
+        triggered_nodes_count tetap >= 3 dan event_state di sini tidak pernah
+        bernilai UNCONFIRMED.
       required:
         [event_id, status, pga, mmi, intensity_label, latitude, longitude,
          location_name, triggered_nodes_count, created_at]
@@ -1554,3 +1559,48 @@ components:
           description: >
             Absen dari payload (atau null) selama status masih HAPPENING.
           example: 2026-08-19T11:04:30Z
+        event_state:
+          type: string
+          description: >
+            State siklus hidup Fase 3 (§9.1). ABSEN pada baris pra-Fase-3, yang
+            memang tidak pernah mencatatnya — absen berarti "tidak diketahui",
+            bukan sebuah state bernama, jadi klien tidak boleh menganggap
+            ketiadaannya sebagai CONFIRMED tanpa melihat status. status sendiri
+            adalah proyeksi dua nilai dari state ini dan tetap menjadi field
+            yang stabil untuk klien lama.
+          enum: [CONFIRMED, RESOLVED, CANCELLED]
+          example: RESOLVED
+        event_revision:
+          type: integer
+          minimum: 1
+          description: >
+            Nomor revisi transisi TERAKHIR yang tercatat untuk event ini,
+            naik satu tiap transisi. Monoton per event; tidak dapat
+            dibandingkan antar-event. Absen pada baris pra-Fase-3.
+          example: 3
+        origin_ts:
+          type: integer
+          format: int64
+          minimum: 1700000000000
+          description: >
+            Perkiraan waktu onset guncangan dalam ms epoch UTC — BUKAN
+            created_at, yang menyatakan kapan barisnya lahir. Absen pada baris
+            pra-Fase-3.
+          example: 1755601320000
+        origin_ts_source:
+          type: string
+          description: >
+            Asal origin_ts. SENSOR = onset diukur node. PUBLISH_BOUND = onset
+            hanya batas atas yang diturunkan dari waktu publish observasi
+            legacy v1, jadi ia dapat lebih lambat dari guncangan sebenarnya.
+            Absen pada baris pra-Fase-3.
+          enum: [SENSOR, PUBLISH_BOUND]
+          example: SENSOR
+        independent_cell_count:
+          type: integer
+          minimum: 1
+          description: >
+            Jumlah sel independensi yang terisi kontributor event ini (§7.3).
+            Selalu >= 2 untuk event di umpan ini, karena itu prasyarat
+            CONFIRMED. Absen pada baris pra-Fase-3.
+          example: 3

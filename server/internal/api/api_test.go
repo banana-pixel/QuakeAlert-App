@@ -1067,6 +1067,71 @@ func TestListEvents_DepthKmSelaluNull(t *testing.T) {
 	}
 }
 
+// §10.2 — lima field siklus hidup Fase 3 disajikan APA ADANYA bila tercatat, dan
+// ABSEN SEPENUHNYA bila tidak. Dua arah itu diuji bersama karena yang mudah rusak
+// bukan pemetaannya melainkan omitempty-nya: baris pra-Fase-3 yang mengirim
+// event_state:"" atau event_revision:0 akan terbaca klien sebagai state bernama
+// dan sebagai revisi nol, dua hal yang tidak pernah ada.
+func TestListEvents_FieldSiklusHidupAditif(t *testing.T) {
+	repo := &fakeRepo{events: []store.Event{
+		{
+			EventID: "evt-3", Status: "RESOLVED",
+			Lat: -6.9, Lon: 107.6, LocationName: "Cimahi, West Java, ID",
+			MMIScale: "V", IntensityLabel: "Strong", MaxPGA: 413.13,
+			TriggeredNodes: 4, StartedAt: time.Unix(1_700_000_400, 0).UTC(),
+			EventState: "RESOLVED", Revision: 3,
+			OriginTS: 1_700_000_395_000, OriginTSSource: "SENSOR",
+			IndependentCellCount: 3,
+		},
+		// Baris pra-Fase-3: kolomnya NULL di basis data, jadi tiba sebagai nol.
+		{
+			EventID: "evt-0", Status: "RESOLVED",
+			Lat: -7.1, Lon: 108.0, LocationName: "Tasikmalaya, West Java, ID",
+			MMIScale: "IV", IntensityLabel: "Light", MaxPGA: 33.5,
+			TriggeredNodes: 3, StartedAt: time.Unix(1_700_000_100, 0).UTC(),
+		},
+	}}
+	h := newTestServer(repo, NewMemoryRateLimiter())
+
+	rec := do(h, httptest.NewRequest(http.MethodGet, "/api/v1/events", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200. body=%s", rec.Code, rec.Body.String())
+	}
+
+	var raw struct {
+		Events []map[string]any `json:"events"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(raw.Events) != 2 {
+		t.Fatalf("event = %d, mau 2", len(raw.Events))
+	}
+
+	want := map[string]any{
+		"event_state":            "RESOLVED",
+		"event_revision":         float64(3),
+		"origin_ts":              float64(1_700_000_395_000),
+		"origin_ts_source":       "SENSOR",
+		"independent_cell_count": float64(3),
+	}
+	for k, v := range want {
+		got, ok := raw.Events[0][k]
+		if !ok {
+			t.Errorf("event Fase 3: field %s hilang", k)
+			continue
+		}
+		if got != v {
+			t.Errorf("event Fase 3: %s = %#v, mau %#v", k, got, v)
+		}
+	}
+	for k := range want {
+		if _, ok := raw.Events[1][k]; ok {
+			t.Errorf("baris pra-Fase-3: %s hadir (%#v), harus absen", k, raw.Events[1][k])
+		}
+	}
+}
+
 func TestListEvents_Paginasi(t *testing.T) {
 	repo := &fakeRepo{events: sampleEvents()[:1]}
 	h := newTestServer(repo, NewMemoryRateLimiter())

@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -122,5 +124,93 @@ func TestVerifyNode_WrongKeyNeverTouchesStore(t *testing.T) {
 	}
 	if repo.verifiedID != "" {
 		t.Fatal("kunci salah tidak boleh mengubah status node")
+	}
+}
+
+// --- §7.5: pencabutan verifikasi mencabut bukti dari event terbuka ---
+
+// recInvalidator mencatat setiap pencabutan bukti yang diminta handler.
+type recInvalidator struct {
+	nodes   []string
+	reasons []string
+}
+
+func (r *recInvalidator) InvalidateContributor(_ context.Context, nodeID, reason string) {
+	r.nodes = append(r.nodes, nodeID)
+	r.reasons = append(r.reasons, reason)
+}
+
+// newAdminServerWithInvalidator sama dengan newAdminServer, plus jalur pencabutan
+// bukti terpasang. Helper terpisah supaya uji rute admin lain tetap membuktikan
+// bahwa jalur itu OPSIONAL.
+func newAdminServerWithInvalidator(repo Repo, inv EvidenceInvalidator) http.Handler {
+	srv := NewServer(repo, fakeDecryptCipher{}, NewMemoryRateLimiter(),
+		MQTTPublic{Broker: "b", Port: 8883, TLS: true},
+		AuthConfig{JWTSecret: []byte(testSecret), TokenTTL: testTokenTTL},
+		testLogger())
+	srv.SetAdminAPIKey(adminTestKey)
+	srv.SetEvidenceInvalidator(inv)
+	return srv.Router(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusSwitchingProtocols)
+	}, testLogger())
+}
+
+// Menarik verifikasi mencabut bukti node itu, dengan reason KOSONG: kosakata
+// alasan transisi milik paket event, dan paket api tidak menyebutnya (kosong
+// berarti EVIDENCE_INVALIDATED).
+func TestVerifyNode_RevokeInvalidatesEvidence(t *testing.T) {
+	repo := &fakeRepo{}
+	inv := &recInvalidator{}
+	h := newAdminServerWithInvalidator(repo, inv)
+
+	rec := do(h, adminNodeRequest(http.MethodPost,
+		"/api/v1/admin/nodes/NODE-163A149F/verify", `{"verified":false}`, adminTestKey))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200: %s", rec.Code, rec.Body.String())
+	}
+	if len(inv.nodes) != 1 || inv.nodes[0] != "NODE-163A149F" {
+		t.Fatalf("pencabutan bukti = %v, mau tepat satu untuk NODE-163A149F", inv.nodes)
+	}
+	if inv.reasons[0] != "" {
+		t.Errorf("reason = %q, mau kosong: api tidak memiliki kosakata alasan transisi", inv.reasons[0])
+	}
+}
+
+// Memverifikasi node TIDAK menyentuh event mana pun: bukti tidak pernah masuk
+// secara retroaktif.
+func TestVerifyNode_ApprovalDoesNotInvalidateAnything(t *testing.T) {
+	inv := &recInvalidator{}
+	h := newAdminServerWithInvalidator(&fakeRepo{}, inv)
+
+	rec := do(h, adminNodeRequest(http.MethodPost,
+		"/api/v1/admin/nodes/NODE-163A149F/verify", "", adminTestKey))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, mau 200: %s", rec.Code, rec.Body.String())
+	}
+	if len(inv.nodes) != 0 {
+		t.Fatalf("pencabutan bukti = %v, mau tidak ada", inv.nodes)
+	}
+}
+
+// Bila penulisan basis data gagal atau station_id tidak dikenal, tidak ada bukti
+// yang dicabut: yang ditarik adalah kepercayaan yang benar-benar tercatat.
+func TestVerifyNode_FailedWriteDoesNotInvalidateEvidence(t *testing.T) {
+	for name, repo := range map[string]*fakeRepo{
+		"store galat":  {verifyErr: errors.New("boom")},
+		"id tidak ada": {verifyMissing: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			inv := &recInvalidator{}
+			h := newAdminServerWithInvalidator(repo, inv)
+
+			rec := do(h, adminNodeRequest(http.MethodPost,
+				"/api/v1/admin/nodes/NODE-163A149F/verify", `{"verified":false}`, adminTestKey))
+			if rec.Code == http.StatusOK {
+				t.Fatalf("status = %d, mau bukan 200", rec.Code)
+			}
+			if len(inv.nodes) != 0 {
+				t.Fatalf("pencabutan bukti = %v, mau tidak ada", inv.nodes)
+			}
+		})
 	}
 }

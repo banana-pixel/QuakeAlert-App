@@ -20,6 +20,38 @@ enum class AlertType {
 }
 
 /**
+ * Lifecycle state of the event a frame describes (server `event_state`, Phase 3).
+ *
+ * A SEPARATE enum from [AlertType], and that separation is the whole design: the
+ * wire `type` enum is frozen at its three values because an installed client drops
+ * a frame whose `type` it does not recognise
+ * (id.web.quakealert.data.network.mapper.toDomainOrNull returns null), which for a
+ * withdrawal would mean leaving a full-screen alert up for an event the server has
+ * already retracted. State travels in an additive field instead, so an un-updated
+ * install loses the explanation and never the protection.
+ *
+ * `when` exhaustiveness over this enum is a compile-time property of *this* build,
+ * so a state added later cannot break an installed one — only the next build has to
+ * handle it. For that to hold, an unrecognised value must map to null (absent)
+ * rather than drop the frame; see the mapper.
+ *
+ *  - [UNCONFIRMED] 1–2 nodes. Real shaking as far as the network knows, but not
+ *    confirmed by separated stations. Arrives as [AlertType.EARTHQUAKE_ADVISORY].
+ *  - [CONFIRMED]   ≥ 3 nodes across ≥ 2 separated cells. Arrives as
+ *    [AlertType.EARTHQUAKE_ALERT].
+ *  - [RESOLVED]    the event ended without new evidence.
+ *  - [CANCELLED]   the report was WITHDRAWN — its evidence was invalidated or an
+ *    operator retracted it. Not the same claim as [RESOLVED], and the copy must not
+ *    say the shaking stopped.
+ */
+enum class EventState {
+    UNCONFIRMED,
+    CONFIRMED,
+    RESOLVED,
+    CANCELLED
+}
+
+/**
  * A realtime alert received over `GET /ws`, in canonical units.
  *
  * Shape matches the FCM data-only payload as well (contracts/fcm/alert_payload.json),
@@ -52,7 +84,30 @@ data class WsAlertMessage(
     val locationName: String,
     val timestampMs: Long,
     val nodeCount: Int,
-    val isTest: Boolean = false
+    val isTest: Boolean = false,
+    /**
+     * Lifecycle state, or null when the server did not say — a pre-Phase-3 server,
+     * or a state this build has never heard of. Null means "unknown", never a state
+     * by default: [AlertType] already carries the confirmed-versus-advisory
+     * distinction this field only refines.
+     */
+    val eventState: EventState? = null,
+    /**
+     * Monotonic per-event revision, 0 when unknown. Comparable only within one
+     * `event_id`.
+     */
+    val eventRevision: Int = 0,
+    /** Estimated onset of shaking in ms since the epoch, UTC; 0 when unknown. */
+    val originTsMs: Long = 0L,
+    /**
+     * "SENSOR" (measured) or "PUBLISH_BOUND" (an upper bound from a legacy v1
+     * observation, possibly later than the real onset); empty when unknown. Kept as
+     * the server's own string because nothing on this client computes with it — it
+     * exists so a displayed onset can be qualified rather than trusted.
+     */
+    val originTsSource: String = "",
+    /** Separated spatial cells that contributed evidence; 0 when unknown. */
+    val independentCellCount: Int = 0
 ) {
 
     /**

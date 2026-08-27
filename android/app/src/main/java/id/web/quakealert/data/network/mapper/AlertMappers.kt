@@ -3,6 +3,7 @@ package id.web.quakealert.data.network.mapper
 import id.web.quakealert.BuildConfig
 import id.web.quakealert.data.network.model.WsAlertMessageDto
 import id.web.quakealert.domain.AlertType
+import id.web.quakealert.domain.EventState
 import id.web.quakealert.domain.UserLocation
 import id.web.quakealert.domain.WsAlertMessage
 import id.web.quakealert.domain.distanceKmTo
@@ -52,12 +53,30 @@ fun WsAlertMessageDto.toDomainOrNull(
         locationName = locationName,
         timestampMs = timestamp,
         nodeCount = nodeCount,
-        isTest = isTest
+        isTest = isTest,
+        eventState = eventState.toEventStateOrNull(),
+        eventRevision = eventRevision,
+        originTsMs = originTs,
+        originTsSource = originTsSource,
+        independentCellCount = independentCellCount
     )
 }
 
 private fun String.toAlertTypeOrNull(): AlertType? =
     AlertType.entries.firstOrNull { it.name.equals(this, ignoreCase = true) }
+
+/**
+ * Wire `event_state` → domain, with an unrecognised value becoming **null** rather
+ * than dropping the frame.
+ *
+ * That asymmetry with [toAlertTypeOrNull] is deliberate and is what makes freezing
+ * the `type` enum worth anything: a state this build has never heard of must degrade
+ * to "state unknown" — the alert still raises, the all-clear still clears — whereas
+ * an unknown `type` has no safe interpretation at all. Dropping the frame here would
+ * re-create the exact failure the frozen enum exists to avoid, one field over.
+ */
+private fun String.toEventStateOrNull(): EventState? =
+    EventState.entries.firstOrNull { it.name.equals(this.trim(), ignoreCase = true) }
 
 /**
  * Domain → the shared event-detail UI model, so the Warning screen's "Recent

@@ -7,6 +7,7 @@ import id.web.quakealert.data.network.model.SensorDto
 import id.web.quakealert.data.network.model.WsAlertMessageDto
 import id.web.quakealert.data.UnitSystem
 import id.web.quakealert.domain.AlertType
+import id.web.quakealert.domain.EventState
 import id.web.quakealert.domain.EventStatus
 import id.web.quakealert.domain.UserLocation
 import id.web.quakealert.ui.history.MmiSeverity
@@ -212,6 +213,56 @@ class MappersTest {
         assertEquals(
             AlertType.EVENT_RESOLVED,
             wsDto(type = "event_resolved").toDomainOrNull()?.type
+        )
+    }
+
+    @Test
+    fun `phase 3 lifecycle fields are carried through, and their absence is not invented`() {
+        val payload = """
+            {"type":"EVENT_RESOLVED","event_id":"evt-9","mmi":"V",
+             "intensity_label":"strong","pga_gal":180.0,"centroid_lat":-6.9175,
+             "centroid_lon":107.6191,"location_name":"Bandung, West Java, ID",
+             "timestamp":1781913558000,"node_count":4,"event_state":"CANCELLED",
+             "event_revision":3,"origin_ts":1781913555000,
+             "origin_ts_source":"SENSOR","independent_cell_count":2}
+        """.trimIndent()
+
+        val alert = json.decodeFromString<WsAlertMessageDto>(payload).toDomainOrNull()!!
+
+        assertEquals(EventState.CANCELLED, alert.eventState)
+        assertEquals(3, alert.eventRevision)
+        assertEquals(1781913555000L, alert.originTsMs)
+        assertEquals("SENSOR", alert.originTsSource)
+        assertEquals(2, alert.independentCellCount)
+        // origin_ts is the onset, timestamp is when the decision was taken: the two
+        // must not collapse into one another.
+        assertEquals(1781913558000L, alert.timestampMs)
+
+        // A pre-Phase-3 frame carries none of them, and must read as "unknown".
+        val legacy = wsDto().toDomainOrNull()!!
+        assertNull(legacy.eventState)
+        assertEquals(0, legacy.eventRevision)
+        assertEquals(0L, legacy.originTsMs)
+        assertEquals("", legacy.originTsSource)
+        assertEquals(0, legacy.independentCellCount)
+    }
+
+    @Test
+    fun `an unrecognised event state becomes absent instead of dropping the frame`() {
+        // The opposite of the `type` rule, deliberately: a state this build has never
+        // heard of must still clear an alarm, so the frame survives with no state.
+        val alert = wsDto(type = "EVENT_RESOLVED")
+            .copy(eventState = "SUPERSEDED")
+            .toDomainOrNull()
+
+        assertEquals(AlertType.EVENT_RESOLVED, alert?.type)
+        assertNull("unknown state must read as unknown", alert?.eventState)
+
+        // Casing is not an outage here either.
+        assertEquals(
+            EventState.UNCONFIRMED,
+            wsDto(type = "EARTHQUAKE_ADVISORY").copy(eventState = "unconfirmed")
+                .toDomainOrNull()?.eventState
         )
     }
 

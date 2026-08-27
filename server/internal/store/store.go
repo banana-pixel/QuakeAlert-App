@@ -175,11 +175,14 @@ func (s *Store) GetNodeLocation(ctx context.Context, stationID string) (*NodeLoc
 	return &n, nil
 }
 
-// EarthquakeEvent adalah data event yang akan dipersistensikan ke
-// earthquake_events setelah konsensus CONFIRMED.
+// EarthquakeEvent adalah satu baris earthquake_events.
+//
+// Enam field terakhir adalah kolom lifecycle Fase 3 (migrasi 000008). Semuanya
+// nol-value pada jalur Fase 2 yang masih memakai SaveEvent, dan itu benar: baris
+// pra-Fase-3 memang tidak punya state, revisi, maupun waktu asal.
 type EarthquakeEvent struct {
 	EventID        string
-	Status         string  // 'HAPPENING' | 'RESOLVED'
+	Status         string  // 'HAPPENING' | 'RESOLVED' — proyeksi dari EventState
 	CentroidLat    float64 // estimated_centroid (BUKAN episenter)
 	CentroidLon    float64
 	LocationName   string
@@ -188,6 +191,35 @@ type EarthquakeEvent struct {
 	MaxPGA         float64 // gal (satuan kanonik)
 	TriggeredNodes int
 	StartedAtMs    int64 // ms epoch UTC
+
+	// --- lifecycle Fase 3 (migrasi 000008) ---
+
+	// EventState adalah state machine lima nilai; string kosong berarti "tidak
+	// diketahui" dan ditulis sebagai NULL, sehingga baris pra-Fase-3 tetap
+	// terbaca apa adanya.
+	EventState           string
+	Revision             int
+	OriginTS             int64  // ms epoch; waktu TANAH BERGERAK, bukan waktu baris dibuat
+	OriginTSSource       string // 'SENSOR' | 'PUBLISH_BOUND'
+	IndependentCellCount int
+	AlgoVer              string
+
+	// LatestEvidence adalah evidence_summary dari baris event_state_log dengan
+	// revisi tertinggi milik event ini. HANYA diisi oleh LoadOpenEvents, dan
+	// tidak pernah ditulis: ia bukan kolom earthquake_events, melainkan bahan
+	// rekonstruksi untuk Tracker.Reconcile (§15.3). nil berarti event tidak punya
+	// baris state-log sama sekali — mungkin karena satuan persistensinya dibuang
+	// (D30), mungkin karena barisnya berasal dari sebelum Fase 3.
+	LatestEvidence []byte
+
+	// LatestDecidedAt adalah decided_at dari baris event_state_log yang sama
+	// (revisi tertinggi), ms epoch. HANYA diisi oleh LoadOpenEvents, dan ada
+	// karena §15.3 langkah 3 butuh "waktu bukti terakhir" sementara
+	// earthquake_events tidak menyimpan kolom seperti itu: transisi terakhirlah
+	// satu-satunya jejak durable kapan event ini terakhir bergerak. Nol berarti
+	// tidak ada baris log sama sekali, dan pemanggil yang memutuskan apa artinya
+	// — Reconcile memakai StartedAtMs sebagai gantinya.
+	LatestDecidedAt int64
 }
 
 // SaveEvent menyimpan event gempa ke earthquake_events dan mengembalikan
@@ -228,7 +260,8 @@ var ErrEventNotFound = errors.New("event tidak ditemukan")
 func (s *Store) ResolveEvent(ctx context.Context, eventID string) error {
 	const q = `
 		UPDATE earthquake_events
-		SET status = 'RESOLVED', resolved_at = NOW()
+		SET status = 'RESOLVED', resolved_at = NOW(),
+		    event_state = CASE WHEN event_state IS NULL THEN NULL ELSE 'RESOLVED' END
 		WHERE event_id = $1 AND status = 'HAPPENING'`
 	tag, err := s.pool.Exec(ctx, q, eventID)
 	if err != nil {
@@ -247,7 +280,8 @@ func (s *Store) ResolveEvent(ctx context.Context, eventID string) error {
 func (s *Store) ResolveStaleEvents(ctx context.Context, before time.Time) (int64, error) {
 	const q = `
 		UPDATE earthquake_events
-		SET status = 'RESOLVED', resolved_at = NOW()
+		SET status = 'RESOLVED', resolved_at = NOW(),
+		    event_state = CASE WHEN event_state IS NULL THEN NULL ELSE 'RESOLVED' END
 		WHERE status = 'HAPPENING' AND started_at < $1`
 	tag, err := s.pool.Exec(ctx, q, before)
 	if err != nil {
@@ -716,8 +750,12 @@ func (f *EventFilter) HasSpatial() bool {
 }
 
 // Event adalah satu baris earthquake_events untuk endpoint GET /api/v1/events.
-// Semua baris di tabel ini sudah CONFIRMED (dispatcher hanya mempersistensikan
-// event >= 3 node unik; ADVISORY tidak disimpan).
+//
+// Setiap baris yang sampai ke sini PERNAH mencapai CONFIRMED — sebelum Fase 3
+// karena tabelnya tidak memuat yang lain, sejak Fase 3 karena
+// eventPublicVisibility menyaringnya. Perbedaannya penting: tabelnya kini juga
+// memuat baris UNCONFIRMED, jadi jaminan tersebut sekarang berasal dari predikat,
+// bukan dari kebetulan isi tabel.
 type Event struct {
 	EventID        string
 	Status         string  // 'HAPPENING' | 'RESOLVED'
@@ -730,6 +768,16 @@ type Event struct {
 	TriggeredNodes int
 	StartedAt      time.Time
 	ResolvedAt     *time.Time // nil selama status masih HAPPENING
+
+	// Lima field siklus hidup Fase 3 (§10.2). SELURUHNYA aditif dan kosong untuk
+	// baris pra-Fase-3, yang memang tidak punya kolomnya terisi: umpan publik
+	// harus tetap menyajikan riwayat lama tanpa berpura-pura tahu state yang
+	// tidak pernah dicatat.
+	EventState           string // '' = baris pra-Fase-3
+	Revision             int
+	OriginTS             int64  // ms epoch UTC; 0 = tidak diketahui
+	OriginTSSource       string // SENSOR | PUBLISH_BOUND | ''
+	IndependentCellCount int
 }
 
 // Batas paginasi ListEvents (cermin kontrak OpenAPI GET /api/v1/events).
@@ -737,6 +785,36 @@ const (
 	DefaultEventsLimit = 20
 	MaxEventsLimit     = 100
 )
+
+// eventPublicVisibility membatasi GET /api/v1/events pada event yang PERNAH
+// mencapai CONFIRMED, dan tidak pernah tidak.
+//
+// Predikat ini baru ada di Fase 3 karena sebelumnya ia tidak perlu ada: jalur
+// Fase 2 hanya mempersistensikan event yang sudah CONFIRMED, sehingga "seluruh
+// tabel" dan "seluruh event publik" adalah himpunan yang sama. Fase 3 juga
+// menulis baris UNCONFIRMED (§9.5), jadi tanpa predikat ini umpan publik akan
+// mulai memuat event satu-node — dan kontrak `triggered_nodes_count: minimum 3`
+// di openapi.yaml akan berhenti benar tanpa satu pun perubahan pada kontraknya
+// (§10.2, §11.4).
+//
+// Tiga cabang, masing-masing menjawab satu bentuk baris:
+//   - event_state IS NULL — baris pra-Fase-3. Semuanya CONFIRMED by construction
+//     (dispatcher lama tidak menyimpan yang lain), jadi menyertakannya menjaga
+//     riwayat yang sudah dipublikasikan tetap utuh.
+//   - 'CONFIRMED' — sedang berlangsung dan publik.
+//   - terminal DAN pernah CONFIRMED — dibaca dari event_state_log, karena itulah
+//     satu-satunya tempat yang menyimpan bahwa sebuah state pernah dipegang
+//     (§9.3). Sebuah event yang hidup dan mati sebagai UNCONFIRMED tidak pernah
+//     menjadi klaim publik dan tidak boleh muncul di riwayat publik.
+//
+// Tanpa placeholder: seluruh nilainya konstan, sehingga penomoran $n milik filter
+// opsional tidak tergeser sama sekali.
+const eventPublicVisibility = `(event_state IS NULL
+	       OR event_state = 'CONFIRMED'
+	       OR (event_state IN ('RESOLVED', 'CANCELLED')
+	           AND EXISTS (SELECT 1 FROM event_state_log l
+	                       WHERE l.event_id = earthquake_events.event_id
+	                         AND l.to_state = 'CONFIRMED')))`
 
 // eventSelect adalah proyeksi bersama kedua varian query ListEvents.
 // max_pga di-cast ke double precision agar NUMERIC(8,4) tiba di pgx sebagai
@@ -747,7 +825,12 @@ const eventSelect = `
 	       ST_X(estimated_centroid::geometry) AS lon,
 	       location_name, mmi_scale, intensity_label,
 	       max_pga::double precision AS max_pga,
-	       triggered_nodes_count, started_at, resolved_at
+	       triggered_nodes_count, started_at, resolved_at,
+	       COALESCE(event_state, ''),
+	       COALESCE(revision, 0),
+	       COALESCE(origin_ts, 0),
+	       COALESCE(origin_ts_source, ''),
+	       COALESCE(independent_cell_count, 0)
 	FROM earthquake_events`
 
 // listEventsQuery menyusun query ListEvents beserta argumennya.
@@ -765,7 +848,10 @@ func listEventsQuery(filter *EventFilter, limit, offset int) (string, []any) {
 		return "$" + strconv.Itoa(len(args))
 	}
 
-	conds := make([]string, 0, 4)
+	// Visibilitas publik selalu terpasang dan selalu lebih dulu: ia bukan filter
+	// yang dipilih klien melainkan definisi tabel yang boleh dilihat klien.
+	conds := make([]string, 0, 5)
+	conds = append(conds, eventPublicVisibility)
 	if filter != nil {
 		if filter.RangeKm > 0 {
 			lon, lat := next(filter.Lon), next(filter.Lat)
@@ -785,10 +871,7 @@ func listEventsQuery(filter *EventFilter, limit, offset int) (string, []any) {
 		}
 	}
 
-	q := eventSelect
-	if len(conds) > 0 {
-		q += "\n\t\tWHERE " + strings.Join(conds, " AND ")
-	}
+	q := eventSelect + "\n\t\tWHERE " + strings.Join(conds, " AND ")
 	q += "\n\t\tORDER BY started_at DESC\n\t\tLIMIT " + next(limit) + " OFFSET " + next(offset)
 	return q, args
 }
@@ -826,6 +909,8 @@ func (s *Store) ListEvents(ctx context.Context, limit, offset int, filter *Event
 			&e.EventID, &e.Status, &e.Lat, &e.Lon,
 			&e.LocationName, &e.MMIScale, &e.IntensityLabel,
 			&e.MaxPGA, &e.TriggeredNodes, &e.StartedAt, &e.ResolvedAt,
+			&e.EventState, &e.Revision, &e.OriginTS, &e.OriginTSSource,
+			&e.IndependentCellCount,
 		); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
@@ -943,6 +1028,13 @@ type AlertEmission struct {
 	FCMAttempted  *int
 	FCMSucceeded  *int
 	DeliveryAt    *int64
+
+	// State yang DIUMUMKAN frame ini (migrasi 000008). NULL pada jalur Fase 2:
+	// di sana sebuah frame tidak mengumumkan state apa pun, ia hanya punya tipe.
+	// Untuk frame resolusi perbedaan itu tidak dapat disimpulkan dari alert_type
+	// sama sekali, dan itulah alasan kedua kolom ini ada (§8.5).
+	EventState    *string
+	EventRevision *int
 }
 
 // InsertAlertEmission menulis satu baris alert_emissions.
@@ -954,7 +1046,8 @@ func (s *Store) InsertAlertEmission(ctx context.Context, e *AlertEmission) error
 		INSERT INTO alert_emissions (
 			event_id, alert_type, status, mmi, pga_gal, node_count,
 			centroid, is_severe, audience, decided_at, algo_ver,
-			ws_client_count, fcm_attempted, fcm_succeeded, delivery_at
+			ws_client_count, fcm_attempted, fcm_succeeded, delivery_at,
+			event_state, event_revision
 		) VALUES (
 			$1::uuid, $2, $3, $4, $5, $6,
 			CASE WHEN $7::double precision IS NULL OR $8::double precision IS NULL
@@ -962,13 +1055,15 @@ func (s *Store) InsertAlertEmission(ctx context.Context, e *AlertEmission) error
 			     ELSE ST_SetSRID(ST_MakePoint($7::double precision, $8::double precision), 4326)::geography
 			END,
 			$9, $10, $11, $12,
-			$13, $14, $15, $16
+			$13, $14, $15, $16,
+			$17, $18
 		)`
 	_, err := s.pool.Exec(ctx, q,
 		e.EventID, e.AlertType, e.Status, e.MMI, e.PGAGal, e.NodeCount,
 		e.CentroidLon, e.CentroidLat,
 		e.IsSevere, e.Audience, e.DecidedAt, e.AlgoVer,
 		e.WSClientCount, e.FCMAttempted, e.FCMSucceeded, e.DeliveryAt,
+		e.EventState, e.EventRevision,
 	)
 	if err != nil {
 		return fmt.Errorf("insert alert_emission: %w", err)

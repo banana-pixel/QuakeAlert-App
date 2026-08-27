@@ -91,6 +91,7 @@ const DefaultQueueSize = 1024
 type (
 	Observation = store.Observation
 	Emission    = store.AlertEmission
+	EventUnit   = store.EventUnit
 )
 
 // ledgerStore adalah bagian store yang dibutuhkan Writer. Interface, bukan
@@ -102,11 +103,37 @@ type ledgerStore interface {
 	GetNodeLocation(ctx context.Context, stationID string) (*store.NodeLocation, error)
 }
 
-// item adalah satu satuan kerja dalam antrean: tepat satu dari kedua field
+// eventPersister adalah bagian store yang dibutuhkan satuan persistensi event
+// (Fase 3). Interface TERPISAH dari ledgerStore, dan dideteksi lewat type
+// assertion, dengan alasan yang sama seperti dispatch.tokenFinder: store lama dan
+// fake yang tidak mengimplementasikannya harus tetap dapat dipakai sebagai
+// ledgerStore, bukan gagal dikompilasi karena Fase 3 ada.
+type eventPersister interface {
+	UpsertEvent(ctx context.Context, e *store.EarthquakeEvent) error
+	AppendStateLog(ctx context.Context, l *store.EventStateLog) error
+}
+
+// EventPersistObserver menerima hasil penulisan satuan event dari goroutine
+// drain.
+//
+// Callback, bukan nilai kembalian, karena penulisannya ASINKRON: pada saat sebuah
+// upsert gagal, pemanggilnya sudah lama selesai mengirim frame peringatannya
+// (§9.5). Counter-counternya dimiliki event.Tracker karena §15.5 mendaftarkannya
+// bersama counter event yang lain — satu tempat untuk dibaca saat insiden — jadi
+// yang lewat di sini hanya kabarnya.
+type EventPersistObserver interface {
+	EventPersistDropped()
+	EventUpsertFailed()
+	EventStateLogSkipped()
+	EventStateLogFailed()
+}
+
+// item adalah satu satuan kerja dalam antrean: tepat satu dari ketiga field
 // terisi.
 type item struct {
 	obs  *Observation
 	emis *Emission
+	evt  *EventUnit
 }
 
 // Writer menerima baris ledger dari jalur peringatan dan menuliskannya dari satu
@@ -125,6 +152,10 @@ type Writer struct {
 	stopOnce sync.Once
 	stop     chan struct{}
 	drained  chan struct{}
+
+	// eventObs menerima hasil satuan event. Nil = tidak ada yang mendengar, yang
+	// sah: Writer tetap menulis, hanya counter-nya yang tidak bertambah.
+	eventObs EventPersistObserver
 
 	// mu melindungi bookkeeping pembatasan penolakan.
 	mu            sync.Mutex
@@ -177,6 +208,28 @@ func (w *Writer) RecordObservation(o *Observation) {
 	}
 
 	w.enqueue(item{obs: o})
+}
+
+// SetEventObserver memasang penerima hasil satuan event (pola Set* yang sama
+// dengan Dispatcher.SetLedger). Dipanggil sekali saat wiring, sebelum Run.
+func (w *Writer) SetEventObserver(o EventPersistObserver) {
+	if w == nil {
+		return
+	}
+	w.eventObs = o
+}
+
+// RecordEventUnit memasukkan satu satuan persistensi event ke antrean.
+//
+// Sama seperti kedua Record lainnya: tanpa error, tanpa blocking. Pemanggilnya
+// adalah jalur transisi state, yang sudah MENGIRIM frame-nya sebelum memanggil
+// fungsi ini dan karena itu tidak punya satu pun tindakan benar untuk merespons
+// kegagalan pencatatan (§9.5).
+func (w *Writer) RecordEventUnit(u *EventUnit) {
+	if w == nil || u == nil || u.Event == nil || w.stopped.Load() {
+		return
+	}
+	w.enqueue(item{evt: u})
 }
 
 // RecordEmission memasukkan satu baris keputusan dispatch ke antrean. Sama
@@ -238,6 +291,7 @@ func (w *Writer) enqueue(it item) {
 		if dropped.obs != nil {
 			w.returnSuppressed(dropped.obs.NodeID, dropped.obs.SuppressedRejections)
 		}
+		w.notifyDropped(dropped)
 	default:
 		// Drain sudah mengosongkannya lebih dulu; tidak ada yang perlu dibuang.
 	}
@@ -251,6 +305,17 @@ func (w *Writer) enqueue(it item) {
 		if it.obs != nil {
 			w.returnSuppressed(it.obs.NodeID, it.obs.SuppressedRejections)
 		}
+		w.notifyDropped(it)
+	}
+}
+
+// notifyDropped melaporkan satuan event yang hilang karena tekanan antrean.
+// Sebuah satuan yang dibuang berarti ada event_id yang dipegang klien tanpa baris
+// di basis data (D30/R9): kerugiannya nyata, terbatas pada model baca, dan
+// satu-satunya cara ia tidak menjadi kerugian yang SUNYI adalah counter ini.
+func (w *Writer) notifyDropped(it item) {
+	if it.evt != nil && w.eventObs != nil {
+		w.eventObs.EventPersistDropped()
 	}
 }
 
@@ -311,7 +376,62 @@ func (w *Writer) write(ctx context.Context, it item) {
 		w.writeObservation(ctx, it.obs)
 	case it.emis != nil:
 		w.writeEmission(ctx, it.emis)
+	case it.evt != nil:
+		w.writeEventUnit(ctx, it.evt)
 	}
+}
+
+// writeEventUnit menuliskan satu satuan: upsert induk lebih dulu, lalu baris
+// riwayatnya HANYA bila upsert itu berhasil.
+//
+// Melewatkan baris log setelah upsert gagal adalah aturannya, bukan optimasi.
+// event_state_log.event_id punya FK ke earthquake_events; mencoba menulis log-nya
+// setelah induknya gagal akan menghasilkan pelanggaran FK — sebuah galat KEDUA
+// yang menutupi galat pertama, pada jalur yang tidak punya siapa pun untuk
+// melapor. Karena itu ia tidak dicoba sama sekali, dan fakta bahwa ia dilewatkan
+// dihitung sendiri (§9.5).
+func (w *Writer) writeEventUnit(ctx context.Context, u *EventUnit) {
+	if u == nil || u.Event == nil {
+		return
+	}
+
+	p, ok := w.store.(eventPersister)
+	if !ok {
+		// Store ini tidak mendukung persistensi event (jalur Fase 2, atau fake
+		// pada test). Bukan galat, dan bukan pula sesuatu yang boleh menjatuhkan
+		// goroutine drain.
+		return
+	}
+
+	wctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
+
+	if err := p.UpsertEvent(wctx, u.Event); err != nil {
+		w.writeFailures.Add(1)
+		w.log.Error("gagal upsert event", "err", err, "event_id", u.Event.EventID)
+		if w.eventObs != nil {
+			w.eventObs.EventUpsertFailed()
+			if u.Log != nil {
+				w.eventObs.EventStateLogSkipped()
+			}
+		}
+		return
+	}
+	w.written.Add(1)
+
+	if u.Log == nil {
+		return
+	}
+	if err := p.AppendStateLog(wctx, u.Log); err != nil {
+		w.writeFailures.Add(1)
+		w.log.Error("gagal tulis event_state_log", "err", err,
+			"event_id", u.Log.EventID, "revision", u.Log.Revision)
+		if w.eventObs != nil {
+			w.eventObs.EventStateLogFailed()
+		}
+		return
+	}
+	w.written.Add(1)
 }
 
 func (w *Writer) writeObservation(ctx context.Context, o *Observation) {

@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.first
 import id.web.quakealert.domain.AlertDecision
 import id.web.quakealert.domain.AlertType
 import id.web.quakealert.domain.WsAlertMessage
+import id.web.quakealert.domain.standDownCopyFor
 import id.web.quakealert.service.WarningNotifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -79,11 +80,27 @@ object BackgroundAlertBridge {
                         // Dedup is marked so the FCM copy stays suppressed too.
                         QuakeNetwork.from(appContext).alertDedup.markIfNew(message)
                         WarningNotifier.clear(appContext)
+                        // A withdrawal and an all-clear arrive as the SAME wire type and
+                        // differ only in event_state, so the distinction has to be drawn
+                        // here or nowhere. Logged rather than posted: this branch runs
+                        // while nothing is on screen, and the user-visible wording lives
+                        // on the idle banner they return to (ui.warning.WarningViewModel).
+                        val copy = standDownCopyFor(message.eventState)
+                        android.util.Log.i(
+                            TAG,
+                            "background stand-down ${message.eventId}: ${copy.title}"
+                        )
                     }
 
                     AlertType.EARTHQUAKE_ADVISORY -> {
                         // Advisories stay banner-only by design (never wake the device),
-                        // matching the FCM path's behaviour.
+                        // matching the FCM path's behaviour. Since server Phase 3 an
+                        // advisory does not reach this bridge by FCM at all — it is
+                        // WS-only, so this branch only ever sees a socket frame while the
+                        // app is backgrounded, and it must stay empty for the same reason
+                        // it always did: escalating an unconfirmed 1-2 node tremor to a
+                        // full-screen notification is how users learn to dismiss the real
+                        // thing.
                     }
 
                     AlertType.EARTHQUAKE_ALERT -> handleConfirmedAlert(appContext, message)

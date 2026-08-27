@@ -44,7 +44,7 @@
             "type": {
               "type": "string",
               "enum": ["EARTHQUAKE_ALERT", "EARTHQUAKE_ADVISORY", "EVENT_RESOLVED"],
-              "description": "Jenis event. ADVISORY = 1-2 node (banner kuning), ALERT = >=3 node CONFIRMED, EVENT_RESOLVED = all-clear."
+              "description": "Jenis event. ADVISORY = 1-2 node (banner kuning; TIDAK pernah dikirim lewat FCM sejak Fase 3 — hanya WebSocket), ALERT = >=3 node CONFIRMED, EVENT_RESOLVED = all-clear, termasuk penarikan (event_state=CANCELLED)."
             },
             "event_id": {
               "type": "string",
@@ -84,6 +84,36 @@
               "description": "ms epoch UTC sebagai string.",
               "pattern": "^[0-9]{13}$",
               "examples": ["1723891234120"]
+            },
+            "event_state": {
+              "type": "string",
+              "enum": ["UNCONFIRMED", "CONFIRMED", "RESOLVED", "CANCELLED"],
+              "description": "State siklus hidup event (Fase 3). Aditif dan OPSIONAL: hanya disertakan bila berisi, sehingga payload jalur pra-Fase-3 tetap identik dan tidak ada \"event_state\": \"\" yang dapat terbaca sebagai state bernama. Enum 'type' tidak bertambah nilainya, jadi klien terpasang tetap memahami setiap pesan. CATATAN: kanal FCM hanya membawa CONFIRMED dan penarikan/all-clear-nya — UNCONFIRMED tidak pernah membangunkan perangkat latar (hanya WebSocket), dan nilainya ada di enum ini karena kontraknya satu model parse untuk semua kanal.",
+              "examples": ["CONFIRMED"]
+            },
+            "event_revision": {
+              "type": "string",
+              "description": "Revisi monoton per event, sebagai string desimal (batasan FCM: seluruh nilai data bertipe string). Klien MEMBUANG pesan yang revisinya lebih kecil daripada yang sudah ditampilkan untuk event_id yang sama.",
+              "pattern": "^[0-9]+$",
+              "examples": ["3"]
+            },
+            "origin_ts": {
+              "type": "string",
+              "description": "Jangkar onset event (perkiraan saat tanah mulai bergerak) dalam ms epoch UTC sebagai string. BUKAN 'timestamp', yang berarti kapan baris event lahir di server.",
+              "pattern": "^[0-9]{13}$",
+              "examples": ["1723891234000"]
+            },
+            "origin_ts_source": {
+              "type": "string",
+              "enum": ["SENSOR", "PUBLISH_BOUND"],
+              "description": "Asal origin_ts. SENSOR = onset terukur. PUBLISH_BOUND = batas atas dari publish_ts - dur_ms (node v1), agar sebuah batas tidak pernah menyamar sebagai pengukuran.",
+              "examples": ["SENSOR"]
+            },
+            "independent_cell_count": {
+              "type": "string",
+              "description": "Jumlah sel geografis independen yang menyumbang bukti, sebagai string desimal. Menjawab mengapa sebuah event terkonfirmasi: tiga sensor di satu meja bukan tiga bukti.",
+              "pattern": "^[0-9]+$",
+              "examples": ["3"]
             }
           }
         },
@@ -115,7 +145,12 @@
           "centroid_lat": "-6.9175",
           "centroid_lon": "107.6191",
           "location_name": "Bandung, West Java, ID",
-          "timestamp": "1723891234120"
+          "timestamp": "1723891234120",
+          "event_state": "CONFIRMED",
+          "event_revision": "3",
+          "origin_ts": "1723891234000",
+          "origin_ts_source": "SENSOR",
+          "independent_cell_count": "3"
         },
         "android": {
           "priority": "HIGH"

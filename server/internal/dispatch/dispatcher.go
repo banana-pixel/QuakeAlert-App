@@ -385,6 +385,15 @@ func (d *Dispatcher) recordEmission(msg *AlertMessage, audience string, decidedA
 		mmi := msg.MMI
 		e.MMI = &mmi
 	}
+	// State yang DIUMUMKAN frame ini (§8.5, migrasi 000008). Kosong pada jalur
+	// Fase 2 dan karenanya NULL: di sana sebuah frame memang tidak mengumumkan
+	// state apa pun, dan menulis sesuatu di situ akan mengarang kepastian.
+	if msg.EventState != "" {
+		st := msg.EventState
+		rev := msg.EventRevision
+		e.EventState = &st
+		e.EventRevision = &rev
+	}
 	pga := msg.PGAGal
 	e.PGAGal = &pga
 

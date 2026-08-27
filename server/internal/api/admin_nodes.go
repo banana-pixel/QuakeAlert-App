@@ -99,6 +99,21 @@ func (s *Server) HandleVerifyNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// §7.5 — menarik verifikasi berarti mencabut kepercayaan pada bukti node ini,
+	// termasuk bukti yang SUDAH menyumbang pada event yang masih terbuka. Tanpa
+	// panggilan ini, sebuah node yang baru saja dinyatakan tidak dapat dipercaya
+	// tetap menahan peringatan publik yang ia bantu naikkan sampai tenggat
+	// resolusinya lewat.
+	//
+	// Setelah penulisan basis data, tidak sebelumnya: yang dicabut adalah
+	// kepercayaan yang sudah tercatat, dan pencabutan in-memory yang mendahului
+	// penulisan yang gagal akan membuat memori dan basis data tidak sepakat.
+	// Hanya pada arah verified=false — memverifikasi node tidak menyentuh event
+	// mana pun, karena bukti tidak pernah masuk secara retroaktif.
+	if !verified && s.evidence != nil {
+		s.evidence.InvalidateContributor(r.Context(), stationID, "")
+	}
+
 	s.log.Info("verifikasi node diubah", "station_id", stationID, "verified", verified)
 	writeJSON(w, http.StatusOK, verifyNodeResponse{StationID: stationID, Verified: verified})
 }

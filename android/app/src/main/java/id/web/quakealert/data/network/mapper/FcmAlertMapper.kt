@@ -50,6 +50,16 @@ fun Map<String, String>.toWsAlertMessageOrNull(
         // "1", "TRUE", a typo, an absent key — reads as a real alert, which is the
         // direction to fail in: a real quake mis-read as a drill would be dropped
         // outright on a release build.
-        isTest = this["is_test"]?.trim() == "true"
+        isTest = this["is_test"]?.trim() == "true",
+        // Phase 3 lifecycle keys. Every one is optional on the wire (the server adds
+        // them only when non-zero), and every parse failure falls back to the same
+        // "server did not say" value the DTO defaults to — a malformed revision must
+        // not become revision 0 *meaningfully*, it must become unknown, which is the
+        // same thing here and is why 0 is the default rather than -1.
+        eventState = this["event_state"].orEmpty().trim(),
+        eventRevision = this["event_revision"]?.trim()?.toIntOrNull() ?: 0,
+        originTs = this["origin_ts"]?.trim()?.toLongOrNull() ?: 0L,
+        originTsSource = this["origin_ts_source"].orEmpty().trim(),
+        independentCellCount = this["independent_cell_count"]?.trim()?.toIntOrNull() ?: 0
     ).toDomainOrNull(allowTestAlerts = allowTestAlerts)
 }

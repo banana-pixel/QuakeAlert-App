@@ -18,21 +18,30 @@ package id.web.quakealert.domain
  */
 class AlertDedup {
 
-    private val seen = LinkedHashMap<String, Long>()
+    private val seen = LinkedHashMap<String, Entry>()
 
     /**
      * Records [message] and reports whether it is new.
      *
-     * An `EARTHQUAKE_ADVISORY` carries an empty `event_id` (the server does not
-     * persist advisories), so it has no usable key — those always count as new. That
-     * is safe because an advisory only updates a banner; it never starts a siren or
-     * an activity.
+     * A frame with no `event_id` has no usable key — those always count as new. Since
+     * server Phase 3 every frame carries one, including an advisory; before it,
+     * advisories carried an empty id, and that older behaviour is the reason this
+     * branch exists rather than an assertion. It is safe either way because an
+     * advisory only updates a banner; it never starts a siren or an activity.
+     *
+     * A *lower* `event_revision` for a key already seen is suppressed as well, not
+     * just an exact repeat. The two channels are unordered relative to each other —
+     * an FCM copy of revision 2 can arrive after the socket delivered revision 3 —
+     * and acting on the older frame would re-raise a state the event has already left.
+     * Revision 0 means the server did not say, which is every pre-Phase-3 frame, so it
+     * must keep behaving exactly as before: first frame wins, repeats suppressed.
      */
     fun markIfNew(message: WsAlertMessage): Boolean {
         val key = key(message) ?: return true
         synchronized(seen) {
-            if (seen.containsKey(key)) return false
-            seen[key] = message.timestampMs
+            val previous = seen[key]
+            if (previous != null && message.eventRevision <= previous.revision) return false
+            seen[key] = Entry(timestampMs = message.timestampMs, revision = message.eventRevision)
             // Bounded so a long-lived process cannot grow this without limit; the
             // oldest insertion is the least likely to be re-delivered.
             while (seen.size > MAX_ENTRIES) {
@@ -43,10 +52,17 @@ class AlertDedup {
         }
     }
 
-    /** Whether [message] has already been recorded, without recording it. */
+    /**
+     * Whether [message] has already been recorded, without recording it. Follows the
+     * same revision rule as [markIfNew]: a newer revision of a known event has NOT
+     * been seen.
+     */
     fun hasSeen(message: WsAlertMessage): Boolean {
         val key = key(message) ?: return false
-        return synchronized(seen) { seen.containsKey(key) }
+        return synchronized(seen) {
+            val previous = seen[key] ?: return@synchronized false
+            message.eventRevision <= previous.revision
+        }
     }
 
     /**
@@ -56,6 +72,13 @@ class AlertDedup {
      */
     private fun key(message: WsAlertMessage): String? =
         message.eventId.takeIf { it.isNotBlank() }?.let { "${message.type.name}:$it" }
+
+    /**
+     * What is remembered per key. The revision is what makes an out-of-order
+     * re-delivery distinguishable from news; the timestamp is kept for the same
+     * diagnostic reason it always was.
+     */
+    private data class Entry(val timestampMs: Long, val revision: Int)
 
     private companion object {
         const val MAX_ENTRIES = 64

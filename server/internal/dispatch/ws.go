@@ -52,6 +52,20 @@ type AlertMessage struct {
 	// sungguhan tetap sama persis seperti sebelum flag ini ada — dan sebuah
 	// alert tanpa field ini tidak mungkin ditafsirkan sebagai drill.
 	IsTest bool `json:"is_test,omitempty"`
+
+	// Enam field siklus hidup Fase 3 (§8.3). SELURUHNYA aditif dan seluruhnya
+	// omitempty: jalur Fase 2 tidak mengisi satu pun, sehingga frame yang
+	// dihasilkannya tetap BYTE-IDENTIK dengan frame hari ini dan flag
+	// EVENT_TRACKER_ENABLED tidak dapat mengubah kontrak secara diam-diam.
+	//
+	// type TIDAK bertambah nilainya (D11): state siklus hidup dibawa
+	// event_state, sehingga klien terpasang yang belum tahu apa-apa soal Fase 3
+	// tetap memahami setiap frame.
+	EventState           string `json:"event_state,omitempty"`      // UNCONFIRMED|CONFIRMED|RESOLVED|CANCELLED
+	EventRevision        int    `json:"event_revision,omitempty"`   // monoton per event
+	OriginTS             int64  `json:"origin_ts,omitempty"`        // ms epoch UTC, jangkar onset (§4.3)
+	OriginTSSource       string `json:"origin_ts_source,omitempty"` // SENSOR|PUBLISH_BOUND — kejujuran tentang apa origin_ts itu
+	IndependentCellCount int    `json:"independent_cell_count,omitempty"`
 }
 
 // chatBufferCeiling menjaga separuh buffer per-klien tetap kosong untuk alert.

@@ -22,6 +22,7 @@ import (
 	"github.com/banana-pixel/quakealert/server/internal/consensus"
 	"github.com/banana-pixel/quakealert/server/internal/crypto"
 	"github.com/banana-pixel/quakealert/server/internal/dispatch"
+	"github.com/banana-pixel/quakealert/server/internal/event"
 	"github.com/banana-pixel/quakealert/server/internal/ingest"
 	"github.com/banana-pixel/quakealert/server/internal/ledger"
 	"github.com/banana-pixel/quakealert/server/internal/store"
@@ -41,6 +42,13 @@ func run(log *slog.Logger) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
+	}
+	// Peringatan konfigurasi dicatat DI SINI dan tidak di paket config: config
+	// tidak punya logger, dan sebuah fallback nama env yang usang yang tidak
+	// pernah tercetak adalah cara termudah menjalankan produksi dengan jendela
+	// korelasi yang salah.
+	for _, w := range cfg.Warnings {
+		log.Warn("config: " + w)
 	}
 
 	// Context bootstrap dengan timeout IO untuk koneksi awal.
@@ -123,28 +131,88 @@ func run(log *slog.Logger) error {
 		log.Warn("guard satu-node NONAKTIF — kluster satu sensor dapat menyiarkan ke topik FCM nasional")
 	}
 
-	// --- Consensus tier: spatial engine ---
-	// Cooldown = jeda antar-emisi + waktu menuju EVENT_RESOLVED (state machine).
-	engine := consensus.NewEngine(cfg.ConsensusWindow, cfg.CooldownDuration, st, dispatcher.Dispatch, log)
+	// --- Event tier: korelasi + siklus hidup (§11.2) ---
+	// Dua jalur, dipilih EVENT_TRACKER_ENABLED, dan tepat satu yang hidup dalam
+	// satu proses. Jalur lama SENGAJA masih dapat dieksekusi selama tepat satu
+	// rilis (§11.3, §17): rollback Fase 3 harus berupa satu variabel environment
+	// dan sebuah restart, bukan sebuah redeploy.
+	var handler func(context.Context, *ingest.Trigger)
 
-	// Rekonsiliasi startup: event HAPPENING yang lebih tua dari cooldown
-	// ditandai RESOLVED. State machine resolusi dispatcher hanya in-memory —
-	// tanpa ini, event yang sedang berlangsung saat proses restart akan
-	// selamanya menggantung sebagai HAPPENING (tanpa EVENT_RESOLVED).
-	{
-		recCtx, cancel := context.WithTimeout(context.Background(), cfg.IOTimeout)
-		n, rerr := st.ResolveStaleEvents(recCtx, time.Now().Add(-cfg.CooldownDuration))
-		cancel()
-		if rerr != nil {
-			log.Warn("gagal rekonsiliasi event stale saat startup", "err", rerr)
-		} else if n > 0 {
-			log.Info("event stale ditandai RESOLVED saat startup", "count", n)
+	// tracker hidup di luar cabang HANYA supaya rute admin dapat memasangnya
+	// sebagai pencabut bukti setelah apiSrv dibangun (§11.4). Nil pada jalur
+	// Fase 2, dan setter di sana memang tidak dipanggil.
+	var tracker *event.Tracker
+
+	if cfg.EventTrackerEnabled {
+		tracker = event.NewTracker(st, eventOptions(cfg), log)
+
+		// Emitter dipasang lewat setter, bukan konstruktor: dispatcher dan tracker
+		// dibangun pada titik yang berbeda, dan Bridge-lah yang menerjemahkan
+		// transisi menjadi frame (§8.3) supaya arah impornya tetap event ->
+		// dispatch saja.
+		tracker.SetEmitter(event.NewBridge(dispatcher))
+
+		if ledgerWriter != nil {
+			// Persistensi event menempuh antrean yang SAMA dengan observasi:
+			// asinkron, berbatas, boleh membuang. Observer-nya adalah tracker
+			// sendiri, supaya kegagalan tulis menjadi counter alih-alih nilai
+			// kembalian yang tidak ada pemanggilnya (§9.5).
+			tracker.SetLedger(ledgerWriter)
+			ledgerWriter.SetEventObserver(tracker)
 		}
-	}
 
-	// Handler trigger yang lolos verifikasi -> masukkan ke consensus engine.
-	handler := func(ctx context.Context, t *ingest.Trigger) {
-		engine.Ingest(ctx, t.NodeID, t.PGA, t.TS)
+		trackerCtx, stopTracker := context.WithCancel(context.Background())
+		defer stopTracker()
+		go tracker.Run(trackerCtx)
+
+		// §15.3 — rekonsiliasi restart. Timeout sendiri (bukan bootCtx, yang juga
+		// dipakai koneksi awal) karena ia membaca setiap event terbuka plus
+		// koordinat setiap kontributornya.
+		recCtx, recCancel := context.WithTimeout(context.Background(), cfg.IOTimeout*3)
+		if rerr := tracker.Reconcile(recCtx); rerr != nil {
+			log.Warn("event: rekonsiliasi awal gagal", "err", rerr)
+			// §15.3 langkah 5: kegagalan dicatat, tidak fatal, dan sapuan lama
+			// tetap menjadi jaring yang sudah ada — tanpa itu baris HAPPENING yang
+			// gagal dibaca akan menggantung selamanya. Hanya di cabang ini: sapuan
+			// itu memakai started_at, jadi menjalankannya setelah rekonsiliasi yang
+			// BERHASIL akan menandai RESOLVED justru event yang baru saja diangkat
+			// kembali sebagai masih hidup.
+			resolveStaleEventsAtStartup(st, cfg, log)
+		}
+		tracker.CheckFleetIndependence(recCtx) // §7.3 pemeriksaan-diri saat boot
+		recCancel()
+
+		// Handler trigger yang lolos verifikasi -> masukkan ke tracker event.
+		// Trigger TIDAK lagi dipotong menjadi tiga field: onset, fase dan obs_seq
+		// adalah yang menyetir korelasi (§6.1).
+		handler = func(ctx context.Context, t *ingest.Trigger) {
+			tracker.Ingest(ctx, event.ObservationFrom(t))
+		}
+
+		log.Info("event tracker aktif (Fase 3)",
+			"correlation_window", cfg.CorrelationWindow,
+			"attach_radius_km", cfg.AttachRadiusKm,
+			"independence_cell_km", cfg.IndependenceCellKm,
+			"min_independent_cells", cfg.MinIndependentCells,
+			"resolve_after", cfg.EventResolveAfter,
+			"sweep_interval", cfg.EventSweepInterval)
+	} else {
+		// --- Consensus tier: spatial engine (jalur Fase 2) ---
+		// Cooldown = jeda antar-emisi + waktu menuju EVENT_RESOLVED (state machine).
+		engine := consensus.NewEngine(cfg.ConsensusWindow, cfg.CooldownDuration, st, dispatcher.Dispatch, log)
+
+		// Rekonsiliasi startup: event HAPPENING yang lebih tua dari cooldown
+		// ditandai RESOLVED. State machine resolusi dispatcher hanya in-memory —
+		// tanpa ini, event yang sedang berlangsung saat proses restart akan
+		// selamanya menggantung sebagai HAPPENING (tanpa EVENT_RESOLVED).
+		resolveStaleEventsAtStartup(st, cfg, log)
+
+		// Handler trigger yang lolos verifikasi -> masukkan ke consensus engine.
+		handler = func(ctx context.Context, t *ingest.Trigger) {
+			engine.Ingest(ctx, t.NodeID, t.PGA, t.TS)
+		}
+
+		log.Info("event tracker NONAKTIF — memakai consensus engine Fase 2 (EVENT_TRACKER_ENABLED=false)")
 	}
 
 	// Handler heartbeat -> perbarui telemetri liveness node (RSSI, latency,
@@ -213,6 +281,12 @@ func run(log *slog.Logger) error {
 	// tidaknya kunci, sehingga instalasi tanpa ADMIN_API_KEY tidak punya rute
 	// admin untuk ditembus sama sekali.
 	apiSrv.SetAdminAPIKey(cfg.AdminAPIKey)
+	if tracker != nil {
+		// §7.5/§11.4: rute unverify operator mencabut bukti node dari setiap event
+		// terbuka. Satu-satunya pemanggil InvalidateContributor di Fase 3 — tidak
+		// ada pemanggil otomatis, dengan sengaja.
+		apiSrv.SetEvidenceInvalidator(tracker)
+	}
 	apiSrv.SetBroadcastFanout(broadcastFanout{dispatcher: dispatcher})
 	apiSrv.SetTestAlertFanout(testAlertFanout{dispatcher: dispatcher})
 	apiSrv.SetMQTTHealthCheck(func() bool { return client.IsConnected() })
@@ -298,6 +372,51 @@ func run(log *slog.Logger) error {
 	// Pool pgx ditutup via defer st.Close().
 	log.Info("shutdown selesai")
 	return nil
+}
+
+// eventOptions menyalin parameter korelasi dari config ke event.Options.
+//
+// Ada di main dan bukan sebagai metode config.Config karena paket config
+// SENGAJA tidak mengimpor apa pun dari dalam server (lihat maxAcceptedTriggerAge
+// di config.go): sebuah metode yang mengembalikan event.Options akan membalik
+// arah itu demi kenyamanan satu pemanggil. Nilainya disalin sekali saat boot —
+// event.Options memang tidak dibaca ulang, supaya sebuah ambang tidak berubah di
+// tengah hidup sebuah event.
+func eventOptions(cfg *config.Config) event.Options {
+	return event.Options{
+		CorrelationWindowMs: cfg.CorrelationWindow.Milliseconds(),
+		AttachRadiusKm:      cfg.AttachRadiusKm,
+		IndependenceCellKm:  cfg.IndependenceCellKm,
+		MinIndependentCells: cfg.MinIndependentCells,
+		MaxEventDiameterKm:  cfg.MaxEventDiameterKm,
+		ResolveAfterMs:      cfg.EventResolveAfter.Milliseconds(),
+		SweepIntervalMs:     cfg.EventSweepInterval.Milliseconds(),
+		MaxOpen:             cfg.EventTrackerMaxOpen,
+		TerminalRetentionMs: cfg.TerminalRetention.Milliseconds(),
+		MaxTombstones:       cfg.EventTrackerMaxTombstones,
+	}
+}
+
+// resolveStaleEventsAtStartup menandai RESOLVED setiap baris HAPPENING yang mulai
+// sebelum satu cooldown lalu.
+//
+// Diekstrak menjadi fungsi karena kini dipanggil dari dua tempat dengan dua peran
+// yang berbeda: satu-satunya rekonsiliasi pada jalur Fase 2, dan JARING saat
+// rekonsiliasi Fase 3 gagal membaca (§15.3 langkah 5). Kegagalannya dicatat dan
+// tidak fatal di kedua peran: sebuah baris yang menggantung sebagai HAPPENING
+// tidak sebanding dengan menolak menyalakan server.
+func resolveStaleEventsAtStartup(st *store.Store, cfg *config.Config, log *slog.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.IOTimeout)
+	defer cancel()
+
+	n, err := st.ResolveStaleEvents(ctx, time.Now().Add(-cfg.CooldownDuration))
+	if err != nil {
+		log.Warn("gagal rekonsiliasi event stale saat startup", "err", err)
+		return
+	}
+	if n > 0 {
+		log.Info("event stale ditandai RESOLVED saat startup", "count", n)
+	}
 }
 
 // newMQTTClient membuat client MQTT. Untuk skema tls:///ssl:// mengaktifkan

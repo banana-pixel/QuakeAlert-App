@@ -1,6 +1,7 @@
 package id.web.quakealert.data.network.mapper
 
 import id.web.quakealert.domain.AlertType
+import id.web.quakealert.domain.EventState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -123,6 +124,53 @@ class FcmAlertMapperTest {
         assertEquals("V", message.mmi)
         assertEquals(12.25, message.pgaGal, 1e-9)
         assertEquals(0.0, message.centroidLat, 0.0)
+    }
+
+    @Test
+    fun `parses the phase 3 lifecycle keys, which arrive as strings too`() {
+        val message = confirmedPayload()
+            .plus("type" to "EVENT_RESOLVED")
+            .plus("event_state" to "CANCELLED")
+            .plus("event_revision" to "4")
+            .plus("origin_ts" to "1754999998000")
+            .plus("origin_ts_source" to "PUBLISH_BOUND")
+            .plus("independent_cell_count" to "2")
+            .toWsAlertMessageOrNull(nowMs = NOW_MS)
+
+        requireNotNull(message)
+        assertEquals(EventState.CANCELLED, message.eventState)
+        assertEquals(4, message.eventRevision)
+        assertEquals(1_754_999_998_000L, message.originTsMs)
+        assertEquals("PUBLISH_BOUND", message.originTsSource)
+        assertEquals(2, message.independentCellCount)
+    }
+
+    @Test
+    fun `absent or malformed lifecycle keys read as unknown, not as zero-meaning-something`() {
+        // The server omits these keys when it has nothing to say, and a pre-Phase-3
+        // server never sends them at all — the same payload the older client parsed.
+        val bare = confirmedPayload().toWsAlertMessageOrNull(nowMs = NOW_MS)
+        requireNotNull(bare)
+        assertNull(bare.eventState)
+        assertEquals(0, bare.eventRevision)
+        assertEquals(0L, bare.originTsMs)
+        assertEquals("", bare.originTsSource)
+        assertEquals(0, bare.independentCellCount)
+
+        // Garbage must not drop the frame: the alert or all-clear still has to land.
+        val broken = confirmedPayload()
+            .plus("event_state" to "???")
+            .plus("event_revision" to "two")
+            .plus("origin_ts" to "")
+            .plus("independent_cell_count" to "-")
+            .toWsAlertMessageOrNull(nowMs = NOW_MS)
+
+        requireNotNull(broken)
+        assertEquals(AlertType.EARTHQUAKE_ALERT, broken.type)
+        assertNull(broken.eventState)
+        assertEquals(0, broken.eventRevision)
+        assertEquals(0L, broken.originTsMs)
+        assertEquals(0, broken.independentCellCount)
     }
 
     private fun confirmedPayload(): Map<String, String> = mapOf(
