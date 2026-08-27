@@ -828,3 +828,119 @@ func (s *Store) ListEvents(ctx context.Context, limit, offset int, filter *Event
 	}
 	return out, nil
 }
+
+// ---------------------------------------------------------------------------
+// Observation ledger (migrasi 000006)
+//
+// Dua fungsi tulis di bawah ini adalah SATU-SATUNYA jalur tulis ke
+// sensor_observations dan alert_emissions, dan keduanya HANYA dipanggil dari
+// goroutine drain internal/ledger — bukan dari jalur peringatan. Keduanya
+// tidak mengembalikan id: tidak ada pemanggil yang membutuhkannya, dan
+// mengembalikannya akan mengundang pembacaan sinkron di masa depan.
+// ---------------------------------------------------------------------------
+
+// Observation adalah satu baris sensor_observations: satu trigger yang sampai ke
+// server, lolos verifikasi atau tidak.
+//
+// Field bertipe pointer adalah field yang memang boleh NULL di kolomnya. Lat/Lon
+// nil berarti lokasi node tidak diketahui saat ingest (node dihapus, atau tidak
+// pernah dikenal) — bukan kegagalan verifikasi.
+type Observation struct {
+	NodeID               string
+	SourceClass          string // 'FIXED_ESP32'
+	Phase                string // 'FINAL'
+	ProtoVer             *int16 // NULL pada v1
+	ObsSeq               *int64 // NULL sampai Fase 2
+	PGAGal               float64
+	DurMs                int64
+	PublishTS            int64 // ts payload (ms epoch UTC)
+	ReceivedTS           int64 // jam server (ms epoch UTC)
+	OnsetTS              *int64
+	OnsetTSUpperBound    *int64
+	OnsetTSSource        string
+	Lat                  *float64 // node_location, boleh NULL
+	Lon                  *float64
+	Signature            string
+	VerifyResult         string // 'OK' atau nama Err* verifier
+	SuppressedRejections int
+}
+
+// InsertObservation menulis satu baris sensor_observations.
+//
+// node_location dibangun lewat CASE: ST_MakePoint akan menolak NULL, sedangkan
+// observasi tanpa lokasi justru kasus yang wajib tetap tercatat (A16), jadi
+// koordinat nil harus melewati ST_MakePoint sepenuhnya, bukan masuk ke dalamnya.
+func (s *Store) InsertObservation(ctx context.Context, o *Observation) error {
+	const q = `
+		INSERT INTO sensor_observations (
+			node_id, source_class, phase, proto_ver, obs_seq,
+			pga_gal, dur_ms, publish_ts, received_ts,
+			onset_ts, onset_ts_upper_bound, onset_ts_source,
+			node_location, signature, verify_result, suppressed_rejections
+		) VALUES (
+			$1, $2, $3, $4, $5,
+			$6, $7, $8, $9,
+			$10, $11, $12,
+			CASE WHEN $13::double precision IS NULL OR $14::double precision IS NULL
+			     THEN NULL
+			     ELSE ST_SetSRID(ST_MakePoint($13::double precision, $14::double precision), 4326)::geography
+			END,
+			NULLIF($15, ''), $16, $17
+		)`
+	_, err := s.pool.Exec(ctx, q,
+		o.NodeID, o.SourceClass, o.Phase, o.ProtoVer, o.ObsSeq,
+		o.PGAGal, o.DurMs, o.PublishTS, o.ReceivedTS,
+		o.OnsetTS, o.OnsetTSUpperBound, o.OnsetTSSource,
+		o.Lon, o.Lat,
+		o.Signature, o.VerifyResult, o.SuppressedRejections,
+	)
+	if err != nil {
+		return fmt.Errorf("insert sensor_observation: %w", err)
+	}
+	return nil
+}
+
+// AlertEmission adalah satu baris alert_emissions: satu KEPUTUSAN dispatch.
+// Bukan satu pengiriman — hasil delivery tidak dicatat pada fase ini.
+type AlertEmission struct {
+	EventID     *string // NULL untuk ADVISORY (tidak punya identitas event)
+	AlertType   string
+	Status      string
+	MMI         *string
+	PGAGal      *float64
+	NodeCount   int
+	CentroidLat *float64
+	CentroidLon *float64
+	IsSevere    bool
+	Audience    string // TOKENS_RADIUS_200KM | GEO_TOPIC_ALL | NONE
+	DecidedAt   int64  // ms epoch UTC, jam server
+	AlgoVer     string
+}
+
+// InsertAlertEmission menulis satu baris alert_emissions.
+//
+// event_id di-cast eksplisit ke uuid: parameter dikirim sebagai *string, dan
+// tanpa cast Postgres tidak dapat menyimpulkan tipe untuk NULL.
+func (s *Store) InsertAlertEmission(ctx context.Context, e *AlertEmission) error {
+	const q = `
+		INSERT INTO alert_emissions (
+			event_id, alert_type, status, mmi, pga_gal, node_count,
+			centroid, is_severe, audience, decided_at, algo_ver
+		) VALUES (
+			$1::uuid, $2, $3, $4, $5, $6,
+			CASE WHEN $7::double precision IS NULL OR $8::double precision IS NULL
+			     THEN NULL
+			     ELSE ST_SetSRID(ST_MakePoint($7::double precision, $8::double precision), 4326)::geography
+			END,
+			$9, $10, $11, $12
+		)`
+	_, err := s.pool.Exec(ctx, q,
+		e.EventID, e.AlertType, e.Status, e.MMI, e.PGAGal, e.NodeCount,
+		e.CentroidLon, e.CentroidLat,
+		e.IsSevere, e.Audience, e.DecidedAt, e.AlgoVer,
+	)
+	if err != nil {
+		return fmt.Errorf("insert alert_emission: %w", err)
+	}
+	return nil
+}
