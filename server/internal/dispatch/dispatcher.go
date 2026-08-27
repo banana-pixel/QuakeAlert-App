@@ -191,11 +191,11 @@ func (d *Dispatcher) Dispatch(ctx context.Context, ev *consensus.Event) {
 	}
 
 	// 1. WebSocket broadcast (foreground clients) — non-blocking (send buffer).
-	d.hub.Broadcast(msg)
+	wsCount := d.hub.Broadcast(msg)
 
 	// 2. FCM (background delivery). ASYNC agar jalur konsensus tak pernah
 	//    diblokir lambatnya Google API. Priority HIGH untuk life-safety.
-	d.dispatchFCM(msg)
+	d.dispatchFCM(msg, wsCount)
 
 	d.log.Info("event didispatch",
 		"status", ev.Status, "mmi", ev.MMIScale, "pga_gal", ev.MaxPGA,
@@ -214,14 +214,16 @@ func (d *Dispatcher) Dispatch(ctx context.Context, ev *consensus.Event) {
 // Eksklusif karena topic tidak bisa dikecualikan per pelanggan — mengirim topic
 // bersamaan dengan token bertarget akan membangunkan seluruh perangkat nasional
 // pada setiap gempa kecil, persis yang penargetan ini hilangkan.
-func (d *Dispatcher) dispatchFCM(msg *AlertMessage) {
+func (d *Dispatcher) dispatchFCM(msg *AlertMessage, wsCount int) {
 	// decidedAt diambil SINKRON: ini waktu keputusan, bukan waktu pengiriman.
 	// Membacanya di dalam goroutine akan mencatat kapan FCM kebetulan
 	// terjadwal, yang bukan hal yang sedang diukur.
 	decidedAt := time.Now().UnixMilli()
 
 	if d.fcm == nil {
-		d.recordEmission(msg, ledger.AudienceNone, decidedAt)
+		// FCM tidak dikonfigurasi: hitungan FCM tetap NULL (lihat delivery),
+		// sedangkan jangkauan WebSocket tetap teramati dan tetap dicatat.
+		d.recordEmission(msg, ledger.AudienceNone, decidedAt, delivery{wsClients: wsCount})
 		return
 	}
 	data := BuildAlertData(msg)
@@ -237,20 +239,24 @@ func (d *Dispatcher) dispatchFCM(msg *AlertMessage) {
 			// sebelum sirene, jadi keduanya sepakat tanpa perlu flag di payload.
 			d.log.Warn("event parah: FCM disiarkan tanpa filter jarak",
 				"event_id", msg.EventID, "mmi", msg.MMI, "pga_gal", msg.PGAGal)
-			if err := d.fcm.Send(ctx, &FCMMessage{
+			err := d.fcm.Send(ctx, &FCMMessage{
 				Topic:    GeoTopic,
 				Data:     data,
 				Priority: "HIGH",
-			}); err != nil {
+			})
+			if err != nil {
 				d.log.Error("gagal kirim FCM topic (severe)", "err", err, "event_id", msg.EventID)
 			}
-			d.recordEmission(msg, ledger.AudienceGeoTopicAll, decidedAt)
+			d.recordEmission(msg, ledger.AudienceGeoTopicAll, decidedAt, topicDelivery(wsCount, err))
 			return
 		}
 
 		if tokens := d.nearbyTokens(ctx, msg); len(tokens) > 0 {
-			d.sendToTokens(ctx, tokens, data, msg)
-			d.recordEmission(msg, ledger.AudienceTokensRadius, decidedAt)
+			attempted, succeeded := d.sendToTokens(ctx, tokens, data, msg)
+			d.recordEmission(msg, ledger.AudienceTokensRadius, decidedAt, delivery{
+				wsClients: wsCount, fcmAttempted: attempted, fcmSucceeded: succeeded,
+				fcmConfigured: true,
+			})
 			return
 		}
 
@@ -262,7 +268,11 @@ func (d *Dispatcher) dispatchFCM(msg *AlertMessage) {
 			d.log.Warn("guard satu-node: FCM tidak dikirim (tanpa token dalam radius, topik nasional ditahan)",
 				"event_id", msg.EventID, "type", msg.Type, "nodes", msg.NodeCount,
 				"mmi", msg.MMI, "pga_gal", msg.PGAGal, "severe", severe)
-			d.recordEmission(msg, ledger.AudienceNone, decidedAt)
+			// fcm_attempted = 0 dan BUKAN NULL: FCM dikonfigurasi, keputusannya
+			// memang tidak mengirim apa pun. Nol yang teramati.
+			d.recordEmission(msg, ledger.AudienceNone, decidedAt, delivery{
+				wsClients: wsCount, fcmConfigured: true,
+			})
 			return
 		}
 		// Fallback, bukan tambahan: topic tidak bisa dikecualikan per pelanggan,
@@ -270,14 +280,15 @@ func (d *Dispatcher) dispatchFCM(msg *AlertMessage) {
 		// seluruh perangkat nasional lagi — persis yang penargetan ini hilangkan.
 		// Dipakai hanya bila tidak ada satu pun token dalam radius (belum ada
 		// user yang menyinkronkan posisi, atau store tidak mendukung pencarian).
-		if err := d.fcm.Send(ctx, &FCMMessage{
+		err := d.fcm.Send(ctx, &FCMMessage{
 			Topic:    GeoTopic,
 			Data:     data,
 			Priority: "HIGH",
-		}); err != nil {
+		})
+		if err != nil {
 			d.log.Error("gagal kirim FCM topic", "err", err, "event_id", msg.EventID, "type", msg.Type)
 		}
-		d.recordEmission(msg, ledger.AudienceGeoTopicAll, decidedAt)
+		d.recordEmission(msg, ledger.AudienceGeoTopicAll, decidedAt, topicDelivery(wsCount, err))
 	}()
 }
 
@@ -301,15 +312,53 @@ func (d *Dispatcher) guardBlocksGeoTopic(msg *AlertMessage) bool {
 	return d.singleNodeGeoTopicGuard && msg.NodeCount <= 1
 }
 
+// delivery membawa hasil pengiriman yang TERAMATI untuk satu emisi (migrasi
+// 000007).
+//
+// wsClients selalu teramati: Hub.Broadcast selesai sebelum dispatchFCM dipanggil,
+// jadi angkanya sudah final pada setiap jalur.
+//
+// fcmConfigured membedakan dua hal yang tidak boleh tercatat sama. FCM yang
+// dikonfigurasi tetapi tidak mengirim apa pun (guard satu-node) adalah
+// fcm_attempted = 0 — nol yang teramati. FCM yang tidak dikonfigurasi sama sekali
+// tidak menghasilkan observasi apa pun tentang pengiriman FCM, jadi kolomnya
+// NULL. Menulis 0 di sana akan membuat instalasi tanpa kredensial FCM terlihat
+// seperti instalasi yang mencoba dan tidak mengirim.
+type delivery struct {
+	wsClients     int
+	fcmAttempted  int
+	fcmSucceeded  int
+	fcmConfigured bool
+}
+
+// topicDelivery membentuk hasil untuk kedua jalur GeoTopic: satu request, jadi
+// attempted selalu 1 dan succeeded 1 hanya bila Send tidak mengembalikan error.
+func topicDelivery(wsClients int, err error) delivery {
+	out := delivery{wsClients: wsClients, fcmAttempted: 1, fcmConfigured: true}
+	if err == nil {
+		out.fcmSucceeded = 1
+	}
+	return out
+}
+
 // recordEmission mengantre satu baris alert_emissions. Dipanggil SETELAH
 // keputusan audience benar-benar dieksekusi, sehingga nilai yang tercatat adalah
 // yang benar-benar dipublikasikan — bukan yang direncanakan.
 //
-// Hanya keputusan yang dicatat. Hasil pengiriman (jumlah klien WS, sukses/gagal
-// per token FCM) BUKAN bagian dari fase ini: menunggunya berarti menahan
-// pencatatan di belakang Google API, dan menulis-balik nanti berarti satu
-// goroutine lagi per event untuk data yang belum ada pemakainya.
-func (d *Dispatcher) recordEmission(msg *AlertMessage, audience string, decidedAt int64) {
+// Hasil pengiriman ikut dicatat pada INSERT yang SAMA, bukan lewat UPDATE
+// menyusul. Setiap pemanggil di file ini sudah berada sesudah pengirimannya
+// selesai — pada jalur FCM, di dalam goroutine setelah Send kembali — sehingga
+// hasilnya memang sudah ada saat baris dibuat, dan tidak ada satu pun IO
+// tambahan yang bertambah di depan jalur peringatan. Sebuah UPDATE menyusul
+// justru akan salah di sini: antrean ledger berbatas dan membuang yang tertua,
+// jadi INSERT-nya dapat hilang sementara UPDATE-nya cocok dengan nol baris tanpa
+// ada yang tahu.
+//
+// deliveryAt distempel di sini, bukan di pemanggil, dan itu bukan sama dengan
+// decidedAt: decidedAt adalah waktu KEPUTUSAN (diambil sinkron di dispatchFCM),
+// deliveryAt adalah saat pengirimannya selesai teramati. Selisih keduanya adalah
+// satu-satunya ukuran latensi pengiriman yang dimiliki ledger.
+func (d *Dispatcher) recordEmission(msg *AlertMessage, audience string, decidedAt int64, out delivery) {
 	if d.ledger == nil {
 		return
 	}
@@ -338,6 +387,16 @@ func (d *Dispatcher) recordEmission(msg *AlertMessage, audience string, decidedA
 	}
 	pga := msg.PGAGal
 	e.PGAGal = &pga
+
+	wsClients := out.wsClients
+	deliveryAt := time.Now().UnixMilli()
+	e.WSClientCount = &wsClients
+	e.DeliveryAt = &deliveryAt
+	if out.fcmConfigured {
+		attempted, succeeded := out.fcmAttempted, out.fcmSucceeded
+		e.FCMAttempted = &attempted
+		e.FCMSucceeded = &succeeded
+	}
 
 	d.ledger.RecordEmission(e)
 }
@@ -368,10 +427,11 @@ func (d *Dispatcher) nearbyTokens(ctx context.Context, msg *AlertMessage) []stri
 	return tokens
 }
 
-// sendToTokens mengirim satu message per token dengan paralelisme terbatas.
+// sendToTokens mengirim satu message per token dengan paralelisme terbatas dan
+// mengembalikan (jumlah dicoba, jumlah berhasil).
 // Kegagalan per token hanya dicatat: satu token mati (UNREGISTERED) tidak boleh
 // menghentikan pengiriman ke perangkat lain pada event yang sama.
-func (d *Dispatcher) sendToTokens(ctx context.Context, tokens []string, data map[string]string, msg *AlertMessage) {
+func (d *Dispatcher) sendToTokens(ctx context.Context, tokens []string, data map[string]string, msg *AlertMessage) (attempted, succeeded int) {
 	sem := make(chan struct{}, maxFCMConcurrency)
 	var wg sync.WaitGroup
 	var failed atomic.Int64
@@ -399,6 +459,8 @@ func (d *Dispatcher) sendToTokens(ctx context.Context, tokens []string, data map
 	d.log.Info("FCM bertarget terkirim",
 		"event_id", msg.EventID, "type", msg.Type,
 		"tokens", len(tokens), "gagal", failed.Load(), "radius_km", AlertRadiusKm)
+
+	return len(tokens), len(tokens) - int(failed.Load())
 }
 
 // trackResolution memulai state machine resolusi untuk event CONFIRMED yang baru
@@ -449,8 +511,8 @@ func (d *Dispatcher) resolve(eventID string, orig *AlertMessage) {
 
 	// Broadcast tetap berjalan walau update DB gagal (idempoten; klien hanya
 	// butuh event_id untuk mematikan status siaga).
-	d.hub.Broadcast(msg)
-	d.dispatchFCM(msg)
+	wsCount := d.hub.Broadcast(msg)
+	d.dispatchFCM(msg, wsCount)
 
 	d.mu.Lock()
 	delete(d.active, eventID)

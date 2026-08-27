@@ -181,24 +181,34 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	go h.readPump(c) // membaca untuk mendeteksi close/ping; pesan masuk diabaikan.
 }
 
-// Broadcast mengirim AlertMessage ke semua klien secara non-blocking.
-func (h *Hub) Broadcast(msg *AlertMessage) {
+// Broadcast mengirim AlertMessage ke semua klien secara non-blocking dan
+// mengembalikan jumlah klien yang benar-benar menerima frame ini.
+//
+// Yang dihitung adalah ENQUEUE yang berhasil, bukan len(h.clients): klien lambat
+// yang buffer-nya penuh tidak mendapatkan peringatan ini, dan menghitungnya
+// sebagai penerima akan membuat ledger melaporkan jangkauan yang tidak pernah
+// terjadi. Nilai kembali boleh diabaikan (jalur uji/operator melakukannya), jadi
+// penambahannya tidak mengubah satu pun pemanggil yang ada.
+func (h *Hub) Broadcast(msg *AlertMessage) int {
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		h.log.Error("gagal marshal alert ws", "err", err)
-		return
+		return 0
 	}
 
+	sent := 0
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.clients {
 		select {
 		case c.send <- payload:
+			sent++
 		default:
 			// Buffer penuh -> klien lambat; drop pesan untuk klien ini.
 			h.log.Warn("buffer klien ws penuh, pesan di-drop untuk 1 klien")
 		}
 	}
+	return sent
 }
 
 // BroadcastChat mengirim satu frame chat hanya ke klien yang menjadi anggota
