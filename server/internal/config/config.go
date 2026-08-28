@@ -105,10 +105,10 @@ type Config struct {
 	// AttachRadiusKm adalah jarak maksimum node ke sentroid event agar observasinya
 	// menempel (dahulu ClusterRadiusKm).
 	//
-	// Batas atasnya TIDAK divalidasi di sini: ia terikat pada LookupCellDeg dan
-	// MaxFleetLatitudeDeg lewat pertidaksamaan §6.3.1, dan kedua konstanta itu
-	// hidup di internal/event bersama pembuktiannya. event.NewTracker yang menolak
-	// radius di luar jangkauan grid pencariannya.
+	// Batas atasnya DIVALIDASI (lihat validateEventTracker): bound bujur yang
+	// membuat pencarian kandidat lengkap secara global hanya berlaku selama radius
+	// tidak melebihi seperempat lingkar bumi. Batasnya matematis, bukan geografis:
+	// tidak ada pita lintang yang disyaratkan.
 	AttachRadiusKm float64
 
 	// IndependenceCellKm adalah sisi sel independensi geografis (§7.3). Ikut masuk
@@ -290,6 +290,18 @@ func loadCorrelationWindow() (time.Duration, []string) {
 // keduanya tidak menyimpang.
 const maxAcceptedTriggerAge = 5 * time.Minute
 
+// maxAttachRadiusKm MENCERMINKAN event.MaxAttachRadiusKm, disalin dengan alasan
+// yang sama seperti maxAcceptedTriggerAge: paket config tidak boleh bergantung
+// pada apa pun di dalam server. event/cell_test.go menjaga agar keduanya tidak
+// menyimpang.
+//
+// Nilainya seperempat lingkar bumi, pi*R/2 dengan R = 6371 km. Ia adalah titik
+// tempat bound rentang bujur asin(sin(r/R)/cos φ) berhenti menjadi batas ATAS:
+// di atasnya sin(r/R) mengecil lagi, sehingga rumus yang sama diam-diam
+// MEREMEHKAN rentangnya — dan rentang yang diremehkan adalah kandidat yang
+// terlewat, yakni dua event untuk satu gempa.
+const maxAttachRadiusKm = 10007.543398010286
+
 // validateEventTracker menolak konfigurasi tracker yang tidak masuk akal SAAT BOOT.
 // Divalidasi tanpa melihat EventTrackerEnabled: sebuah nilai salah yang menunggu
 // flag dinyalakan adalah nilai salah yang akan ditemukan pada saat terburuk.
@@ -299,6 +311,21 @@ func (c *Config) validateEventTracker() error {
 		return fmt.Errorf("CORRELATION_WINDOW_MS harus > 0, dapat %s", c.CorrelationWindow)
 	case c.AttachRadiusKm <= 0:
 		return fmt.Errorf("ATTACH_RADIUS_KM harus > 0, dapat %g", c.AttachRadiusKm)
+	case c.AttachRadiusKm > maxAttachRadiusKm:
+		// INVARIAN CAKUPAN (I-COV): pencarian kandidat wajib memuat setiap event
+		// yang sentroidnya dalam ATTACH_RADIUS_KM. Lebar pencariannya diturunkan dari
+		// radius ini lewat asin(sin(r/R)/cos φ), yang hanya sebuah batas atas selama
+		// r <= pi*R/2. Radius yang lebih besar dari itu tidak sekadar aneh secara
+		// fisik — ia membuat indeks melewatkan kandidat tanpa satu pun galat.
+		return fmt.Errorf("ATTACH_RADIUS_KM harus <= %.0f km (seperempat lingkar bumi, "+
+			"batas keberlakuan bound pencarian kandidat), dapat %g", maxAttachRadiusKm, c.AttachRadiusKm)
+	case c.MaxEventDiameterKm > 0 && c.AttachRadiusKm > c.MaxEventDiameterKm:
+		// Radius menempel yang lebih besar dari diameter maksimum event adalah
+		// konfigurasi yang saling membatalkan: setiap observasi yang menempel lewat
+		// radius akan ditolak oleh penjaga diameter, sehingga ATTACH_RADIUS_KM
+		// berhenti berarti apa pun dan bukti berpencar menjadi event terpisah.
+		return fmt.Errorf("ATTACH_RADIUS_KM (%g) harus <= MAX_EVENT_DIAMETER_KM (%g)",
+			c.AttachRadiusKm, c.MaxEventDiameterKm)
 	case c.IndependenceCellKm <= 0:
 		return fmt.Errorf("INDEPENDENCE_CELL_KM harus > 0, dapat %g", c.IndependenceCellKm)
 	case c.MinIndependentCells < 1:

@@ -121,6 +121,17 @@ func TestLoadEventTrackerRejectsBadValues(t *testing.T) {
 		{"max tombstone nol", map[string]string{"EVENT_TRACKER_MAX_TOMBSTONES": "0"}},
 		{"retensi lebih pendek dari usia trigger (D28)", map[string]string{
 			"TERMINAL_RETENTION_MS": "299999"}},
+		// I-COV: bound rentang bujur pencarian kandidat hanya berlaku sampai
+		// seperempat lingkar bumi. Radius di atasnya membuat indeks melewatkan
+		// kandidat tanpa satu pun galat, jadi ia ditolak SAAT BOOT.
+		{"radius di luar keberlakuan bound pencarian", map[string]string{
+			"ATTACH_RADIUS_KM": "10008", "MAX_EVENT_DIAMETER_KM": "40000"}},
+		{"radius setengah globe", map[string]string{
+			"ATTACH_RADIUS_KM": "20000", "MAX_EVENT_DIAMETER_KM": "40000"}},
+		// Radius menempel yang melebihi diameter maksimum saling membatalkan:
+		// setiap penempelan lewat radius akan ditolak penjaga diameter.
+		{"radius melebihi diameter", map[string]string{
+			"ATTACH_RADIUS_KM": "200", "MAX_EVENT_DIAMETER_KM": "120"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -146,5 +157,39 @@ func TestLoadTerminalRetentionAcceptsExactTriggerAge(t *testing.T) {
 	}
 	if cfg.TerminalRetention != 5*time.Minute {
 		t.Fatalf("TerminalRetention = %s, mau 5m", cfg.TerminalRetention)
+	}
+}
+
+// Batas atas radius harus DITERIMA persis pada nilainya, bukan hanya di bawahnya:
+// batasnya adalah titik keberlakuan rumus, dan tepat di titik itu rumusnya masih
+// berlaku.
+func TestLoadAttachRadiusAcceptsExactUpperBound(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("ATTACH_RADIUS_KM", "10007.543398010286")
+	t.Setenv("MAX_EVENT_DIAMETER_KM", "40000")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AttachRadiusKm != maxAttachRadiusKm {
+		t.Fatalf("AttachRadiusKm = %g, mau %g", cfg.AttachRadiusKm, maxAttachRadiusKm)
+	}
+}
+
+// Setelan baku harus lulus validasi radius: sebuah invarian yang menolak
+// defaultnya sendiri adalah invarian yang salah.
+func TestLoadDefaultAttachRadiusIsAccepted(t *testing.T) {
+	setMinimalEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AttachRadiusKm != 50 {
+		t.Fatalf("AttachRadiusKm baku = %g, mau 50", cfg.AttachRadiusKm)
+	}
+	if cfg.AttachRadiusKm > cfg.MaxEventDiameterKm {
+		t.Fatalf("radius baku %g melebihi diameter baku %g", cfg.AttachRadiusKm, cfg.MaxEventDiameterKm)
 	}
 }

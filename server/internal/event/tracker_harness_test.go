@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/banana-pixel/quakealert/server/internal/consensus"
 	"github.com/banana-pixel/quakealert/server/internal/store"
 )
 
@@ -26,11 +27,17 @@ func (f *fakeLoc) GetNodeLocation(_ context.Context, id string) (*store.NodeLoca
 	return &nl, nil
 }
 
+// put mendaftarkan node, dengan bujur DINORMALKAN ke [-180, 180) seperti kolom
+// nodes.lon yang sungguhan. Tanpa normalisasi, destinationKm dapat mengembalikan
+// 180.36 dan uji antimeridian akan menguji koordinat yang basis data tidak dapat
+// memuat.
 func (f *fakeLoc) put(id string, lat, lon float64) {
 	if f.nodes == nil {
 		f.nodes = make(map[string]store.NodeLocation)
 	}
-	f.nodes[id] = store.NodeLocation{StationID: id, Lat: lat, Lon: lon, LocationName: id + " site"}
+	f.nodes[id] = store.NodeLocation{
+		StationID: id, Lat: lat, Lon: consensus.NormalizeLon(lon), LocationName: id + " site",
+	}
 }
 
 // ---- fake emitter ----------------------------------------------------------
@@ -215,6 +222,7 @@ func (h *harness) node(id string, lat, lon float64) { h.loc.put(id, lat, lon) }
 // nodeAt mendaftarkan node pada jarak km ke arah bearing dari titik acuan.
 func (h *harness) nodeAt(id string, refLat, refLon, km, bearing float64) (lat, lon float64) {
 	lat, lon = destinationKm(refLat, refLon, km, bearing)
+	lon = consensus.NormalizeLon(lon)
 	h.loc.put(id, lat, lon)
 	return lat, lon
 }

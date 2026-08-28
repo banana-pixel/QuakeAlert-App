@@ -213,6 +213,11 @@ type Event struct {
 	// event dibuat supaya classify tetap murni (lihat classify.go).
 	minCells int
 
+	// minSepKm adalah INDEPENDENCE_CELL_KM yang berlaku, dibawa oleh event dengan
+	// alasan yang sama seperti minCells: ia jarak pemisahan minimum yang membuat
+	// dua kontributor terhitung sebagai dua bukti (independence.go).
+	minSepKm float64
+
 	// anchor adalah agregat yang dibaca dari BARIS earthquake_events, dipakai HANYA
 	// bila event tidak punya satu pun kontributor. Itu terjadi tepat pada satu
 	// jalur: event yang dimuat ulang saat boot tanpa baris event_state_log untuk
@@ -254,16 +259,23 @@ func (e *Event) peakPGA() float64 {
 	return max
 }
 
-// independentCells menghitung sel independensi yang berbeda di antara kontributor.
+// independentCells menghitung bukti yang saling independen di antara kontributor:
+// banyaknya kontributor yang setiap pasangannya terpisah setidaknya minSepKm
+// kilometer (lihat independence.go untuk alasan ia jarak dan bukan jumlah sel).
+//
+// Namanya dipertahankan, dan kolomnya tetap independent_cell_count, karena yang
+// diukur tetap pertanyaan yang sama — "berapa banyak tempat yang berbeda melihat
+// ini" — dan mengganti nama kolom yang sudah dipublikasikan openapi.yaml akan
+// merusak kontrak REST tanpa imbalan apa pun.
 func (e *Event) independentCells() int {
 	if len(e.Contributors) == 0 && e.anchor != nil {
 		return e.anchor.Cells
 	}
-	seen := make(map[cellKey]struct{}, len(e.Contributors))
+	pts := make([]geoPoint, 0, len(e.Contributors))
 	for _, c := range e.Contributors {
-		seen[c.Cell] = struct{}{}
+		pts = append(pts, geoPoint{id: c.NodeID, lat: c.Lat, lon: c.Lon})
 	}
-	return len(seen)
+	return independentCount(pts, e.minSepKm)
 }
 
 // readings membangun []consensus.Reading agar helper geometri paket consensus
@@ -285,7 +297,11 @@ func (e *Event) centroid() consensus.Centroid {
 	if len(e.Contributors) == 0 && e.anchor != nil {
 		return consensus.Centroid{Lat: e.anchor.Lat, Lon: e.anchor.Lon}
 	}
-	return consensus.WeightedCentroid(e.readings())
+	// Global, bukan WeightedCentroid: rata-rata aritmetik pada kolom bujur
+	// menempatkan sentroid sebuah event yang mengangkangi antimeridian di sisi lain
+	// bumi, dan sentroid inilah yang diukur matches() dan yang diindeks keyOf().
+	// Jalur Fase 2 (consensus.Engine) sengaja tetap memakai yang lama (§11.3).
+	return consensus.WeightedCentroidGlobal(e.readings())
 }
 
 // isTerminal melaporkan apakah event ini sudah mencapai state terminal.

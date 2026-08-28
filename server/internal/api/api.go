@@ -224,6 +224,10 @@ type Server struct {
 	// operator menarik verifikasinya; nil berarti tidak ada pelacak event yang
 	// berjalan (lihat SetEvidenceInvalidator).
 	evidence EvidenceInvalidator
+
+	// trackerStats menyediakan counter Tracker untuk endpoint observability.
+	// nil berarti EVENT_TRACKER_ENABLED=false; endpoint mengembalikan 503.
+	trackerStats TrackerStatsSource
 }
 
 // NewServer membuat Server API. TokenTTL yang kosong diisi defaultTokenTTL.

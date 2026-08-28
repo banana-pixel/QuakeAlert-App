@@ -11,7 +11,19 @@ import (
 // compile-time, dengan alasan yang sama seperti ledger.AlgoVer: nilainya harus
 // mengikuti biner yang benar-benar membuat keputusan, dan operator yang dapat
 // mengubahnya saat runtime dapat memberi label salah pada keputusan lampau.
-const algoVerBase = "phase3-1.0"
+//
+// 1.1 adalah perbaikan kebenaran spasial global: lebar pencarian kandidat
+// diturunkan dari lintang observasi alih-alih dipatok 3x3, bujur dilipat di
+// antimeridian, dan independensi diukur sebagai JARAK antar kontributor alih-alih
+// sebagai jumlah sel grid yang terisi (independence.go).
+//
+// Kenaikan versi INILAH yang menggantikan sebuah migrasi. Baris yang ditulis
+// dengan phase3-1.0 tetap dapat ditafsirkan — tepat menurut aturan yang
+// menghasilkannya — dan independent_cell_count pada baris 1.0 berarti "sel grid
+// terisi" sementara pada baris 1.1 ia berarti "kontributor yang saling terpisah
+// >= ic km". Menulis ulang baris lampau agar cocok dengan aturan baru akan
+// memalsukan keputusan yang benar-benar diambil pada saat itu.
+const algoVerBase = "phase3-1.1"
 
 // persister menerima satuan persistensi event. Implementasi: *ledger.Writer.
 // Interface, dan bukan tipe konkret, dengan alasan yang sama seperti

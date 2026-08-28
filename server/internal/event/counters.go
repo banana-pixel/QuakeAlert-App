@@ -67,6 +67,64 @@ func (t *Tracker) logCounters(reason string) {
 	)
 }
 
+// TrackerStats adalah potret seluruh counter §15.5 pada satu titik waktu.
+// Nilai type, bukan pointer: aman dibawa keluar dari lock dan diserialisasi
+// oleh handler HTTP tanpa menyentuh Tracker lagi.
+type TrackerStats struct {
+	// Counter kumulatif — monoton naik sejak proses dimulai.
+	Created            int64 `json:"event_created_total"`
+	ForcedResolutions  int64 `json:"event_forced_resolutions_total"`
+	ReonsetSplits      int64 `json:"event_reonset_splits_total"`
+	DiameterRejections int64 `json:"event_diameter_rejections_total"`
+	StaleAbsorbed      int64 `json:"event_stale_evidence_absorbed_total"`
+	TombstoneEvictions int64 `json:"event_tombstone_evictions_total"`
+	Reconciled         int64 `json:"event_reconciled_total"`
+	PersistDropped     int64 `json:"event_persist_dropped_total"`
+	UpsertFailures     int64 `json:"event_upsert_failures_total"`
+	StateLogFailures   int64 `json:"event_state_log_failures_total"`
+	StateLogSkipped    int64 `json:"event_state_log_skipped_total"`
+
+	// Transisi per state tujuan.
+	TransitionToUnconfirmed int64 `json:"event_transitions_to_unconfirmed_total"`
+	TransitionToConfirmed   int64 `json:"event_transitions_to_confirmed_total"`
+	TransitionToResolved    int64 `json:"event_transitions_to_resolved_total"`
+	TransitionToCancelled   int64 `json:"event_transitions_to_cancelled_total"`
+
+	// Gauge — snapshot ukuran map saat ini, bukan counter kumulatif.
+	OpenGauge      int `json:"event_open_gauge"`
+	TombstoneGauge int `json:"event_tombstone_gauge"`
+}
+
+// Stats mengembalikan potret seluruh counter dan gauge dalam satu pengambilan
+// kunci. Aman dipanggil dari goroutine mana pun, termasuk handler HTTP.
+func (t *Tracker) Stats() TrackerStats {
+	t.mu.Lock()
+	c := t.counters
+	open := len(t.openLocked())
+	tombs := len(t.tombstonesLocked())
+	t.mu.Unlock()
+
+	return TrackerStats{
+		Created:                 c.created,
+		ForcedResolutions:       c.forcedResolutions,
+		ReonsetSplits:           c.reonsetSplits,
+		DiameterRejections:      c.diameterRejections,
+		StaleAbsorbed:           c.staleAbsorbed,
+		TombstoneEvictions:      c.tombstoneEvictions,
+		Reconciled:              c.reconciled,
+		PersistDropped:          c.persistDropped,
+		UpsertFailures:          c.upsertFailures,
+		StateLogFailures:        c.stateLogFailures,
+		StateLogSkipped:         c.stateLogSkipped,
+		TransitionToUnconfirmed: c.transitions[StateUnconfirmed],
+		TransitionToConfirmed:   c.transitions[StateConfirmed],
+		TransitionToResolved:    c.transitions[StateResolved],
+		TransitionToCancelled:   c.transitions[StateCancelled],
+		OpenGauge:               open,
+		TombstoneGauge:          tombs,
+	}
+}
+
 // transitionsAttr membuat label {to} dapat dibaca dalam satu baris log.
 func transitionsAttr(m map[State]int64) slog.Value {
 	attrs := make([]slog.Attr, 0, len(m))

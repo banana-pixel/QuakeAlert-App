@@ -895,6 +895,153 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/v1/admin/tracker/stats:
+    get:
+      tags: [admin]
+      summary: Potret counter event Tracker
+      description: >
+        Mengembalikan seluruh counter §15.5 dalam satu snapshot atom: event_created,
+        transisi per state, gauge terbuka/tombstone, reonset_splits, diameter_rejections,
+        stale_absorbed, dan counter kegagalan persistensi. Read-only, tidak mengubah
+        state Tracker. Mengembalikan 503 bila EVENT_TRACKER_ENABLED=false.
+      operationId: getTrackerStats
+      security:
+        - adminKey: []
+      responses:
+        '200':
+          description: Counter berhasil dibaca
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event_created_total:
+                    type: integer
+                    format: int64
+                  event_forced_resolutions_total:
+                    type: integer
+                    format: int64
+                  event_reonset_splits_total:
+                    type: integer
+                    format: int64
+                  event_diameter_rejections_total:
+                    type: integer
+                    format: int64
+                  event_stale_evidence_absorbed_total:
+                    type: integer
+                    format: int64
+                  event_tombstone_evictions_total:
+                    type: integer
+                    format: int64
+                  event_reconciled_total:
+                    type: integer
+                    format: int64
+                  event_persist_dropped_total:
+                    type: integer
+                    format: int64
+                  event_upsert_failures_total:
+                    type: integer
+                    format: int64
+                  event_state_log_failures_total:
+                    type: integer
+                    format: int64
+                  event_state_log_skipped_total:
+                    type: integer
+                    format: int64
+                  event_transitions_to_unconfirmed_total:
+                    type: integer
+                    format: int64
+                  event_transitions_to_confirmed_total:
+                    type: integer
+                    format: int64
+                  event_transitions_to_resolved_total:
+                    type: integer
+                    format: int64
+                  event_transitions_to_cancelled_total:
+                    type: integer
+                    format: int64
+                  event_open_gauge:
+                    type: integer
+                  event_tombstone_gauge:
+                    type: integer
+        '401':
+          description: Header X-Admin-Key tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: EVENT_TRACKER_ENABLED=false — Tracker tidak aktif
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/admin/tracker/near-confirmed:
+    get:
+      tags: [admin]
+      summary: Log event yang mencapai >= 2 kontributor independen
+      description: >
+        Mengembalikan semua event yang pernah mencapai >= MinIndependentCells kontributor
+        independen sejak proses dimulai. Untuk setiap entry: kapan pertama kali
+        mencapai kondisi itu, apakah akhirnya CONFIRMED, kapan terminal, berapa lama
+        macet. Dipakai untuk analisis pasca-kejadian manual. Read-only, tidak mengubah
+        state Tracker. Mengembalikan 503 bila EVENT_TRACKER_ENABLED=false.
+      operationId: getTrackerNearConfirmed
+      security:
+        - adminKey: []
+      responses:
+        '200':
+          description: Log berhasil dibaca
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      required: [event_id, first_two_independent_at_ms, independent_count_at_peak, node_count_at_peak]
+                      properties:
+                        event_id:
+                          type: string
+                        first_two_independent_at_ms:
+                          type: integer
+                          format: int64
+                          description: Unix ms saat pertama kali mencapai >= MinIndependentCells independen.
+                        independent_count_at_peak:
+                          type: integer
+                          description: Jumlah kontributor independen tertinggi yang dicapai event.
+                        node_count_at_peak:
+                          type: integer
+                          description: Total kontributor saat puncak independensi.
+                        confirmed_at_ms:
+                          type: integer
+                          format: int64
+                          description: Unix ms saat CONFIRMED. 0 atau absen = tidak pernah CONFIRMED.
+                        terminal_state:
+                          type: string
+                          enum: [RESOLVED, CANCELLED]
+                          description: State terminal akhir. Absen = event masih terbuka.
+                        terminal_at_ms:
+                          type: integer
+                          format: int64
+                          description: Unix ms saat terminal. 0 atau absen = masih terbuka.
+        '401':
+          description: Header X-Admin-Key tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: EVENT_TRACKER_ENABLED=false — Tracker tidak aktif
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1539,7 +1686,7 @@ components:
             SELALU null. Jaringan MEMS permukaan ini mengestimasi centroid
             2D, bukan hiposenter — kedalaman tidak dapat diturunkan dari data
             yang ada. Field dipertahankan agar model klien stabil bila suatu
-            saat sumber katalog (mis. BMKG) diintegrasikan.
+            bila sumber data eksternal diintegrasikan sebagai referensi pasca-kejadian.
           example: null
         location_name:
           type: string
@@ -1600,7 +1747,8 @@ components:
           type: integer
           minimum: 1
           description: >
-            Jumlah sel independensi yang terisi kontributor event ini (§7.3).
-            Selalu >= 2 untuk event di umpan ini, karena itu prasyarat
-            CONFIRMED. Absen pada baris pra-Fase-3.
+            Jumlah kontributor event yang saling independen (§7.3).
+            Dua kontributor independen bila jarak geodesik >= IndependenceCellKm
+            (default 5 km). Selalu >= 2 untuk event di umpan ini, karena itu
+            prasyarat CONFIRMED. Absen pada baris pra-Fase-3.
           example: 3

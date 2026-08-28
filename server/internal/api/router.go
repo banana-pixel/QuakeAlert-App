@@ -83,6 +83,9 @@ func (s *Server) Router(wsHandler http.HandlerFunc, log *slog.Logger) http.Handl
 			// false} menarik kembali kepercayaan pada node yang sudah sah.
 			r.Get("/api/v1/admin/nodes/pending", s.HandleListPendingNodes)
 			r.Post("/api/v1/admin/nodes/{stationID}/verify", s.HandleVerifyNode)
+			// Tracker observability (Phase 3.x — counter query tanpa grep log).
+			r.Get("/api/v1/admin/tracker/stats", s.HandleTrackerStats)
+			r.Get("/api/v1/admin/tracker/near-confirmed", s.HandleTrackerNearConfirmed)
 		})
 	} else {
 		log.Warn("ADMIN_API_KEY tidak di-set — endpoint siaran admin tidak didaftarkan")

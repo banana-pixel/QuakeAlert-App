@@ -65,20 +65,14 @@ func phase3Obs(node string, pga float64, onset int64) event.Input {
 func TestVerifyNodeUnverifyCancelsConfirmedEventEndToEnd(t *testing.T) {
 	// --- Armada dua sel independensi ---
 	//
-	// Sel independensi default 5 km; N1 dan N2 berjarak ~0.5 km sehingga jatuh di
-	// sel yang sama (grid-nya deterministik: bila mereka terbaca beda sel, kuorum
-	// tetap tercapai tetapi premis "dua node satu sel" salah dan uji ini GAGAL
-	// pd segmen persiapan, bukan diam-diam menguji hal lain). N3 sepuluh kilometer
-	// ke utara: sel berbeda, jauh di dalam AttachRadiusKm, jauh di dalam diameter.
+	// Pemisahan independensi default 5 km; N1 dan N2 berjarak ~0.5 km sehingga
+	// keduanya hanya satu bukti. N3 sepuluh kilometer ke utara: bukti kedua, jauh
+	// di dalam AttachRadiusKm, jauh di dalam diameter. Dua bukti independen
+	// memenuhi MinIndependentCells=2, dan tiga kontributor memenuhi kuorum.
 	nodes := map[string]store.NodeLocation{
 		"NODE-00000001": {StationID: "NODE-00000001", Lat: -6.900, Lon: 107.600, LocationName: "cell A"},
 		"NODE-00000002": {StationID: "NODE-00000002", Lat: -6.9045, Lon: 107.600, LocationName: "cell A"},
 		"NODE-00000003": {StationID: "NODE-00000003", Lat: -6.810, Lon: 107.600, LocationName: "cell B"},
-	}
-	for _, n := range nodes {
-		if n.Lat < -12 || n.Lat > 12 {
-			t.Fatalf("lat %f keluar pita MaxFleetLatitudeDeg", n.Lat)
-		}
 	}
 
 	loc := &locStub{nodes: nodes}

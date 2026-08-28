@@ -12,7 +12,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 
 	"github.com/banana-pixel/quakealert/server/internal/store"
 )
@@ -173,6 +172,7 @@ func (t *Tracker) rebuild(ctx context.Context, src nodeSource, row *store.Earthq
 		// satu-satunya state tersimpan yang pernah mengirim alarm adalah CONFIRMED.
 		EverConfirmed: state == StateConfirmed,
 		minCells:      t.opt.MinIndependentCells,
+		minSepKm:      t.opt.IndependenceCellKm,
 		anchor: &reloadAnchor{
 			Lat:          row.CentroidLat,
 			Lon:          row.CentroidLon,
@@ -283,25 +283,28 @@ func (t *Tracker) CheckFleetIndependence(ctx context.Context) {
 		return
 	}
 
-	// Pita lintang §6.3.1 lebih dulu, dan pada ERROR: sebuah node di luar pita
-	// membuat pembuktian kecukupan 3x3 tidak lagi berlaku, dan kegagalannya adalah
-	// event yang TERLEWAT — bukan sekadar event yang tidak dapat dikonfirmasi.
+	// TIDAK ADA pemeriksaan pita lintang di sini lagi, dan hilangnya adalah inti
+	// perbaikan ini. Dahulu sebuah node di luar |lat| <= 12° dicatat pada ERROR
+	// karena pembuktian kecukupan lingkungan 3x3 tidak lagi berlaku di sana.
+	// Lingkungan yang diselidiki sekarang diturunkan dari lintang observasi itu
+	// sendiri (probeSpan), jadi kecukupannya tidak lagi bergantung pada pita mana
+	// pun: baris ERROR itu akan menjadi peringatan yang SALAH, dan peringatan
+	// startup yang salah adalah peringatan yang akan diabaikan operator ketika
+	// suatu hari ia benar.
+	// Penghitung yang SAMA dengan gerbang CONFIRMED (independence.go), atas
+	// koordinat fleet: sebuah pemeriksaan-diri yang memakai aritmetika berbeda dari
+	// yang digerbangnya adalah pemeriksaan yang dapat lulus untuk fleet yang tidak
+	// akan pernah dikonfirmasi.
+	pts := make([]geoPoint, 0, len(nodes))
 	for _, n := range nodes {
-		if math.Abs(n.Lat) > MaxFleetLatitudeDeg {
-			t.log.Error("event: node di luar pita lintang yang didukung — korelasi dapat melewatkan event; naikkan LookupCellDeg sebelum deploy",
-				"station_id", n.StationID, "lat", n.Lat, "max", MaxFleetLatitudeDeg)
-		}
+		pts = append(pts, geoPoint{id: n.StationID, lat: n.Lat, lon: n.Lon})
 	}
+	independent := independentCount(pts, t.opt.IndependenceCellKm)
 
-	cells := make(map[cellKey]struct{}, len(nodes))
-	for _, n := range nodes {
-		cells[independenceCell(n.Lat, n.Lon, t.opt.IndependenceCellKm)] = struct{}{}
-	}
-
-	if len(cells) < t.opt.MinIndependentCells {
+	if independent < t.opt.MinIndependentCells {
 		t.log.Warn("consensus: CONFIRMED tidak dapat dicapai — alert akan berhenti di UNCONFIRMED",
 			"active_verified_nodes", len(nodes),
-			"independence_cells", len(cells),
+			"independence_cells", independent,
 			"independence_cell_km", t.opt.IndependenceCellKm,
 			"need", t.opt.MinIndependentCells)
 		return
@@ -309,6 +312,6 @@ func (t *Tracker) CheckFleetIndependence(ctx context.Context) {
 
 	t.log.Info("event: pemeriksaan independensi fleet lulus",
 		"active_verified_nodes", len(nodes),
-		"independence_cells", len(cells),
+		"independence_cells", independent,
 		"independence_cell_km", t.opt.IndependenceCellKm)
 }

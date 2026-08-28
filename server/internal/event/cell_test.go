@@ -8,25 +8,8 @@ import (
 )
 
 // defaultAttachRadiusKm adalah nilai baku ATTACH_RADIUS_KM (§11.5). Uji cakupan di
-// bawah harus lulus untuk nilai ini pada seluruh pita lintang yang didukung.
+// bawah harus lulus untuk nilai ini pada SETIAP lintang, bukan pada sebuah pita.
 const defaultAttachRadiusKm = 50.0
-
-// Pertidaksamaan §6.3.1 dinyatakan LANGSUNG, supaya kedua konstanta tidak dapat
-// menyimpang tanpa satu uji gagal. Uji ini harus GAGAL bila LookupCellDeg
-// diturunkan kembali ke 0.45.
-func TestLookupCellDegSatisfiesCoverageInequality(t *testing.T) {
-	cosPhi := math.Cos(MaxFleetLatitudeDeg * math.Pi / 180)
-
-	lonKm := LookupCellDeg * KmPerDegree * cosPhi
-	if lonKm < defaultAttachRadiusKm {
-		t.Errorf("sumbu bujur: %.2f km < %.2f km — lingkungan 3x3 tidak menutupi radius attach",
-			lonKm, defaultAttachRadiusKm)
-	}
-	latKm := LookupCellDeg * KmPerDegree
-	if latKm < defaultAttachRadiusKm {
-		t.Errorf("sumbu lintang: %.2f km < %.2f km", latKm, defaultAttachRadiusKm)
-	}
-}
 
 // destination mengembalikan titik pada jarak distKm dan bearing derajat dari
 // (lat, lon), memakai rumus great-circle langsung.
@@ -42,41 +25,80 @@ func destination(lat, lon, bearingDeg, distKm float64) (float64, float64) {
 		math.Sin(br)*math.Sin(d)*math.Cos(lat1),
 		math.Cos(d)-math.Sin(lat1)*math.Sin(lat2),
 	)
-	return lat2 / deg, lon2 / deg
+	return lat2 / deg, consensus.NormalizeLon(lon2 / deg)
 }
 
-// inNeighbourhood melaporkan apakah c berada di lingkungan 3x3 dari origin.
-func inNeighbourhood(origin, c cellKey) bool {
-	dx := c.X - origin.X
-	dy := c.Y - origin.Y
-	return dx >= -1 && dx <= 1 && dy >= -1 && dy <= 1
+// probeSet membangun himpunan sel yang candidatesLocked benar-benar selidiki untuk
+// sebuah observasi. Sengaja MENCERMINKAN bentuk loop di tracker.go alih-alih
+// memanggilnya: candidatesLocked butuh Tracker, indeks, dan Input lengkap, dan uji
+// cakupan harus dapat menyatakan invariannya atas geometri saja. Uji
+// TestCandidateProbeMatchesProbeSet menjaga agar cermin ini tidak menyimpang.
+func probeSet(lat, lon, radiusKm float64) map[cellKey]struct{} {
+	c := lookupCell(lat, lon)
+	nx, ny, allLon := probeSpan(lat, radiusKm)
+
+	xs := make([]int32, 0, 2*int(nx)+1)
+	if allLon {
+		half := lonCellCount / 2
+		for x := -half; x < half; x++ {
+			xs = append(xs, x)
+		}
+	} else {
+		for dx := -nx; dx <= nx; dx++ {
+			xs = append(xs, wrapCellX(c.X+dx))
+		}
+	}
+
+	out := make(map[cellKey]struct{}, len(xs)*(2*int(ny)+1))
+	for dy := -ny; dy <= ny; dy++ {
+		for _, x := range xs {
+			out[cellKey{X: x, Y: c.Y + dy}] = struct{}{}
+		}
+	}
+	return out
 }
 
-// Invarian cakupan (R-H1): untuk setiap lintang yang didukung dan setiap posisi di
-// dalam sel, SETIAP titik pada tepat AttachRadiusKm ke delapan arah mata angin
-// harus jatuh di dalam lingkungan 3x3 sel titik asal.
+// INVARIAN CAKUPAN (I-COV): untuk SETIAP lintang, setiap posisi di dalam sel, dan
+// setiap arah, sebuah titik pada tepat AttachRadiusKm harus jatuh di dalam
+// lingkungan yang diselidiki oleh titik asal.
 //
-// Sumbu bujur adalah yang dahulu gagal, jadi kedua sumbu diperiksa terpisah lewat
-// bearing yang dipisah, bukan hanya lewat satu jarak agregat.
-func TestLookupNeighbourhoodCoversAttachRadius(t *testing.T) {
-	// Offset di dalam sel, dinyatakan sebagai fraksi sisi sel — termasuk tepat di
-	// tepi, kasus terburuk yang menyisakan tepat satu sel tetangga sebagai margin.
+// Lintangnya menyapu seluruh globe, bukan sebuah pita: pita 12° yang dahulu
+// dipakai berasal dari kepulauan Indonesia, dan uji yang batas loop-nya SAMA
+// dengan asumsi yang diuji tidak dapat pernah menemukan cacatnya. Kota yang
+// dahulu gagal disebut namanya di tabel supaya regresinya terlihat sebagai tempat,
+// bukan sebagai angka.
+func TestLookupProbeCoversAttachRadiusGlobally(t *testing.T) {
 	fractions := []float64{0.0, 0.001, 0.25, 0.5, 0.75, 0.999}
-	bearings := []float64{0, 45, 90, 135, 180, 225, 270, 315}
+	bearings := []float64{0, 30, 45, 60, 90, 120, 135, 150, 180, 210, 225, 240, 270, 300, 315, 330}
 
-	for latDeg := -MaxFleetLatitudeDeg; latDeg <= MaxFleetLatitudeDeg+1e-9; latDeg += 0.5 {
-		baseCell := lookupCell(latDeg, 0)
-		for _, fx := range fractions {
-			for _, fy := range fractions {
-				lat := (float64(baseCell.Y) + fy) * LookupCellDeg
-				lon := (float64(baseCell.X) + fx) * LookupCellDeg
-				origin := lookupCell(lat, lon)
+	lats := []float64{}
+	for l := -89.5; l <= 89.5+1e-9; l += 0.5 {
+		lats = append(lats, l)
+	}
+	// Lintang kota yang dahulu GAGAL pada lingkungan 3x3 tetap, disebut eksplisit.
+	lats = append(lats, 44.43, 45.46, 47.60, 49.28, 61.20, 64.13, -41.29, 41.01, 89.9, -89.9)
 
-				for _, br := range bearings {
-					dLat, dLon := destination(lat, lon, br, defaultAttachRadiusKm)
-					if got := lookupCell(dLat, dLon); !inNeighbourhood(origin, got) {
-						t.Fatalf("titik %.4f/%.4f (bearing %.0f, %.0f km) di sel %v, di luar lingkungan 3x3 dari %v (lat basis %.1f)",
-							dLat, dLon, br, defaultAttachRadiusKm, got, origin, latDeg)
+	radii := []float64{defaultAttachRadiusKm, 1, 10, 120, 300}
+
+	for _, radiusKm := range radii {
+		for _, latDeg := range lats {
+			baseCell := lookupCell(latDeg, 0)
+			for _, fx := range fractions {
+				for _, fy := range fractions {
+					lat := (float64(baseCell.Y) + fy) * LookupCellDeg
+					lon := (float64(baseCell.X) + fx) * LookupCellDeg
+					if math.Abs(lat) > 90 {
+						continue
+					}
+					probe := probeSet(lat, lon, radiusKm)
+
+					for _, br := range bearings {
+						dLat, dLon := destination(lat, lon, br, radiusKm)
+						got := lookupCell(dLat, dLon)
+						if _, ok := probe[got]; !ok {
+							t.Fatalf("r=%.0f km, basis %.4f/%.4f (bearing %.0f): titik %.4f/%.4f di sel %v, DI LUAR probe (%d sel)",
+								radiusKm, lat, lon, br, dLat, dLon, got, len(probe))
+						}
 					}
 				}
 			}
@@ -84,16 +106,172 @@ func TestLookupNeighbourhoodCoversAttachRadius(t *testing.T) {
 	}
 }
 
-// Uji cakupan di atas harus benar-benar SENSITIF: dengan sisi 0.45° yang lama,
-// titik 50 km ke timur pada lintang batas keluar dari lingkungan 3x3. Diperiksa di
-// sini secara eksplisit supaya "uji cakupan lulus" tidak bisa berarti "uji
-// cakupan tidak mengukur apa pun".
-func TestCoverageTestWouldFailAtOldCellSize(t *testing.T) {
-	const oldCellDeg = 0.45
-	cosPhi := math.Cos(MaxFleetLatitudeDeg * math.Pi / 180)
-	if oldCellDeg*KmPerDegree*cosPhi >= defaultAttachRadiusKm {
-		t.Fatalf("0.45° seharusnya TIDAK mencukupi pada lintang %.1f°, tetapi memberi %.2f km",
-			MaxFleetLatitudeDeg, oldCellDeg*KmPerDegree*cosPhi)
+// Uji cakupan di atas harus benar-benar SENSITIF. Bentuk 3x3 yang lama — dan
+// setiap lebar yang dipatok — GAGAL di lintang tinggi, dan itu dinyatakan di sini
+// supaya "uji cakupan lulus" tidak dapat berarti "uji cakupan tidak mengukur apa
+// pun".
+func TestFixedThreeByThreeProbeWouldMissAtHighLatitude(t *testing.T) {
+	inFixed3x3 := func(origin, c cellKey) bool {
+		dx := wrapCellX(c.X - origin.X)
+		dy := c.Y - origin.Y
+		return dx >= -1 && dx <= 1 && dy >= -1 && dy <= 1
+	}
+
+	misses := 0
+	for _, lat := range []float64{44.43, 45.46, 47.60, 49.28, 61.20, 64.13} {
+		// Posisi di DALAM sel ikut disapu: sebuah titik tepat di batas sel barat
+		// masih tertutup oleh 3x3 bahkan ketika sel sudah terlalu sempit, jadi
+		// kasus terburuk (dekat tepi timur sel) yang membuktikannya.
+		for _, fx := range []float64{0, 0.25, 0.5, 0.75, 0.999} {
+			lon := fx * LookupCellDeg
+			origin := lookupCell(lat, lon)
+			// Tepat ke timur: sumbu bujur adalah yang menyusut dengan cos(lat).
+			dLat, dLon := destination(lat, lon, 90, defaultAttachRadiusKm)
+			if !inFixed3x3(origin, lookupCell(dLat, dLon)) {
+				misses++
+			}
+			if _, ok := probeSet(lat, lon, defaultAttachRadiusKm)[lookupCell(dLat, dLon)]; !ok {
+				t.Fatalf("lintang %.2f (fx %.3f): probe baru juga melewatkan titik 50 km ke timur", lat, fx)
+			}
+		}
+	}
+	if misses == 0 {
+		t.Fatal("lingkungan 3x3 tetap tidak melewatkan apa pun di sini — uji cakupan tidak membuktikan D1")
+	}
+}
+
+// Probe di bawah 41,5° harus IDENTIK dengan lingkungan 3x3 yang lama: perbaikan
+// ini tidak boleh mengubah perilaku yang sudah benar (requirement D/E6).
+func TestProbeIsUnchangedBelowOldLatitudeBound(t *testing.T) {
+	for lat := -41.0; lat <= 41.0+1e-9; lat += 0.25 {
+		nx, ny, allLon := probeSpan(lat, defaultAttachRadiusKm)
+		if allLon || nx != 1 || ny != 1 {
+			t.Fatalf("lintang %.2f: probe = %dx%d (allLon=%v), mau 1x1 seperti 3x3 lama", lat, nx, ny, allLon)
+		}
+	}
+}
+
+// Di atas |lat| ~= 41,5° probe HARUS melebar, dan pelebarannya monoton: sebuah
+// probe yang tidak melebar di sana adalah cacat D1 yang kembali.
+func TestProbeWidensAboveOldLatitudeBound(t *testing.T) {
+	prev := int32(0)
+	for _, lat := range []float64{42, 45.46, 49.28, 55, 61.2, 64.13, 70, 80} {
+		nx, ny, _ := probeSpan(lat, defaultAttachRadiusKm)
+		if nx < 2 {
+			t.Errorf("lintang %.2f: nx = %d, mau >= 2", lat, nx)
+		}
+		if nx < prev {
+			t.Errorf("lintang %.2f: nx = %d turun dari %d — pelebaran tidak monoton", lat, nx, prev)
+		}
+		prev = nx
+		if ny != 1 {
+			t.Errorf("lintang %.2f: ny = %d, mau 1 — sumbu lintang tidak bergantung lintang", lat, ny)
+		}
+	}
+}
+
+// Dekat kutub, lingkaran radius attach MEMUAT kutub, jadi setiap bujur ada di
+// dalamnya. Dilaporkan sebagai allLon secara eksplisit — bukan dibiarkan menjadi
+// pembagian oleh cos(lat) yang menuju nol, yang akan menghasilkan nx tak hingga
+// atau NaN dan sebuah probe yang tidak menyelidiki apa pun.
+func TestProbeSpanReportsPolarCaseExplicitly(t *testing.T) {
+	for _, lat := range []float64{89.9, -89.9, 90, -90, 89.6} {
+		nx, ny, allLon := probeSpan(lat, defaultAttachRadiusKm)
+		if !allLon {
+			t.Errorf("lintang %.2f: allLon = false, mau true", lat)
+		}
+		if nx != lonCellCount {
+			t.Errorf("lintang %.2f: nx = %d, mau %d", lat, nx, lonCellCount)
+		}
+		if ny < 1 {
+			t.Errorf("lintang %.2f: ny = %d, mau >= 1", lat, ny)
+		}
+	}
+	// Dan nilainya berhingga: NaN atau Inf di sini akan menjadi probe kosong.
+	for _, lat := range []float64{90, -90, 89.99999} {
+		nx, ny, _ := probeSpan(lat, defaultAttachRadiusKm)
+		if nx <= 0 || ny <= 0 {
+			t.Errorf("lintang %.2f: probe %dx%d tidak berhingga positif", lat, nx, ny)
+		}
+	}
+}
+
+// Radius di luar keberlakuan bound TIDAK boleh menghasilkan probe yang sempit:
+// asin(sin(r/R)/cos φ) berhenti menjadi batas atas di r > pi*R/2, dan config
+// menolak nilai seperti itu — ini jaring untuk Tracker yang dibangun langsung
+// oleh uji.
+func TestProbeSpanClampsRadiusBeyondFormulaValidity(t *testing.T) {
+	nx, ny, allLon := probeSpan(0, MaxAttachRadiusKm*2)
+	if !allLon || nx != lonCellCount {
+		t.Errorf("radius berlebih: nx=%d allLon=%v, mau seluruh cincin bujur", nx, allLon)
+	}
+	if ny*2+1 < int32(math.Ceil(180/LookupCellDeg)) {
+		t.Errorf("radius berlebih: ny=%d, mau menutupi seluruh sumbu lintang", ny)
+	}
+}
+
+// Antimeridian: sel 179,9° dan -179,9° BERTETANGGA, dan probe salah satunya harus
+// memuat yang lain. Cacat aslinya adalah X = 299 lawan X = -300, yang tidak pernah
+// dijembatani oleh probe berapa pun lebarnya tanpa pelipatan.
+func TestProbeBridgesAntimeridian(t *testing.T) {
+	east := lookupCell(0, 179.9)
+	west := lookupCell(0, -179.9)
+	if east == west {
+		t.Fatal("179,9 dan -179,9 tidak boleh satu sel")
+	}
+	// Ke arah TIMUR dari sel 179,4°–180° adalah sel -180°–(-179,4°): selisih satu,
+	// dan hanya terlihat satu setelah pelipatan. Tanpa pelipatan ia 599.
+	if d := wrapCellX(west.X - east.X); d != 1 {
+		t.Fatalf("selisih sel terlipat = %d, mau 1: keduanya bertetangga", d)
+	}
+	if raw := west.X - east.X; raw == 1 {
+		t.Fatal("selisih mentah kebetulan 1 — uji ini tidak membuktikan pelipatan")
+	}
+	if _, ok := probeSet(0, 179.9, defaultAttachRadiusKm)[west]; !ok {
+		t.Error("probe di 179,9 tidak memuat sel -179,9")
+	}
+	if _, ok := probeSet(0, -179.9, defaultAttachRadiusKm)[east]; !ok {
+		t.Error("probe di -179,9 tidak memuat sel 179,9")
+	}
+}
+
+// Sumbu bujur adalah LINGKARAN, jadi indeks sel harus terlipat: 360/0.60 = 600
+// sel tepat, dan pembagian yang tidak bulat akan membuat dua sel bertumpang di
+// meridian 180°.
+func TestLonCellCountTilesTheCircle(t *testing.T) {
+	if got := 360.0 / LookupCellDeg; got != float64(lonCellCount) {
+		t.Fatalf("360/%.2f = %v, mau %d sel bujur tepat", LookupCellDeg, got, lonCellCount)
+	}
+	half := lonCellCount / 2
+	for _, c := range []struct {
+		in   int32
+		want int32
+	}{
+		{0, 0}, {half - 1, half - 1}, {half, -half}, {-half, -half},
+		{-half - 1, half - 1}, {lonCellCount, 0}, {-lonCellCount, 0},
+	} {
+		if got := wrapCellX(c.in); got != c.want {
+			t.Errorf("wrapCellX(%d) = %d, mau %d", c.in, got, c.want)
+		}
+	}
+	// Setiap bujur sah harus memetakan ke rentang terlipat kanonik.
+	for lon := -180.0; lon < 180; lon += 0.37 {
+		x := lookupCell(0, lon).X
+		if x < -half || x >= half {
+			t.Fatalf("bujur %.2f -> X = %d, di luar [%d, %d)", lon, x, -half, half)
+		}
+	}
+}
+
+// maxAttachRadiusKm di paket config MENCERMINKAN event.MaxAttachRadiusKm. Idiom
+// mirror-plus-drift-test yang sama dengan TestMaxAcceptedTriggerAgeMirrorsIngest:
+// paket config tidak boleh mengimpor internal/event, jadi yang menjaga keduanya
+// adalah uji ini.
+func TestMaxAttachRadiusMirrorsConfig(t *testing.T) {
+	const configMirror = 10007.543398010286
+	if math.Abs(MaxAttachRadiusKm-configMirror) > 1e-9 {
+		t.Fatalf("event.MaxAttachRadiusKm = %v, config mirror = %v — perbarui keduanya",
+			MaxAttachRadiusKm, configMirror)
 	}
 }
 
@@ -130,7 +308,10 @@ func TestCellKeysAcrossZeroAreDistinct(t *testing.T) {
 	}
 }
 
-// Aritmetika §6.3 dikunci di dalam uji, bukan hanya di dalam prosa: pasangan
+// Label sel independensi (kini DESKRIPTIF, lihat independence.go) tetap dihitung
+// dengan rumus yang sama, dan aritmetikanya dikunci di dalam uji supaya
+// evidence_summary.cell_ids yang sudah tersimpan tetap berarti hal yang sama:
+// pasangan
 // referensi Cimahi–Bandung (~9,4 km) harus SELALU berada di sel berbeda pada 5 km,
 // dan pada 10 km dapat jatuh di SATU sel — yang persisnya adalah alasan
 // IndependenceCellKm dikonfigurasi dan bukan dipatok 10.

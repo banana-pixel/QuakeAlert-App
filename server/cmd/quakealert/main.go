@@ -286,6 +286,8 @@ func run(log *slog.Logger) error {
 		// terbuka. Satu-satunya pemanggil InvalidateContributor di Fase 3 — tidak
 		// ada pemanggil otomatis, dengan sengaja.
 		apiSrv.SetEvidenceInvalidator(tracker)
+		// Phase 3.x observability: counter query dan near-confirmed log tanpa grep.
+		apiSrv.SetTrackerStats(trackerStatsAdapter{tracker})
 	}
 	apiSrv.SetBroadcastFanout(broadcastFanout{dispatcher: dispatcher})
 	apiSrv.SetTestAlertFanout(testAlertFanout{dispatcher: dispatcher})
@@ -599,6 +601,50 @@ const (
 // (bukan pg_cron), berjalan sekali di awal untuk rekonsiliasi startup lalu
 // per interval, dengan timeout operasi per-tick dan pembatalan saat shutdown.
 //
+// trackerStatsAdapter menerjemahkan *event.Tracker ke api.TrackerStatsSource
+// tanpa membuat paket api mengimpor paket event (arah impor: main menjembatani).
+type trackerStatsAdapter struct{ t *event.Tracker }
+
+func (a trackerStatsAdapter) Stats() api.TrackerStatsJSON {
+	s := a.t.Stats()
+	return api.TrackerStatsJSON{
+		Created:                 s.Created,
+		ForcedResolutions:       s.ForcedResolutions,
+		ReonsetSplits:           s.ReonsetSplits,
+		DiameterRejections:      s.DiameterRejections,
+		StaleAbsorbed:           s.StaleAbsorbed,
+		TombstoneEvictions:      s.TombstoneEvictions,
+		Reconciled:              s.Reconciled,
+		PersistDropped:          s.PersistDropped,
+		UpsertFailures:          s.UpsertFailures,
+		StateLogFailures:        s.StateLogFailures,
+		StateLogSkipped:         s.StateLogSkipped,
+		TransitionToUnconfirmed: s.TransitionToUnconfirmed,
+		TransitionToConfirmed:   s.TransitionToConfirmed,
+		TransitionToResolved:    s.TransitionToResolved,
+		TransitionToCancelled:   s.TransitionToCancelled,
+		OpenGauge:               s.OpenGauge,
+		TombstoneGauge:          s.TombstoneGauge,
+	}
+}
+
+func (a trackerStatsAdapter) NearConfirmedLog() []api.NearConfirmedEntryJSON {
+	entries := a.t.NearConfirmedLog()
+	out := make([]api.NearConfirmedEntryJSON, len(entries))
+	for i, e := range entries {
+		out[i] = api.NearConfirmedEntryJSON{
+			EventID:                e.EventID,
+			FirstTwoIndependentAt:  e.FirstTwoIndependentAt,
+			IndependentCountAtPeak: e.IndependentCountAtPeak,
+			NodeCountAtPeak:        e.NodeCountAtPeak,
+			ConfirmedAt:            e.ConfirmedAt,
+			TerminalState:          e.TerminalState,
+			TerminalAt:             e.TerminalAt,
+		}
+	}
+	return out
+}
+
 // Loop ini aman terhadap node sah: predikat penghapusan menuntut verified=FALSE
 // DAN ketiadaan heartbeat (lihat PurgeAbandonedPendingNodes), sehingga instalasi
 // nyata yang sedang menunggu konfirmasi operator tidak akan tersentuh berapa

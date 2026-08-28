@@ -483,9 +483,10 @@ func checker(t *testing.T, nodes []store.NodeLocation, mutate ...func(*Options))
 	return trk, &buf
 }
 
-// sameCellFleet membangun n node yang PASTI berada dalam satu sel independensi
-// berukuran cellKm: titik pertama adalah pusat sel yang memuat acuan, sisanya
-// digeser seperempat sel — jauh dari setiap batas.
+// sameCellFleet membangun n node yang PASTI lebih dekat dari cellKm satu sama
+// lain: titik pertama adalah pusat sel grid yang memuat acuan, sisanya digeser
+// paling banyak seperempat sisi sel, sehingga pemisahan terbesarnya jauh di bawah
+// cellKm dan seluruh fleet hanya satu bukti independen.
 func sameCellFleet(cellKm float64, n int) []store.NodeLocation {
 	deg := independenceCellDeg(cellKm)
 	k := independenceCell(baseLat, baseLon, cellKm)
@@ -549,33 +550,54 @@ func TestCheckFleetIndependencePassesOnSpreadFleet(t *testing.T) {
 	}
 }
 
-// §6.3.1 — pita lintang ditegakkan pada ERROR, bukan WARN: node di luar pita
-// membuat pembuktian kecukupan 3x3 tidak lagi berlaku, dan kegagalannya adalah
-// event yang TERLEWAT.
-func TestCheckFleetIndependenceErrorsOutsideLatitudeBand(t *testing.T) {
-	trk, buf := checker(t, []store.NodeLocation{
-		{StationID: "FAR", Lat: MaxFleetLatitudeDeg + 0.5, Lon: baseLon},
-		{StationID: "N2", Lat: baseLat, Lon: baseLon},
-	})
+// Pemeriksaan-diri fleet TIDAK LAGI mengeluh tentang lintang. Dahulu sebuah node
+// di luar |lat| <= 12° dicatat pada ERROR karena pembuktian kecukupan lingkungan
+// 3x3 tidak berlaku di sana; lebar pencarian sekarang diturunkan dari lintang
+// observasi itu sendiri, jadi peringatan itu akan SALAH. Diuji secara eksplisit,
+// bukan sekadar dihapus: sebuah fleet global yang menyala harus menyala TANPA
+// baris galat yang tidak berarti apa pun.
+func TestCheckFleetIndependenceIsSilentAtAnyLatitude(t *testing.T) {
+	for _, lat := range []float64{0, 12.5, 45.46, 61.2, 64.13, -49.28} {
+		lat2, lon2 := destinationKm(lat, baseLon, 8, 90)
+		trk, buf := checker(t, []store.NodeLocation{
+			{StationID: "FAR", Lat: lat, Lon: baseLon},
+			{StationID: "N2", Lat: lat2, Lon: lon2},
+		})
 
-	trk.CheckFleetIndependence(context.Background())
+		trk.CheckFleetIndependence(context.Background())
 
-	out := buf.String()
-	if !strings.Contains(out, "level=ERROR") {
-		t.Fatalf("tidak ada baris ERROR:\n%s", out)
-	}
-	for _, want := range []string{
-		"di luar pita lintang yang didukung",
-		"naikkan LookupCellDeg sebelum deploy",
-		"station_id=FAR",
-		"max=12",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("baris galat tidak menyebut %q:\n%s", want, out)
+		out := buf.String()
+		if strings.Contains(out, "level=ERROR") || strings.Contains(out, "level=WARN") {
+			t.Errorf("lintang %.2f: fleet yang tersebar dikeluhkan:\n%s", lat, out)
+		}
+		if !strings.Contains(out, "independence_cells=2") {
+			t.Errorf("lintang %.2f: dua node terpisah 8 km harus dua bukti:\n%s", lat, out)
 		}
 	}
-	if strings.Count(out, "level=ERROR") != 1 {
-		t.Errorf("node di dalam pita ikut dikeluhkan:\n%s", out)
+}
+
+// Dua node yang berjarak 2,5 km TIDAK independen, di lintang mana pun — inti
+// perbaikan D2. Dengan sel grid, pasangan ini jatuh di sel bujur berbeda di
+// lintang tinggi (lebar sel bujur 5 km menyusut menjadi ~2,2 km di 64°) dan
+// terhitung dua bukti, sehingga CONFIRMED menjadi lebih MUDAH justru di tempat
+// grid-nya paling salah.
+func TestCheckFleetIndependenceCountsNearbyPairAsOneAtHighLatitude(t *testing.T) {
+	for _, lat := range []float64{0, 45.46, 64.13} {
+		lat2, lon2 := destinationKm(lat, baseLon, 2.5, 90)
+		trk, buf := checker(t, []store.NodeLocation{
+			{StationID: "N1", Lat: lat, Lon: baseLon},
+			{StationID: "N2", Lat: lat2, Lon: lon2},
+		})
+
+		trk.CheckFleetIndependence(context.Background())
+
+		out := buf.String()
+		if !strings.Contains(out, "independence_cells=1") {
+			t.Errorf("lintang %.2f: pasangan 2,5 km harus satu bukti:\n%s", lat, out)
+		}
+		if !strings.Contains(out, "CONFIRMED tidak dapat dicapai") {
+			t.Errorf("lintang %.2f: fleet satu-bukti harus diperingatkan:\n%s", lat, out)
+		}
 	}
 }
 

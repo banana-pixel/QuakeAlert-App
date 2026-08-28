@@ -5,21 +5,32 @@ import (
 	"testing"
 )
 
-// eventWith membangun Event dengan n kontributor yang tersebar di cells sel
+// eventWith membangun Event dengan n kontributor yang menempati cells POSISI
 // berbeda dan PGA puncak peak. Hanya untuk uji: classify tidak peduli dari mana
 // kontributornya datang.
+//
+// Posisi, bukan label sel: independensi diukur sebagai jarak (independence.go),
+// jadi kontributor yang harus terhitung sebagai bukti berbeda ditempatkan
+// setidaknya minSepKm terpisah dan yang harus berbagi bukti ditempatkan pada
+// koordinat yang SAMA. Menyetel Cell tanpa koordinat akan menjadikan seluruh
+// armada satu titik dan uji ini tidak mengukur apa pun.
 func eventWith(n, cells int, peak float64, invalidated bool) *Event {
+	const sepKm = 5.0
 	e := &Event{
 		State:        StateDetected,
 		Contributors: make(map[string]*Contributor, n),
 		Invalidated:  invalidated,
 		minCells:     2,
+		minSepKm:     sepKm,
 	}
 	for i := 0; i < n; i++ {
-		cell := 0
+		slot := 0
 		if cells > 0 {
-			cell = i % cells
+			slot = i % cells
 		}
+		// Slot dipisah 3x jarak pemisahan minimum: jauh melewati ambang, jadi
+		// hasilnya tidak diputuskan oleh pembulatan haversine.
+		lat, lon := destinationKm(0, 0, float64(slot)*sepKm*3, 90)
 		pga := peak
 		if i > 0 {
 			// Hanya satu kontributor yang memegang puncak; sisanya di bawahnya,
@@ -28,7 +39,8 @@ func eventWith(n, cells int, peak float64, invalidated bool) *Event {
 		}
 		id := fmt.Sprintf("NODE-%08d", i+1)
 		e.Contributors[id] = &Contributor{
-			NodeID: id, PeakPGA: pga, Cell: cellKey{X: int32(cell), Y: 0},
+			NodeID: id, PeakPGA: pga, Lat: lat, Lon: lon,
+			Cell: independenceCell(lat, lon, sepKm),
 		}
 	}
 	return e

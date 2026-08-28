@@ -221,6 +221,84 @@ func toBroadcastDTO(b store.Broadcast) broadcastDTO {
 	return dto
 }
 
+// --- Tracker observability ---
+
+// TrackerStatsSource adalah antarmuka sempit yang dibutuhkan handler stats:
+// kembalikan potret counter tanpa mengimpor paket event secara langsung.
+// Implementasi: *event.Tracker.
+type TrackerStatsSource interface {
+	Stats() TrackerStatsJSON
+	NearConfirmedLog() []NearConfirmedEntryJSON
+}
+
+// TrackerStatsJSON dan NearConfirmedEntryJSON adalah tipe mirror yang
+// menjembatani paket api dengan paket event tanpa impor langsung.
+// Mereka identik secara struktural dengan event.TrackerStats dan
+// event.NearConfirmedEntry; main.go mengisinya lewat adapter tipis.
+type TrackerStatsJSON struct {
+	Created                 int64 `json:"event_created_total"`
+	ForcedResolutions       int64 `json:"event_forced_resolutions_total"`
+	ReonsetSplits           int64 `json:"event_reonset_splits_total"`
+	DiameterRejections      int64 `json:"event_diameter_rejections_total"`
+	StaleAbsorbed           int64 `json:"event_stale_evidence_absorbed_total"`
+	TombstoneEvictions      int64 `json:"event_tombstone_evictions_total"`
+	Reconciled              int64 `json:"event_reconciled_total"`
+	PersistDropped          int64 `json:"event_persist_dropped_total"`
+	UpsertFailures          int64 `json:"event_upsert_failures_total"`
+	StateLogFailures        int64 `json:"event_state_log_failures_total"`
+	StateLogSkipped         int64 `json:"event_state_log_skipped_total"`
+	TransitionToUnconfirmed int64 `json:"event_transitions_to_unconfirmed_total"`
+	TransitionToConfirmed   int64 `json:"event_transitions_to_confirmed_total"`
+	TransitionToResolved    int64 `json:"event_transitions_to_resolved_total"`
+	TransitionToCancelled   int64 `json:"event_transitions_to_cancelled_total"`
+	OpenGauge               int   `json:"event_open_gauge"`
+	TombstoneGauge          int   `json:"event_tombstone_gauge"`
+}
+
+// NearConfirmedEntryJSON adalah potret satu event yang pernah mencapai
+// >= 2 kontributor independen.
+type NearConfirmedEntryJSON struct {
+	EventID                string `json:"event_id"`
+	FirstTwoIndependentAt  int64  `json:"first_two_independent_at_ms"`
+	IndependentCountAtPeak int    `json:"independent_count_at_peak"`
+	NodeCountAtPeak        int    `json:"node_count_at_peak"`
+	ConfirmedAt            int64  `json:"confirmed_at_ms,omitempty"`
+	TerminalState          string `json:"terminal_state,omitempty"`
+	TerminalAt             int64  `json:"terminal_at_ms,omitempty"`
+}
+
+// SetTrackerStats memasang sumber statistik Tracker. Opsional: tanpa ini,
+// kedua endpoint mengembalikan 503 (Tracker belum aktif — EVENT_TRACKER_ENABLED
+// mungkin mati, kompatibilitas Fase 2 penuh terjaga).
+func (s *Server) SetTrackerStats(src TrackerStatsSource) {
+	s.trackerStats = src
+}
+
+// HandleTrackerStats melayani GET /api/v1/admin/tracker/stats.
+// Mengembalikan potret seluruh counter §15.5 tanpa harus grep log.
+func (s *Server) HandleTrackerStats(w http.ResponseWriter, r *http.Request) {
+	if s.trackerStats == nil {
+		writeError(w, http.StatusServiceUnavailable, "TRACKER_DISABLED",
+			"event tracker tidak aktif (EVENT_TRACKER_ENABLED=false)")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.trackerStats.Stats())
+}
+
+// HandleTrackerNearConfirmed melayani GET /api/v1/admin/tracker/near-confirmed.
+// Mengembalikan semua event yang pernah mencapai >= 2 kontributor independen,
+// dengan outcome-nya: apakah CONFIRMED, kapan terminal, berapa lama macet.
+func (s *Server) HandleTrackerNearConfirmed(w http.ResponseWriter, r *http.Request) {
+	if s.trackerStats == nil {
+		writeError(w, http.StatusServiceUnavailable, "TRACKER_DISABLED",
+			"event tracker tidak aktif (EVENT_TRACKER_ENABLED=false)")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"entries": s.trackerStats.NearConfirmedLog(),
+	})
+}
+
 // broadcastText menormalkan dan memvalidasi satu bidang teks siaran.
 //
 // Meratakan spasi dengan strings.Fields seperti nodeLocationName: judul yang

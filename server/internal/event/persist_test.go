@@ -181,8 +181,8 @@ func TestDetectedIsNeverPersisted(t *testing.T) {
 	if u.Event.Status != "HAPPENING" {
 		t.Errorf("status = %s, mau HAPPENING", u.Event.Status)
 	}
-	if u.Event.AlgoVer != u.Log.AlgoVer || u.Event.AlgoVer != "phase3-1.0/ic=5" {
-		t.Errorf("algo_ver = %q/%q, mau phase3-1.0/ic=5 pada keduanya", u.Event.AlgoVer, u.Log.AlgoVer)
+	if u.Event.AlgoVer != u.Log.AlgoVer || u.Event.AlgoVer != "phase3-1.1/ic=5" {
+		t.Errorf("algo_ver = %q/%q, mau phase3-1.1/ic=5 pada keduanya", u.Event.AlgoVer, u.Log.AlgoVer)
 	}
 	if u.Event.StartedAtMs != e.CreatedAt {
 		t.Errorf("started_at = %d, mau CreatedAt %d", u.Event.StartedAtMs, e.CreatedAt)

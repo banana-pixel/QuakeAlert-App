@@ -121,3 +121,63 @@ func romanMMI(mmi float64) string {
 	}
 	return romans[n]
 }
+
+// WeightedCentroidGlobal adalah WeightedCentroid yang BENAR di sekitar
+// antimeridian.
+//
+// Rata-rata aritmetik pada kolom bujur mengandaikan bujur adalah garis, padahal ia
+// LINGKARAN: rata-rata 179,9 dan -179,9 adalah 0, sebuah titik di sisi lain bumi.
+// Di sini bujur setiap reading dibuka lipatannya (unwrap) relatif terhadap reading
+// pertama sebelum dirata-rata, lalu hasilnya dinormalkan kembali ke [-180, 180).
+// Sumbu lintang tidak punya masalah ini — ia benar-benar sebuah interval.
+//
+// Fungsi TERPISAH, bukan perbaikan di tempat pada WeightedCentroid, karena
+// consensus.Engine (jalur Fase 2, EVENT_TRACKER_ENABLED=false) harus tetap
+// berperilaku byte-identik selama tepat satu rilis. Engine memakai yang lama;
+// internal/event memakai yang ini.
+func WeightedCentroidGlobal(rs []Reading) Centroid {
+	if len(rs) == 0 {
+		return Centroid{}
+	}
+	ref := rs[0].Lon
+
+	var sumW, sumLat, sumLon float64
+	for i := range rs {
+		w := rs[i].PGA
+		sumW += w
+		sumLat += rs[i].Lat * w
+		sumLon += unwrapLon(rs[i].Lon, ref) * w
+	}
+	if sumW == 0 {
+		var aLat, aLon float64
+		for i := range rs {
+			aLat += rs[i].Lat
+			aLon += unwrapLon(rs[i].Lon, ref)
+		}
+		n := float64(len(rs))
+		return Centroid{Lat: aLat / n, Lon: NormalizeLon(aLon / n)}
+	}
+	return Centroid{Lat: sumLat / sumW, Lon: NormalizeLon(sumLon / sumW)}
+}
+
+// unwrapLon mengembalikan bujur yang setara dengan lon tetapi berada dalam
+// (ref-180, ref+180], sehingga selisih terhadap ref selalu jalur TERPENDEK.
+func unwrapLon(lon, ref float64) float64 {
+	d := lon - ref
+	for d > 180 {
+		d -= 360
+	}
+	for d < -180 {
+		d += 360
+	}
+	return ref + d
+}
+
+// NormalizeLon melipat bujur ke [-180, 180).
+func NormalizeLon(lon float64) float64 {
+	lon = math.Mod(lon+180, 360)
+	if lon < 0 {
+		lon += 360
+	}
+	return lon - 180
+}

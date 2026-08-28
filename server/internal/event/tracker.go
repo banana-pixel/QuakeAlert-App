@@ -76,6 +76,11 @@ type Tracker struct {
 	index  map[indexKey]map[string]*Event
 
 	counters counters
+
+	// nearConfirmed mencatat setiap event yang pernah mencapai >= minCells
+	// kontributor independen. Tidak dihapus saat event terminal atau dievakuasi:
+	// tujuannya rekonstruksi pasca-kejadian. Lihat nearconfirmed.go.
+	nearConfirmed map[string]*NearConfirmedEntry
 }
 
 // NewTracker membuat Tracker. opt dianggap sudah divalidasi oleh config; nilai yang
@@ -98,14 +103,15 @@ func NewTracker(loc nodeSource, opt Options, log *slog.Logger) *Tracker {
 		opt.MaxTombstones = 512
 	}
 	return &Tracker{
-		loc:      loc,
-		log:      log,
-		opt:      opt,
-		now:      time.Now,
-		newID:    newEventID,
-		events:   make(map[string]*Event),
-		index:    make(map[indexKey]map[string]*Event),
-		counters: newCounters(),
+		loc:           loc,
+		log:           log,
+		opt:           opt,
+		now:           time.Now,
+		newID:         newEventID,
+		events:        make(map[string]*Event),
+		index:         make(map[indexKey]map[string]*Event),
+		counters:      newCounters(),
+		nearConfirmed: make(map[string]*NearConfirmedEntry),
 	}
 }
 
@@ -269,34 +275,79 @@ func (t *Tracker) selectTargetLocked(in Input) (target *Event, split bool) {
 	return nil, false
 }
 
-// candidatesLocked menyelidiki 3x3 sel lookup di sekitar node kali TIGA ember
-// onset — b-1, b, b+1. Tiga, bukan dua: buktinya di §4.3, dan dua ember
-// mengandaikan jangkar sebuah event tidak pernah lebih baru dari onset yang
-// sedang datang, yang gagal setiap kali observasi tak berurut menyeberangi batas
-// ember. Kegagalannya adalah PEMBELAHAN — dua alert untuk satu gempa.
+// candidatesLocked menyelidiki lingkungan sel lookup di sekitar observasi kali
+// TIGA ember onset — b-1, b, b+1.
+//
+// Lebar lingkungannya DITURUNKAN, bukan dipatok. Bentuk 3x3 yang lama menutupi
+// AttachRadiusKm hanya selama LookupCellDeg * KmPerDegree * cos(lat) >= radius,
+// yang berhenti berlaku di |lat| ~= 41,5°: di atas itu sebuah event yang benar
+// berada di dalam radius attach dapat berada di luar lingkungan yang diselidiki,
+// tidak pernah diperiksa matches(), dan menjadi event_id KEDUA — PEMBELAHAN,
+// dua alert untuk satu gempa, atau dua belahan yang keduanya gagal mencapai
+// kuorum sehingga TIDAK ADA alert sama sekali. Lebar kini dihitung dari lintang
+// observasi itu sendiri (probeSpan), sehingga invarian I-COV berlaku di setiap
+// lintang. Di bawah 41,5° kedua lebar tetap 1 dan lingkungan yang diselidiki
+// IDENTIK dengan 3x3 yang lama.
+//
+// Sumbu bujur DILIPAT (wrapCellX): sel bujur adalah lingkaran, dan probe yang
+// tidak melipat memperlakukan 179,9° dan -179,9° sebagai 600 sel berjauhan
+// meski keduanya bertetangga.
+//
+// Tiga ember, bukan dua: buktinya di §4.3, dan dua ember mengandaikan jangkar
+// sebuah event tidak pernah lebih baru dari onset yang sedang datang, yang gagal
+// setiap kali observasi tak berurut menyeberangi batas ember. Kegagalannya juga
+// PEMBELAHAN.
+//
+// Indeks hanya MENYEMPITKAN; matches() tetap satu-satunya penentu. Karena itu
+// lingkungan yang terlalu lebar hanya biaya, bukan kesalahan: entri yang dibaca
+// berlebih adalah kunci map yang kosong, karena indeks memegang paling banyak
+// MaxOpen + MaxTombstones event apa pun lebarnya.
 func (t *Tracker) candidatesLocked(in Input) (open, tombstones []*Event) {
 	c := lookupCell(in.Lat, in.Lon)
 	b := onsetBucket(in.OnsetTS, t.opt.CorrelationWindowMs)
+	nx, ny, allLon := probeSpan(in.Lat, t.opt.AttachRadiusKm)
 
 	seen := make(map[string]struct{})
-	for dx := int32(-1); dx <= 1; dx++ {
-		for dy := int32(-1); dy <= 1; dy++ {
+	consider := func(k indexKey) {
+		for id, e := range t.index[k] {
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			if !matches(e, in.OnsetTS, in.Lat, in.Lon, t.opt.CorrelationWindowMs, t.opt.AttachRadiusKm) {
+				continue
+			}
+			if e.isTerminal() {
+				tombstones = append(tombstones, e)
+			} else {
+				open = append(open, e)
+			}
+		}
+	}
+
+	// Kasus polar (allLon): lingkaran radius attach memuat sebuah kutub, jadi
+	// SETIAP bujur berada di dalamnya dan tidak ada bound bujur yang bermakna.
+	// Ditangani eksplisit — seluruh cincin bujur diselidiki untuk setiap baris
+	// lintang — alih-alih dibiarkan menjadi pembagian oleh cos(lat) yang menuju
+	// nol. Lebarnya paling banyak 600 kunci per baris per ember, dan hanya di
+	// dalam ~50 km dari kutub.
+	xs := make([]int32, 0, 2*int(nx)+1)
+	if allLon {
+		half := lonCellCount / 2
+		for x := -half; x < half; x++ {
+			xs = append(xs, x)
+		}
+	} else {
+		for dx := -nx; dx <= nx; dx++ {
+			xs = append(xs, wrapCellX(c.X+dx))
+		}
+	}
+
+	for dy := -ny; dy <= ny; dy++ {
+		y := c.Y + dy
+		for _, x := range xs {
 			for db := int64(-1); db <= 1; db++ {
-				k := indexKey{cell: cellKey{X: c.X + dx, Y: c.Y + dy}, bucket: b + db}
-				for id, e := range t.index[k] {
-					if _, dup := seen[id]; dup {
-						continue
-					}
-					seen[id] = struct{}{}
-					if !matches(e, in.OnsetTS, in.Lat, in.Lon, t.opt.CorrelationWindowMs, t.opt.AttachRadiusKm) {
-						continue
-					}
-					if e.isTerminal() {
-						tombstones = append(tombstones, e)
-					} else {
-						open = append(open, e)
-					}
-				}
+				consider(indexKey{cell: cellKey{X: x, Y: y}, bucket: b + db})
 			}
 		}
 	}
@@ -371,7 +422,7 @@ func (t *Tracker) wouldExceedDiameterLocked(e *Event, in Input) bool {
 		})
 	}
 
-	c := consensus.WeightedCentroid(rs)
+	c := consensus.WeightedCentroidGlobal(rs)
 	for _, r := range rs {
 		if consensus.HaversineKm(r.Lat, r.Lon, c.Lat, c.Lon) > limit {
 			return true
@@ -397,6 +448,7 @@ func (t *Tracker) newEventLocked(in Input, now int64) (*Event, []Snapshot) {
 		CreatedAt:      now,
 		Contributors:   make(map[string]*Contributor, 4),
 		minCells:       t.opt.MinIndependentCells,
+		minSepKm:       t.opt.IndependenceCellKm,
 	}
 	t.upsertContributorLocked(e, in)
 	t.events[e.ID] = e
@@ -499,6 +551,15 @@ func (t *Tracker) upsertContributorLocked(e *Event, in Input) {
 // (invalidasi, resolusi paksa) memberikannya sendiri.
 func (t *Tracker) transitionLocked(e *Event, now int64, reason string) *Snapshot {
 	next := classify(e)
+	// Observability B: rekam near-confirmed bahkan bila state tidak berubah
+	// (misalnya kontributor ke-2 tiba saat event sudah UNCONFIRMED). Pemanggil
+	// forceTransitionLocked sudah memanggil recordNearConfirmedLocked di dalam
+	// transisi nyata; panggilan ini menangkap kasus "lebih banyak bukti,
+	// state sama".
+	// DETECTED dikecualikan: event yang belum pernah publik tidak boleh masuk log.
+	if e.State != StateDetected {
+		t.recordNearConfirmedLocked(e, now)
+	}
 	return t.forceTransitionLocked(e, next, now, reason)
 }
 
@@ -521,6 +582,9 @@ func (t *Tracker) forceTransitionLocked(e *Event, next State, now int64, reason 
 		e.TerminalAt = now
 	}
 	t.counters.transitions[next]++
+
+	// Observability B: rekam kondisi near-confirmed setelah state baru diterapkan.
+	t.recordNearConfirmedLocked(e, now)
 
 	s := e.snapshot(from, reason)
 	return &s
