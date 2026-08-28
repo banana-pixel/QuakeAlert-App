@@ -1,3 +1,18 @@
+> # ⚠️ HISTORICAL SNAPSHOT — SUPERSEDED
+>
+> This is a point-in-time gap audit taken against commit **`b7cd31a`**, audit
+> date **2026-08-21**. Four phases of work have landed since. Its "current
+> state" columns describe the **Phase 2** server, which has been superseded.
+>
+> **`docs/CURRENT_STATE.md` is now authoritative for current implementation
+> status** (baseline `1ad1777`).
+>
+> Retained for traceability. Do not use it to decide what exists.
+>
+> Note: this document's claim that the chat feature is out of scope conflicts
+> with `docs/CHAT_DESIGN.md`. That conflict is unresolved — see **U-005** in
+> `docs/DECISIONS.md`.
+
 # GAP ANALYSIS — QuakeAlert Ecosystem
 
 Dokumen ini melacak selisih antara **arsitektur target** ([`SYSTEM_SPEC.md`](./SYSTEM_SPEC.md)) dan **kondisi kode aktual** di repo. Diperbarui setiap milestone.

@@ -187,11 +187,11 @@ Request:
 
 | Arah | Topic | QoS | Penerbit | Skema |
 |---|---|---|---|---|
-| Sensor → Server | `sensor/<station_id>/trigger` | 1 | Firmware ESP32 | `contracts/mqtt/trigger.schema.json` |
-| Sensor → Server | `sensor/<station_id>/heartbeat` | 1 | Firmware ESP32 | `contracts/mqtt/heartbeat.schema.json` |
+| Sensor → Server | `sensor/<station_id>/trigger` | 0 | Firmware ESP32 | `contracts/mqtt/trigger.schema.json` |
+| Sensor → Server | `sensor/<station_id>/heartbeat` | 0 | Firmware ESP32 | `contracts/mqtt/heartbeat.schema.json` |
 | Server → Client | `alerts/earthquake` | 1 | Server (forward-looking) | `contracts/mqtt/alert.schema.json` |
 
-- **QoS 1** dipilih untuk jalur life-safety agar pesan tidak hilang (QoS 0 fire-and-forget berisiko).
+- **QoS 0** pada jalur sensor → server: PubSubClient tidak menunggu PUBACK, sehingga QoS 1 hanya akan menjadi klaim yang tidak ditegakkan. Ketahanan datang dari retry di firmware plus dedup `obs_seq` + `phase` di server, bukan dari broker. Kanonik: `contracts/mqtt/trigger.schema.json` (lihat juga `PROJECT_RULES.md` §8 dan keputusan D-008 di `docs/DECISIONS.md`).
 - **Transport:** produksi **wajib MQTTS/TLS** (ADR-0003); plaintext 1883 hanya untuk dev lokal.
 
 ### 5.2 `alerts/earthquake` — payload alert (forward-looking)

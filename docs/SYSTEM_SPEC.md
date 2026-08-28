@@ -1,3 +1,23 @@
+> # ⚠️ HISTORICAL — DO NOT USE FOR IMPLEMENTATION DECISIONS
+>
+> This document describes the **Phase 2 consensus architecture**, which has been
+> **SUPERSEDED by Phase 3** (commits `9752c5e`, `1ad1777`). It is retained for
+> traceability and is **not authoritative**.
+>
+> Specifically superseded here: the 8-second correlation window and
+> `CONSENSUS_WINDOW_MS`; the `ACCUMULATING` / `ADVISORY_ISSUED` / `UNVERIFIED`
+> state vocabulary and its cooldown; and the claim that MQTT triggers are
+> published at **QoS 1** — firmware publishes at **QoS 0** (see decision D-008
+> and `contracts/mqtt/trigger.schema.json`).
+>
+> For current, verified state read **`docs/CURRENT_STATE.md`**.
+> For accepted decisions read **`docs/DECISIONS.md`**.
+> For permanent rules read **`PROJECT_RULES.md`**.
+>
+> Sections describing canonical units, database intent, and security posture
+> remain broadly accurate, but where this document and `/contracts` disagree,
+> `/contracts` wins (ADR-0004).
+
 # SPECIFICATION & SYSTEM DESIGN GUIDELINES FOR AI CODING AGENT
 
 **Project:** QuakeAlert Ecosystem (Community-Based Earthquake Early Warning System)
