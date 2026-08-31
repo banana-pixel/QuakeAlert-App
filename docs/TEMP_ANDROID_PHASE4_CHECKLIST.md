@@ -146,19 +146,26 @@ degradation path is a `Log.w` and a heads-up notification
 (`WarningNotifier.kt` full-screen branch). Whether a real locked device shows the
 alarm is therefore unknown, not assumed.
 
-- [ ] Locked screen, app killed, Android 14+ physical device: record whether the
-      full-screen alarm appears, or only heads-up — **BLOCKED** (2026-08-29). Needs an
-      alert delivery; no injection path (see checkpoint 3 blocker).
-- [ ] Record the value `canUseFullScreenIntent()` actually returns on that device —
-      **PARTIAL** (2026-08-29). Not yet read from the API. Device appop state:
-      `adb shell cmd appops get id.web.quakealert.debug USE_FULL_SCREEN_INTENT` →
-      `default; rejectTime=+3d16h10m38s826ms ago`. Mode is not `allow` and the OS has
-      actually rejected the op, so `false` is predicted — to be confirmed by the
-      `full-screen intents not permitted; falling back to heads-up` log line.
-      Re-read 2026-08-30: still `default; rejectTime=+4d13h30m18s844ms ago` — same
-      rejection, no new one, i.e. nothing has re-requested the op since. The
-      prediction stands and remains unconfirmed: confirming it needs an actual
-      `notify()` call, which needs an injectable alert (see 2.2 blocker).
+- [x] Locked screen, app killed, Android 14+ physical device: record whether the
+      full-screen alarm appears, or only heads-up — **PASS** (2026-08-31). Locked
+      (`isKeyguardShowing=true`, `mWakefulness=Dozing`), app backgrounded, drill
+      `test-46185c29-7eeb-42af-b252-c9265ae13c56` via
+      `POST /api/v1/admin/test-alert` against production. Logcat:
+      `19:59:16.808 START … WarningActivity BAL_ALLOW_NON_APP_VISIBLE_WINDOW`,
+      `19:59:17.253 Displayed … WarningActivity for user 0: +467ms`,
+      `19:59:33.632 Transition CLOSE` on the drill's own all-clear. Full-screen
+      alarm appeared **over** the lock screen with no user action ~1.8 s after
+      dispatch; device woke from Doze. Owner confirmed visually.
+- [x] Record the value `canUseFullScreenIntent()` actually returns on that device —
+      **PASS, and the earlier prediction was WRONG** (2026-08-31). The appop is still
+      `USE_FULL_SCREEN_INTENT: default` with a fresh `rejectTime`, and the predicted
+      `full-screen intents not permitted; falling back to heads-up` line **never
+      appeared** — while the full-screen alarm demonstrably launched (above). So the
+      op state does not decide this: SystemUI grants the FSI for a
+      `category=alarm` notification on a showing keyguard. The real gate is the
+      keyguard, not the permission — see the unlocked-device case, recorded as
+      **U-012** in `docs/DECISIONS.md`:
+      `W/VisualInterruptionDecisionProvider: FSI suppressed: no HUN or keyguard`.
 - [ ] Repeat on Android 13 or lower for the contrast — **BLOCKED**. Only one device available (API 36).
 - [x] Record OEM and OS build — **PASS** (2026-08-29). Xiaomi POCO F1 (`beryllium`,
       `custom_beryllium`), Android 16, API 36, serial `8553bc38`. Package
@@ -172,59 +179,85 @@ permission prompt) is **not** part of this checkpoint. Record and report.
 
 ### 2.2 — Notification permission and background paths — **VALIDATION**
 
-**Foreground-delivery attempt 2026-08-30 — BLOCKED on operator credential.**
+**UNBLOCKED and largely PASSED 2026-08-31.** The 2026-08-30 blocker below is
+resolved: the owner authorised reading `ADMIN_API_KEY` from `deploy/.env.prod` on
+the VPS, and three drills were injected against production
+(`POST /api/v1/admin/test-alert`, `--pga 300`, Bandung centroid). The key was held
+in an environment variable and a mode-600 temp file, never printed. Server side
+confirmed each dispatch: `peringatan LATIHAN didispatch topic=test_alerts`, then
+`all-clear LATIHAN didispatch` 20 s later.
 
-Device prepared and confirmed live (FACTs, all read this date):
-- `adb devices -l` → `8553bc38 device product:custom_beryllium model:POCO_F1`
-  (`adb kill-server && adb start-server` was needed; the daemon had lost the device).
-- POCO F1, Android 16, API 36. Package `id.web.quakealert.debug`
-  `versionName=1.0-debug`, `lastUpdateTime=2026-08-26 12:55:37`.
-- `POST_NOTIFICATIONS: granted=true, flags=[USER_SET|...]`;
-  `ACCESS_FINE_LOCATION: granted=true`.
-- App launched via `monkey -c android.intent.category.LAUNCHER` (the explicit
-  `am start -n .../id.web.quakealert.MainActivity` returned without starting a pid).
-  `topResumedActivity=...MainActivity`, pid 16484.
-- Foreground transport up: logcat `QuakeWebSocket: websocket connected` and
-  `PushRegistrar: debug build subscribed to test_alerts` (twice).
-- Device last known position `-6.856221,107.528971` (fused, hAcc 100 m) — inside the
-  Bandung test area, so the client 200 km distance gate would pass a Bandung drill.
+Device: POCO F1, Android 16, API 36, `id.web.quakealert.debug` `1.0-debug`,
+connected over wireless adb. `POST_NOTIFICATIONS granted=true`,
+`ACCESS_FINE_LOCATION granted=true`, Doze-exempt, `mZenMode=ZEN_MODE_OFF`.
 
-Blocker (FACT). No alert can be injected into the feed this device reads:
-- The installed APK's only server is production; `QUAKE_BASE_URL` is a compile-time
-  `buildConfigField` (`android/app/build.gradle.kts:106-108`, debug default
-  `http://10.0.2.2:8080/`, overridable only at install time via
-  `-PquakeDebugBaseUrl`). Retargeting it at the local sim stack needs a rebuild and
-  reinstall, which this run is not authorised to do.
-- Both production injection paths are behind the operator key:
-  `POST /api/v1/admin/test-alert` is inside the `AdminKeyMiddleware` group
-  (`server/internal/api/router.go:74-80`), and a genuine CONFIRMED needs
-  `POST /api/v1/admin/nodes/{stationID}/verify` (`router.go:85`), same group.
-  Verified live: unauthenticated `POST https://api.quakealert.web.id/api/v1/admin/test-alert`
-  → **HTTP 401**.
-- `ADMIN_API_KEY` exists only in the production container env and in a `.env.prod`
-  that is not present in this checkout (`deploy/.env.prod` absent;
-  `deploy/secrets/` holds only `.gitkeep`). Reading it off the VPS was refused by the
-  sandbox as credential extraction, and the owner's SSH grant did not name it.
+Note for anyone repeating this: the phone's clock ran **~1.5 s behind** the
+laptop's (measured three times), so cross-device latency figures below are
+approximate to that margin. `deploy/scripts/test-alert.sh` also defaults
+`API_BASE` to `https://api.quakealert.id`, which is the **wrong** domain — pass
+`API_BASE=https://api.quakealert.web.id` explicitly. That default is a known
+open defect, unfixed here.
 
-Consequence: every remaining row of 2.1, 2.2 and 2.3 is blocked on one thing — an
-operator-key-authorised alert on production, or an explicit decision to rebuild the
-debug APK against the local sim stack. Neither is inside this run's mandate.
+**Historical blocker (2026-08-30), retained:** the installed APK's only server is
+production; `QUAKE_BASE_URL` is a compile-time `buildConfigField`
+(`android/app/build.gradle.kts:106-108`), so retargeting it at a local sim stack
+needs a rebuild. Both production injection paths sit behind `AdminKeyMiddleware`
+(`server/internal/api/router.go:74-88`) — verified again 2026-08-31: the guarded
+paths return **401** unauthenticated and **200** with the key.
 
-- [ ] Foreground: CONFIRMED alert arrives over WebSocket while the app is visible;
-      siren + WarningActivity — **BLOCKED** (2026-08-30). Device ready and WS
-      connected (above); no injectable alert. This is the "first incomplete
-      physical-device test" and it stops here.
+- [x] Foreground: CONFIRMED alert arrives over WebSocket while the app is visible;
+      siren + WarningActivity — **PARTIAL PASS, and it exposed U-013**
+      (2026-08-31). Drill `test-9b22ca79-…` injected with the app foreground.
+      The alert was delivered (`websocket connected` beforehand; server dispatch
+      confirmed) and the stand-down arrived on schedule
+      (`19:32:38.477 QuakeMessaging: push stand-down test-9b22ca79-…: null`,
+      exactly 20 s after inject). But the raise path emitted **no log line at
+      all**, and the owner reported seeing nothing on screen. Whether the alert
+      was shown and unobserved, or gated out silently, **cannot be determined
+      from this run** — that indistinguishability is now **U-013** in
+      `docs/DECISIONS.md`. Re-run this row once U-013 is resolved.
 - [ ] Permission denied: confirm the WebSocket foreground path still alarms —
-      **BLOCKED**. Requires revoking `POST_NOTIFICATIONS` and an alert delivery.
-- [ ] Doze / background: confirm an FCM CONFIRMED alert wakes the device —
-      **BLOCKED** (2026-08-30), same missing delivery.
+      **NOT RUN** (2026-08-31). Requires revoking `POST_NOTIFICATIONS`; deferred
+      rather than blocked, since an injection path now exists.
+- [x] Doze / background: confirm an FCM CONFIRMED alert wakes the device —
+      **PASS** (2026-08-31). Drill `test-46185c29-…` with the device locked and
+      `mWakefulness=Dozing`: device woke, `WarningActivity` displayed in +467ms.
+      See 2.1 for the full log extract.
+- [x] Background (process alive), device **unlocked** — **FAIL, recorded as
+      U-012** (2026-08-31). Drill `test-305be0e3-…`, app backgrounded, screen on
+      and unlocked. Notification 4301 posted correctly
+      (`importance=4 pri=2 category=alarm vis=PUBLIC`,
+      `flags=ONGOING_EVENT|HIGH_PRIORITY`, live `fullscreenIntent`) but SystemUI
+      logged `FSI suppressed: no HUN or keyguard` and **no heads-up replaced it**;
+      `WarningActivity` never started. Nothing was visible to the user. This is a
+      delivery-behaviour question, not a contract defect — see U-012.
 - [ ] Process death: kill the app, deliver an alert, confirm
       `BackgroundAlertBridge` raises it and `AlertDedup` (process-lifetime by
       design, `android/.../domain/AlertDedup.kt`) does not suppress it —
-      **BLOCKED** (2026-08-30), same missing delivery.
+      **NOT RUN** (2026-08-31). Now runnable; not attempted this session.
 - [ ] Cold start during a live event: confirm `fetchWarning()`
       (`WarningViewModel.kt:251`) restores the banner from REST — **BLOCKED**
-      (2026-08-30). Needs a live event on production; `event_created_total 0` there.
+      (2026-08-31). Still needs a *real* event on production: a drill writes no
+      `earthquake_events` row. Production `event_created_total` is now **20** with
+      `event_transitions_to_confirmed_total=0`, so no confirmed event exists to
+      restore.
+
+**Also PASSED this session, and worth recording separately:**
+
+- [x] **Cross-channel de-duplication on a real device (T-12).** With the app
+      backgrounded, logcat shows exactly one line for the alert:
+      `19:42:25.866 QuakeMessaging: push alert test-305be0e3-… already handled; dropped`.
+      The WebSocket frame won and the FCM copy was suppressed by `AlertDedup` —
+      one earthquake, one alarm, across two independent transports, proven on
+      hardware rather than by unit test.
+- [x] **All-clear takes the notification down (T-14).** After the drill's 20 s
+      all-clear, notification 4301 count in the **live** list is `0`.
+      *Correction to an intermediate claim made during this session:* an earlier
+      count of "2 still posted" was wrong — it was reading `mArchive`
+      (`dumpsys notification` keeps the last 100 notifications there), not the
+      live list. `WarningNotifier.clear()` works as documented.
+      Both stand-down paths logged: `BackgroundAlertBridge: background stand-down
+      test-305be0e3-…: All Clear` then `QuakeMessaging: push stand-down …`.
 
 **Device connectivity established** (2026-08-29): app launched, `QuakeWebSocket:
 websocket connected`, `PushRegistrar: debug build subscribed to test_alerts`. The

@@ -140,6 +140,11 @@ These are open questions, not scheduled work. They are tracked in
   F-7). Blocks checkpoint 1.4 of `docs/TEMP_ANDROID_PHASE4_CHECKLIST.md`.
 - Simultaneous confirmed events: coexist or replace (**U-011**, formerly F-5).
   Testable on the local stack today; blocked on the decision, not the fleet.
+- Delivery to a phone that is unlocked and in use (**U-012**). Found on device
+  2026-08-31: Android suppresses the full-screen intent when no keyguard is
+  showing and no heads-up replaces it, so an in-use device shows nothing.
+- Whether the alert-raising path logs at all (**U-013**). Success and a silently
+  gated-out alert are currently indistinguishable in logcat.
 
 ---
 

@@ -314,6 +314,121 @@ policy changes, since one screen bounds it in practice.
 implementation, not a decision. **Affects:** delivery behaviour, UI.
 **Related:** U-010.
 
+### U-012 — Does an alert reach a user who is actively using the phone?
+Found on device 2026-08-31, during the first drill sweep against a physical
+POCO F1 (Android 16, API 36). Not a code defect against any existing contract —
+the client requests the right thing and the OS declines it — so it is a question
+about intended delivery behaviour, which under `PROJECT_RULES.md` §9 is the
+owner's to answer.
+
+**Observed (FACT).** With the app backgrounded and the device **unlocked and in
+use**, SystemUI logged:
+
+```
+19:42:24.839 W/VisualInterruptionDecisionProvider:
+FSI suppressed: no HUN or keyguard (key=0|id.web.quakealert.debug|4301|null|10309)
+```
+
+Notification 4301 was posted correctly and is visible in `dumpsys notification`
+with `channel=quakealert_emergency_alerts`, `mImportance=4`, `pri=2`,
+`category=alarm`, `vis=PUBLIC`, `flags=ONGOING_EVENT|HIGH_PRIORITY`, and a live
+`fullscreenIntent`. Android suppressed the full-screen intent because no
+keyguard was showing, and **no heads-up appeared in its place**. `WarningActivity`
+never started (zero occurrences in logcat). Net effect: nothing was visible to
+the user.
+
+**Contrast, same build, same drill, 17 minutes later (FACT).** Device locked
+(`isKeyguardShowing=true`, `mWakefulness=Dozing`):
+
+```
+19:59:15.020  drill dispatched
+19:59:16.808  START … WarningActivity  BAL_ALLOW_NON_APP_VISIBLE_WINDOW
+19:59:17.253  Displayed WarningActivity  +467ms
+19:59:33.632  Transition CLOSE      (all-clear)
+```
+
+The alarm screen appeared over the lock screen unaided, ~1.8 s after dispatch,
+and the device woke from Doze. So the locked-device path — the hardest one —
+works, and the failing case is the *easier* one.
+
+**Why it matters, and why this ordering is backwards.** A user holding an
+unlocked phone is disproportionately likely to be standing, walking, or inside a
+building — the population an early-warning system exists to move. The current
+behaviour warns the person whose phone is face-down on a table and stays silent
+for the person holding it.
+
+**What is already ruled out (FACT).** `POST_NOTIFICATIONS granted=true`.
+`mZenMode=ZEN_MODE_OFF`. Channel importance is 4 (HIGH), not user-lowered
+(`mUserLockedFields=0`). The app is Doze-exempt. FCM delivery works — the same
+event's stand-down was received and logged. `AlertGate` did not reject it: the
+notification was posted, which happens only after the gate agrees.
+
+**Leading hypothesis, NOT verified.** The channel is created with `mSound=null`
+and `mVibrationPattern=null` (confirmed in `dumpsys`) because the app plays its
+own siren. A silent channel can lose heads-up presentation even at importance 4,
+which would explain "no HUN". This needs confirming against Android's
+`VisualInterruptionDecisionProvider` behaviour before any change — the hypothesis
+must not be treated as the finding.
+
+**What would settle it:** an owner decision on what an in-use device should
+receive. At least three readings exist and they are not equivalent:
+ (a) full-screen alarm regardless of keyguard — most forceful, and hijacks the
+     screen of a user who may be driving or in a call;
+ (b) heads-up notification plus siren — visible without seizing the screen;
+ (c) in-app takeover when the app is foreground, heads-up when backgrounded.
+Any of them is a change to delivery behaviour, so none may be chosen by
+implementation.
+
+**Do not** raise the channel's sound or importance to force heads-up as a
+side-effect of debugging this. Channel sound is user-visible behaviour and the
+app deliberately owns its siren; changing it to move a log line is exactly the
+class of change `PROJECT_RULES.md` §9 exists to stop.
+
+**Affects:** delivery behaviour, Android client. **Related:** U-001 (which is the
+same shape of gap one tier down: unconfirmed events reach a locked device not at
+all), U-013.
+
+### U-013 — Should the alert-raising path be observable in logs at all?
+Found while diagnosing U-012 on 2026-08-31, and it is the reason that diagnosis
+took three drills instead of one.
+
+**Observed (FACT).** The first drill (app foreground) produced **no log line of
+any kind** from the alert path. `WarningViewModel.raiseAlert()` and `raise()`
+call no logger, and neither does the gated-out branch at
+`android/.../ui/warning/WarningViewModel.kt:434-451`. `WarningNotifier.notify()`
+logs only on the *failure* branch
+(`full-screen intents not permitted; falling back to heads-up`) and is silent on
+success.
+
+**Consequence.** A successful alarm and a silently gated-out one are
+**indistinguishable** in logcat. During this session that made it impossible to
+tell "the alert was never processed" from "the alert was processed and shown"
+without a second and third run under changed conditions. In the field it means a
+user report of "my phone did not alarm" carries no evidence, on the one path
+where evidence matters most.
+
+By contrast the FCM path (`QuakeMessagingService.kt`) logs every rejection —
+unrecognised payload, older than the recent window, already handled, outside
+coverage — and those lines are what made U-012 diagnosable at all. The asymmetry
+between the two paths is the defect, whichever way it is resolved.
+
+**Why this is a question and not a fix:** what an alerting app writes to the
+system log is a privacy surface. Logcat is readable by adb and, for some OEM
+builds, by more than that. An alert line naturally wants to carry `event_id`,
+coordinates, and distance-to-user — the last of which is device location, and
+`UserLocationRepo` already deliberately redacts it (`sync(force=false) ->
+Unchanged(position redacted)` was observed this session, so a redaction
+convention exists in the codebase and should be followed rather than
+contradicted).
+
+**What would settle it:** an owner decision on whether the raise path logs, and
+if so at what granularity — `event_id` and outcome only, or including the gate
+decision and distance. A defensible default exists (log `event_id` + outcome,
+never raw coordinates, reuse the existing redaction convention) but it is still a
+decision, because it changes what a shipped build writes about a user.
+
+**Affects:** Android client, diagnosability, privacy. **Related:** U-012.
+
 ---
 
 ## Superseded decisions

@@ -31,7 +31,7 @@ IMPLEMENTED only.
 | WebSocket delivery | yes | partial | yes, private VPS | Advisory frames observed; alert frames not observed in production. |
 | Push delivery | yes | no | yes, private VPS | Never triggered in production; one device vendor only in testing. |
 | Firmware detection | yes | partial | one node | One board, one location, one firmware build. |
-| Android client | yes | partial | sideloaded, not published | Advisory-never-wakes enforced in three independent places. |
+| Android client | yes | partial — drill-validated on one device | sideloaded, not published | Advisory-never-wakes enforced in three independent places. Locked-screen alarm, Doze wake, cross-channel dedup and all-clear teardown demonstrated on hardware 2026-08-31 (drill path). Delivery to an **unlocked, in-use** device shows nothing — **U-012**. |
 
 **Production status, stated precisely:** Phase 3 is activated on a **private
 VPS**. That is a single-operator deployment serving a single-node network. It is
@@ -115,6 +115,14 @@ de-duplication — **not** at-least-once (D-008).
 - Determinism of the independence count under map-iteration order — by test.
 - One firmware node ingesting through MQTTS with HMAC into the observation
   ledger, on a private VPS.
+- **On a physical device, drill path only** (POCO F1, Android 16 / API 36,
+  2026-08-31): a full-screen alarm launching over the lock screen from Doze
+  without user action (`Displayed WarningActivity +467ms`); one alarm per
+  earthquake across two independent transports (`AlertDedup` suppressed the FCM
+  copy of a WebSocket frame); and the all-clear removing notification 4301. These
+  used `POST /api/v1/admin/test-alert`, which writes no `earthquake_events` row
+  and carries no `event_state` — so they say nothing about History, about
+  CANCELLED wording, or about a release build.
 
 ## NOT demonstrated
 
@@ -130,6 +138,18 @@ only presence in *Demonstrated* is** (`PROJECT_RULES.md` §8).
 - **No measured lead time.** No end-to-end warning has preceded shaking for any
   real user. Do not claim EEW lead time.
 - **Push delivery not verified across device vendors.** One vendor, in testing.
+- **Delivery to an unlocked, in-use device is a known gap, not an unknown one.**
+  Observed failing on hardware 2026-08-31 — Android suppresses the full-screen
+  intent when no keyguard is showing and no heads-up replaces it (**U-012**).
+- **No alert delivery has been observed for a real event on any device.** Every
+  device observation to date is the drill path, which writes no row and carries
+  no `event_state`.
+- **The alert-raising path emits no logs**, so a foreground alarm that does not
+  appear cannot be distinguished from one that appeared unobserved (**U-013**).
+- **No instrumented (on-device) test suite exists.** `app/src/androidTest`
+  contains only the Android Studio template `ExampleInstrumentedTest.kt`, so
+  every OS-level behaviour above rests on manual observation, not on a suite that
+  can be re-run.
 - **Firmware not validated beyond one board in one location.**
 - **Reconciliation across a real restart during a real event** — tested, not
   observed in production.
