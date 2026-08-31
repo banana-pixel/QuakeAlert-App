@@ -1,0 +1,12 @@
+# Sim override: renames hardcoded container_name fields so sim31 project
+# can start alongside staging without container name collisions.
+# Used ONLY by sim_multi_node.sh — never for production.
+services:
+  postgis:
+    container_name: "sim31-postgis"
+  migrate:
+    container_name: "sim31-migrate"
+  redis:
+    container_name: "sim31-redis"
+  mosquitto:
+    container_name: "sim31-mosquitto"
