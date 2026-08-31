@@ -114,9 +114,13 @@ This is **not** ticked off by implementing one reading. Suppressing a late alert
 because a stand-down was seen is a change to alert behaviour, and
 `.clinerules/00-project-overview.md` requires stopping rather than choosing.
 
-- [ ] Owner decision recorded in `docs/DECISIONS.md` before any code — **BLOCKED** (2026-08-29). `docs/DECISIONS.md` unresolved list holds U-001…U-009 only; no F-7 entry. Nothing to implement against.
+- [ ] Owner decision recorded in `docs/DECISIONS.md` before any code — **RECORDED as U-010** (2026-08-31). The question is now `docs/DECISIONS.md` **U-010**, with both candidate answers, the terminal-state invariant that constrains them, and the CAP v1.2 precedent. Still UNRESOLVED — no owner decision yet, so still nothing to implement against.
 - [ ] **BLOCKED** — Decision names which failure it prefers: a siren for a withdrawn event, or
-      a suppressed siren for a still-live one
+      a suppressed siren for a still-live one. **Note (U-010):** `TestTerminalStatesHaveNoExit`
+      (`server/internal/event/state_test.go:55`) shows the second failure is not reachable for a
+      *matched* `event_id` — a stood-down id never becomes live again. The real trade-off is
+      client-side memory (loses its guard on process death) versus server-declared validity on
+      the wire (contract change across three components).
 
 Related but distinct: **F-5 multi-event behaviour** — `activeAlertDetails` is one
 nullable field (`WarningViewModel.kt:131`) and `NOTIFICATION_ID = 4301` is one
@@ -449,10 +453,15 @@ behaviour, data semantics, or a public contract).
 
 - **F-5** — should two concurrent events alarm simultaneously, or does the newer
   one replace the older? Currently one `activeAlertDetails` and one notification
-  id decide it by accident, not by decision.
+  id decide it by accident, not by decision. **Recorded as U-011** in
+  `docs/DECISIONS.md` (2026-08-31). Correction to an earlier claim in this file:
+  this is **not** blocked on physical sensors — `sim_dual_event.sh` reaches two
+  concurrent CONFIRMED events on the local stack. It is blocked on the decision.
 - **F-7** — should a late alert be suppressed because a stand-down was already
   seen? Either reading loses something: a siren for a withdrawn event, or a
-  suppressed siren for a live one.
+  suppressed siren for a live one. **Recorded as U-010** in `docs/DECISIONS.md`
+  (2026-08-31), where the terminal-state invariant narrows the trade-off — see
+  §1.4 above.
 - **U-001** — background delivery for unconfirmed events stays unresolved; D-009
   is the accepted decision in force until it changes.
 

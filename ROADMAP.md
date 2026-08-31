@@ -136,6 +136,10 @@ These are open questions, not scheduled work. They are tracked in
 - Reconciliation versus stored `algo_ver` (**U-007**).
 - Removal of the Phase 2 consensus path (**U-008**).
 - Legacy decision-ID migration (**U-009**).
+- How a client knows an alert has stopped being actionable (**U-010**, formerly
+  F-7). Blocks checkpoint 1.4 of `docs/TEMP_ANDROID_PHASE4_CHECKLIST.md`.
+- Simultaneous confirmed events: coexist or replace (**U-011**, formerly F-5).
+  Testable on the local stack today; blocked on the decision, not the fleet.
 
 ---
 

@@ -202,6 +202,118 @@ throughout code comments. Renumbering makes those citations unfindable.
 **Recommendation on record:** do not migrate; cross-reference instead.
 **What would settle it:** owner decision.
 
+### U-010 — How does a client know an alert has stopped being actionable?
+**Formerly F-7** in `docs/TEMP_ANDROID_PHASE4_CHECKLIST.md` §1.4, recorded here
+because that file is temporary and deleting it would delete the question.
+
+**Why it matters:** the client currently *guesses* the answer, and its guess
+disagrees with the server by an order of magnitude. The server closes an event
+after `EVENT_RESOLVE_AFTER_MS` = **90 s**
+(`docs/CURRENT_STATE.md` § Active configuration). The client treats an alert as
+still alarm-worthy for `RECENT_WINDOW_MS` = **15 minutes**
+(`android/.../domain/WsAlertMessage.kt:134`). Inside that ~13.5-minute gap a
+late-delivered copy of an alert can sound the siren for an event the server has
+already ended or withdrawn.
+
+Reachability is not hypothetical. `android/.../domain/AlertDedup.kt:73-74` keys
+on `"${type}:$eventId"`, deliberately, so an all-clear is never mistaken for a
+duplicate of the alarm it clears. The consequence is that the two keys never
+consult each other: a device offline for the alert and online for the resolve
+holds no `EARTHQUAKE_ALERT:<id>` entry, so the late alert reads as news.
+
+**What is already settled and constrains any answer:** an `event_id` that has
+reached RESOLVED or CANCELLED never becomes live again —
+`server/internal/event/state_test.go:55` `TestTerminalStatesHaveNoExit` asserts
+terminal states have no exit transition, and D-003 makes downgrade illegal. So
+an alert bearing an `event_id` the client has already seen stood down is
+**necessarily** stale, never a still-live quake. Aftershocks receive new
+`event_id`s and are unaffected. This removes one half of the apparent trade-off:
+suppressing on a *matched, already-stood-down* `event_id` cannot silence a live
+event.
+
+**Two candidate answers, and they are not equivalent:**
+
+1. *Client-side stand-down memory.* Record stood-down `event_id`s in
+   `AlertDedup` and suppress later alerts for them. One file, no contract
+   change. **But** `AlertDedup` is process-lifetime by design
+   (`AlertDedup.kt:12-14`), and the case that produces a late alert — a device
+   offline long enough to miss one — is also the case where the OS has most
+   likely killed the process. The guard is absent exactly when it is needed.
+   It also adds a second piece of safety-path state that must stay consistent
+   with the first, and leaves the 90 s / 15 min disagreement in place.
+2. *Server-declared validity on the wire.* The alert carries how long it is
+   valid; the client honours the sender rather than inferring. This is the
+   CAP v1.2 model (`expires`, OASIS; used by FEMA and NOAA/NWS, recommended by
+   UNDRR), where the sender states validity and undertakes to update or cancel
+   by that time. Survives process death, a cold install, and out-of-order
+   delivery, because the message is self-describing. It also closes the root
+   cause rather than the symptom: the client stops holding a second, private
+   copy of a server policy.
+   **Cost:** this is a contract change, not a defect fix. Under D-001 /
+   ADR-0004 `contracts/fcm/alert_payload.json` and
+   `contracts/openapi/openapi.yaml` change first, then server, then Android —
+   three components. The current payload carries 15 `data` keys and **none**
+   expresses validity; the concept exists server-side only, as
+   `TerminalRetention` (`server/internal/config/config.go:137`, validated
+   against maximum accepted trigger age at `config.go:349-356`).
+
+**What would settle it:** an owner decision naming which of the two the system
+uses, and — if (2) — whether validity is an absolute instant or a duration, and
+what a client does when the field is absent (every pre-change frame). Absence
+must not read as "expired", or one deployment lag silences every alert.
+
+**Blocks:** checkpoint 1.4 of `docs/TEMP_ANDROID_PHASE4_CHECKLIST.md`, which has
+nothing to implement against until this exists. **Affects:** delivery behaviour,
+public contract. **Related:** U-001 (delivery tiers), U-004 (radius).
+
+### U-011 — Do two simultaneous confirmed events alarm simultaneously, or does the newer replace the older?
+**Formerly F-5** in `docs/TEMP_ANDROID_PHASE4_CHECKLIST.md` §1.4, recorded here
+for the same reason as U-010.
+
+**Why it matters:** the server handles concurrency correctly and the client
+discards half of it. This is the failure mode that damaged the JMA system's
+credibility in Japan: on 2011-03-11 separate aftershocks were read as one quake
+and warnings were issued at the wrong severity, and in January 2018 two
+simultaneous events ~400 km apart (M4.5 and M4.0) produced an overpredicted
+warning through incorrect event association — JMA added the Integrated Particle
+Filter specifically to separate concurrent events.
+
+QuakeAlert does **not** have JMA's association defect. `sim_dual_event.sh`
+(committed `0822d35`) drives two disjoint clusters and observes two distinct
+`event_id`s with `event_open_gauge=2` and no merging: the server keeps
+concurrent quakes apart. The gap is entirely on the client, at the last hop —
+`NOTIFICATION_ID = 4301` is one constant
+(`android/.../service/WarningNotifier.kt:38`) and `activeAlertDetails` is one
+nullable field (`android/.../ui/warning/WarningViewModel.kt:131`), so a second
+concurrent event overwrites the first rather than coexisting. The user loses the
+first quake with no indication that it happened.
+
+**Already fixed regardless of which way this is decided:** an all-clear for one
+event no longer stands down another (F-1, commit `47c95cc`). That was a defect
+under either reading, and it is not what this question is about.
+
+**Neither answer is free.** Two simultaneous full-screen alarms compete for one
+screen, one siren stream, and one user's attention, and the app cannot say which
+to act on first. One alarm replacing the other is coherent but silently discards
+a live warning. A third reading exists — alarm once, and represent the second
+event without a second alarm — and is not obviously worse than either.
+
+**Testable now; not blocked on hardware.** An earlier note in this project
+claimed this needed ≥3 physical sensors. That was wrong: `sim_dual_event.sh`
+reaches two concurrent CONFIRMED events on the local stack today. Only the
+on-device half (whether the OEM notification stack renders two emergency
+notifications as intended) needs a phone, and none of it needs a second ESP32.
+So this is blocked on the decision, not on the fleet.
+
+**What would settle it:** an owner decision naming the intended behaviour, plus
+— if concurrency is kept — how many concurrent alarms are allowed before the
+policy changes, since one screen bounds it in practice.
+
+**Must not** be resolved by implementing whichever reading the current single
+`activeAlertDetails` field happens to produce. That field is an accident of
+implementation, not a decision. **Affects:** delivery behaviour, UI.
+**Related:** U-010.
+
 ---
 
 ## Superseded decisions
