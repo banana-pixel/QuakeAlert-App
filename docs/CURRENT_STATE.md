@@ -115,14 +115,15 @@ de-duplication — **not** at-least-once (D-008).
 - Determinism of the independence count under map-iteration order — by test.
 - One firmware node ingesting through MQTTS with HMAC into the observation
   ledger, on a private VPS.
-- **On a physical device, drill path only** (POCO F1, Android 16 / API 36,
-  2026-08-31): a full-screen alarm launching over the lock screen from Doze
-  without user action (`Displayed WarningActivity +467ms`); one alarm per
-  earthquake across two independent transports (`AlertDedup` suppressed the FCM
-  copy of a WebSocket frame); and the all-clear removing notification 4301. These
-  used `POST /api/v1/admin/test-alert`, which writes no `earthquake_events` row
-  and carries no `event_state` — so they say nothing about History, about
-  CANCELLED wording, or about a release build.
+- **On a physical device, drill path only** (POCO F1, Android 16 / API 36, PixelOS
+  `BP3A.250905.014`, 2026-08-31): a full-screen alarm launching over the lock
+  screen from Doze without user action (`Displayed WarningActivity +467ms`); the
+  same after the app was swiped away, revived by FCM (+960ms cold start); one
+  alarm per earthquake across two independent transports (`AlertDedup` suppressed
+  the FCM copy of a WebSocket frame); and the all-clear removing notification
+  4301. These used `POST /api/v1/admin/test-alert`, which writes no
+  `earthquake_events` row and carries no `event_state` — so they say nothing about
+  History, about CANCELLED wording, or about a release build.
 
 ## NOT demonstrated
 
@@ -138,9 +139,16 @@ only presence in *Demonstrated* is** (`PROJECT_RULES.md` §8).
 - **No measured lead time.** No end-to-end warning has preceded shaking for any
   real user. Do not claim EEW lead time.
 - **Push delivery not verified across device vendors.** One vendor, in testing.
-- **Delivery to an unlocked, in-use device is a known gap, not an unknown one.**
-  Observed failing on hardware 2026-08-31 — Android suppresses the full-screen
-  intent when no keyguard is showing and no heads-up replaces it (**U-012**).
+- **Delivery to an unlocked, in-use device does not happen.** Observed failing on
+  hardware 2026-08-31 in both process states, and the mechanism is confirmed
+  against AOSP source: the emergency channel is silent, SystemUI's
+  `HunSilentNotificationSuppressor` therefore suppresses heads-up, and
+  `FullScreenIntentDecisionProvider` falls through to `NO_FSI_NO_HUN_OR_KEYGUARD`.
+  The keyguard is the only reason the locked path works. Choice of remedy is
+  **U-012**.
+- **Alert delivery to a force-stopped app is impossible, by platform design.** Not
+  a project gap: Android withholds broadcasts from a stopped app until the user
+  launches it again.
 - **No alert delivery has been observed for a real event on any device.** Every
   device observation to date is the drill path, which writes no row and carries
   no `event_state`.

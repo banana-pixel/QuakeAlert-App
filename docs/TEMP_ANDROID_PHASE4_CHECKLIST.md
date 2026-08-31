@@ -229,12 +229,40 @@ paths return **401** unauthenticated and **200** with the key.
       (`importance=4 pri=2 category=alarm vis=PUBLIC`,
       `flags=ONGOING_EVENT|HIGH_PRIORITY`, live `fullscreenIntent`) but SystemUI
       logged `FSI suppressed: no HUN or keyguard` and **no heads-up replaced it**;
-      `WarningActivity` never started. Nothing was visible to the user. This is a
-      delivery-behaviour question, not a contract defect — see U-012.
-- [ ] Process death: kill the app, deliver an alert, confirm
-      `BackgroundAlertBridge` raises it and `AlertDedup` (process-lifetime by
-      design, `android/.../domain/AlertDedup.kt`) does not suppress it —
-      **NOT RUN** (2026-08-31). Now runnable; not attempted this session.
+      `WarningActivity` never started. Nothing was visible to the user. Mechanism
+      since confirmed against AOSP source — see U-012.
+- [x] Process death (recent-apps **swipe**), locked — **PASS** (2026-08-31). Drill
+      `test-b04e344a-…`: `pidof` empty before, 20670 after, so FCM revived the
+      process; `Displayed WarningActivity +960ms` (roughly double the +467ms of the
+      warm case, consistent with cold process start). `AlertDedup` is
+      process-lifetime by design and correctly did not suppress the frame.
+      **Method note:** the screen was locked via `input keyevent 26` before
+      dispatch, which mixed two variables in one run — process state and keyguard.
+      Recorded so the next run does not repeat it.
+- [x] Process death (swipe), device **unlocked** — **FAIL, same U-012 cause**
+      (2026-08-31). Drill `test-819e7d81-…`, no keyevent used: `pidof` empty before,
+      21007 after — the process *was* revived by FCM — yet
+      `FSI suppressed: no HUN or keyguard` again and `topResumedActivity` stayed on
+      the launcher. Taken together with the row above, this isolates the keyguard as
+      the single determining variable and rules process lifecycle out of U-012.
+- [x] Process death (`am force-stop`), locked — **NOT A DEFECT; expected Android
+      behaviour** (2026-08-31). Drill `test-244fa4dd-…` after
+      `am force-stop id.web.quakealert.debug`: GCM logged
+      `broadcast intent callback: result=CANCELLED forIntent { act=…c2dm.intent.RECEIVE
+      pkg=id.web.quakealert.debug }` for both the alert and its all-clear, the process
+      was never started, and nothing was posted. A force-stopped app is in the stopped
+      state and Android deliberately withholds broadcasts until the user launches it
+      again; Firebase documents that FCM cannot deliver to a force-stopped app. No
+      application can opt out of this.
+      **Correction:** an intermediate reading of this run as an app defect, and the
+      suspicion of a MIUI autostart policy, were both wrong — the device runs PixelOS
+      `BP3A.250905.014` (`ro.miui.ui.version.name` empty), so no OEM policy is
+      involved. `docs/TEMP_DEVICE_VALIDATION_PLAN.md` T-9 already said to run swipe
+      and force-stop separately; only the swipe result speaks to real-user behaviour.
+      Also note a stale notification 4301 (`when=…144605`, i.e. 19:42:24) was still
+      posted from an earlier drill whose all-clear arrived after the app was killed —
+      an `ONGOING_EVENT` notification outlives its own process, which is worth knowing
+      but is not this row's finding.
 - [ ] Cold start during a live event: confirm `fetchWarning()`
       (`WarningViewModel.kt:251`) restores the banner from REST — **BLOCKED**
       (2026-08-31). Still needs a *real* event on production: a drill writes no

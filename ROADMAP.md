@@ -146,6 +146,11 @@ These are open questions, not scheduled work. They are tracked in
 - Whether the alert-raising path logs at all (**U-013**). Success and a silently
   gated-out alert are currently indistinguishable in logcat.
 
+Notes on U-012: mechanism confirmed against AOSP source (silent channel →
+`HunSilentNotificationSuppressor` → `couldHeadsUp=false` →
+`NO_FSI_NO_HUN_OR_KEYGUARD`), so what remains is the owner's choice of intended
+behaviour, not further diagnosis.
+
 ---
 
 ## Superseded and abandoned phase definitions

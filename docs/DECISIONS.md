@@ -316,10 +316,11 @@ implementation, not a decision. **Affects:** delivery behaviour, UI.
 
 ### U-012 — Does an alert reach a user who is actively using the phone?
 Found on device 2026-08-31, during the first drill sweep against a physical
-POCO F1 (Android 16, API 36). Not a code defect against any existing contract —
-the client requests the right thing and the OS declines it — so it is a question
-about intended delivery behaviour, which under `PROJECT_RULES.md` §9 is the
-owner's to answer.
+POCO F1 (Android 16 / API 36, PixelOS `BP3A.250905.014` — **not** a Xiaomi ROM,
+so no OEM autostart policy is involved). Not a code defect against any existing
+contract — the client requests the right thing and the OS declines it, for a
+reason now traced to AOSP source — so it is a question about intended delivery
+behaviour, which under `PROJECT_RULES.md` §9 is the owner's to answer.
 
 **Observed (FACT).** With the app backgrounded and the device **unlocked and in
 use**, SystemUI logged:
@@ -332,24 +333,30 @@ FSI suppressed: no HUN or keyguard (key=0|id.web.quakealert.debug|4301|null|1030
 Notification 4301 was posted correctly and is visible in `dumpsys notification`
 with `channel=quakealert_emergency_alerts`, `mImportance=4`, `pri=2`,
 `category=alarm`, `vis=PUBLIC`, `flags=ONGOING_EVENT|HIGH_PRIORITY`, and a live
-`fullscreenIntent`. Android suppressed the full-screen intent because no
-keyguard was showing, and **no heads-up appeared in its place**. `WarningActivity`
-never started (zero occurrences in logcat). Net effect: nothing was visible to
-the user.
+`fullscreenIntent`. Android suppressed the full-screen intent, and **no heads-up
+appeared in its place**. `WarningActivity` never started (zero occurrences in
+logcat). Net effect: nothing was visible to the user.
 
-**Contrast, same build, same drill, 17 minutes later (FACT).** Device locked
-(`isKeyguardShowing=true`, `mWakefulness=Dozing`):
+**Reproduced in both process states (FACT), which rules out process lifecycle as
+a cause.** Same outcome with the process alive and backgrounded (drill
+`test-305be0e3-…`), and with the process **dead** after a recent-apps swipe and
+revived by FCM (drill `test-819e7d81-…`, `pidof` empty before / 21007 after).
+In the second case FCM woke the app successfully and `WarningActivity` still never
+started; `topResumedActivity` remained the launcher. The single determining
+variable is the keyguard, not whether the app was running.
 
-```
-19:59:15.020  drill dispatched
-19:59:16.808  START … WarningActivity  BAL_ALLOW_NON_APP_VISIBLE_WINDOW
-19:59:17.253  Displayed WarningActivity  +467ms
-19:59:33.632  Transition CLOSE      (all-clear)
-```
+**Contrast, same build, same drill (FACT).** Device locked:
 
-The alarm screen appeared over the lock screen unaided, ~1.8 s after dispatch,
-and the device woke from Doze. So the locked-device path — the hardest one —
-works, and the failing case is the *easier* one.
+| Condition | Process revived | Alarm visible |
+| --- | --- | --- |
+| Locked, process alive | — | yes, `Displayed +467ms` |
+| Locked, swiped away | yes | yes, `Displayed +960ms` |
+| Unlocked, backgrounded | — | **no** |
+| Unlocked, swiped away | yes | **no** |
+
+The locked runs show the alarm screen appearing over the lock screen unaided
+~1.8 s after dispatch, waking the device from Doze. So the hardest path works and
+the failing path is the *easier* one.
 
 **Why it matters, and why this ordering is backwards.** A user holding an
 unlocked phone is disproportionately likely to be standing, walking, or inside a
@@ -361,14 +368,63 @@ for the person holding it.
 `mZenMode=ZEN_MODE_OFF`. Channel importance is 4 (HIGH), not user-lowered
 (`mUserLockedFields=0`). The app is Doze-exempt. FCM delivery works — the same
 event's stand-down was received and logged. `AlertGate` did not reject it: the
-notification was posted, which happens only after the gate agrees.
+notification was posted, which happens only after the gate agrees. Process state
+is ruled out by the table above.
 
-**Leading hypothesis, NOT verified.** The channel is created with `mSound=null`
-and `mVibrationPattern=null` (confirmed in `dumpsys`) because the app plays its
-own siren. A silent channel can lose heads-up presentation even at importance 4,
-which would explain "no HUN". This needs confirming against Android's
-`VisualInterruptionDecisionProvider` behaviour before any change — the hypothesis
-must not be treated as the finding.
+**Mechanism — CONFIRMED against AOSP source 2026-08-31.** The channel is created
+with `setSound(null, null)` (`WarningNotifier.kt:78-80`, deliberately: the
+app plays its own siren through `AlertSiren` on the alarm stream). That makes it a
+silent channel, and SystemUI suppresses heads-up for silent notifications by a
+filter whose name says exactly that — `VisualInterruptionDecisionProviderImpl.start()`
+registers `addFilter(HunSilentNotificationSuppressor())` (AOSP `main`,
+`frameworks/base/packages/SystemUI/src/com/android/systemui/statusbar/notification/interruption/`).
+
+The full-screen decision then consumes that result. `FullScreenIntentDecisionProvider`
+receives `couldHeadsUp` from the heads-up decision
+(`makeUnloggedFullScreenIntentDecision`), and `makeDecisionWithoutDnd()` evaluates in
+this order:
+
+```kotlin
+if (!powerManager.isInteractive)                  return FSI_DEVICE_NOT_INTERACTIVE
+if (statusBarStateController.isDreaming)          return FSI_DEVICE_DREAMING
+if (statusBarStateController.state == KEYGUARD)   return FSI_KEYGUARD_SHOWING
+if (couldHeadsUp)                                 return NO_FSI_EXPECTED_TO_HUN
+if (keyguardStateController.isShowing)            … FSI_KEYGUARD_OCCLUDED / FSI_LOCKED_SHADE
+…
+return NO_FSI_NO_HUN_OR_KEYGUARD          // ← the observed outcome
+```
+
+So the chain is: silent channel → heads-up suppressed → `couldHeadsUp = false` →
+execution falls past every FSI-granting branch to the terminal
+`NO_FSI_NO_HUN_OR_KEYGUARD`, whose `logReason` is the exact string observed on
+device. This also explains why the locked case works and is **not** luck:
+`FSI_KEYGUARD_SHOWING` is checked *before* `couldHeadsUp`, so a showing keyguard
+bypasses the heads-up question entirely.
+
+Note the asymmetry this creates: when `couldHeadsUp` is true the decision is
+`NO_FSI_EXPECTED_TO_HUN` — Android declines the full-screen alarm *because it
+expects a heads-up to stand in for it*. A silent channel gets neither.
+
+**Ruled out (was a competing hypothesis).** A reported Android 16 defect where a
+notification goes silent while another unread notification sits in the shade — the
+app always keeps notification 4401 (`quakealert_status`, `ONGOING_EVENT|SILENT`)
+posted, so it fit. It is not needed to explain the observation and the AOSP path
+above accounts for it completely. No shade-empty experiment was required.
+
+**Forward risk, and it raises the stakes on this decision.** The same AOSP file
+contains a flagged branch:
+
+```kotlin
+if (android.service.notification.Flags.notificationSilentFlag()) {
+    if (sbn.notification.isSilent) return NO_FSI_SUPPRESSIVE_SILENT_NOTIFICATION
+}
+```
+
+If that flag ships enabled, a silent notification loses the full-screen intent
+**unconditionally — including on the lock screen**, which is the one path that
+works today. This is not a reason to rush a fix, but it is a reason not to file
+this as cosmetic: the current design's blast radius grows with a platform flag
+outside this project's control.
 
 **What would settle it:** an owner decision on what an in-use device should
 receive. At least three readings exist and they are not equivalent:
@@ -376,13 +432,28 @@ receive. At least three readings exist and they are not equivalent:
      screen of a user who may be driving or in a call;
  (b) heads-up notification plus siren — visible without seizing the screen;
  (c) in-app takeover when the app is foreground, heads-up when backgrounded.
-Any of them is a change to delivery behaviour, so none may be chosen by
-implementation.
 
-**Do not** raise the channel's sound or importance to force heads-up as a
-side-effect of debugging this. Channel sound is user-visible behaviour and the
-app deliberately owns its siren; changing it to move a log line is exactly the
-class of change `PROJECT_RULES.md` §9 exists to stop.
+**Precedent worth weighing.** Google's own Android Earthquake Alerts System ships
+two tiers: *Be Aware* (weak/light shaking) respects volume, Do Not Disturb and
+notification settings; *Take Action* (moderate/extreme) breaks through Do Not
+Disturb, turns the screen on and plays a loud sound. The tiering is by shaking
+severity, not by device state — which maps onto this project's existing
+advisory/confirmed split (D-009) rather than cutting across it.
+
+**Cost of the likeliest fix, stated up front.** Making the siren the *channel*
+sound is what earns heads-up back, and it moves control of the alert sound from
+the app to the OS: the user could then silence it from Android's channel settings,
+and the app's own mute button no longer owns that audio. That is a real trade-off
+on a life-safety path, not an implementation detail, and it is part of what the
+owner is deciding. A second channel (one silent for advisories, one sounding for
+confirmed alerts) is a way to keep both, at the cost of two user-visible channels
+in Settings.
+
+**Do not** raise the existing channel's sound or importance as a side-effect of
+debugging this. Channel behaviour is immutable after creation — Android's own
+documentation states the importance and other notification behaviours cannot be
+changed once the channel is registered — so a change here means a **new channel
+ID**, and silently migrating users to one is itself a delivery-behaviour change.
 
 **Affects:** delivery behaviour, Android client. **Related:** U-001 (which is the
 same shape of gap one tier down: unconfirmed events reach a locked device not at
