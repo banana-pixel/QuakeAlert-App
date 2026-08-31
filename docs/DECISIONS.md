@@ -371,67 +371,92 @@ event's stand-down was received and logged. `AlertGate` did not reject it: the
 notification was posted, which happens only after the gate agrees. Process state
 is ruled out by the table above.
 
-**Mechanism — CONFIRMED against AOSP source 2026-08-31.** The channel is created
-with `setSound(null, null)` (`WarningNotifier.kt:78-80`, deliberately: the
-app plays its own siren through `AlertSiren` on the alarm stream). That makes it a
-silent channel, and SystemUI suppresses heads-up for silent notifications by a
-filter whose name says exactly that — `VisualInterruptionDecisionProviderImpl.start()`
-registers `addFilter(HunSilentNotificationSuppressor())` (AOSP `main`,
-`frameworks/base/packages/SystemUI/src/com/android/systemui/statusbar/notification/interruption/`).
+**ROOT CAUSE — heads-up is disabled device-wide (FACT, 2026-08-31).**
 
-The full-screen decision then consumes that result. `FullScreenIntentDecisionProvider`
-receives `couldHeadsUp` from the heads-up decision
-(`makeUnloggedFullScreenIntentDecision`), and `makeDecisionWithoutDnd()` evaluates in
-this order:
-
-```kotlin
-if (!powerManager.isInteractive)                  return FSI_DEVICE_NOT_INTERACTIVE
-if (statusBarStateController.isDreaming)          return FSI_DEVICE_DREAMING
-if (statusBarStateController.state == KEYGUARD)   return FSI_KEYGUARD_SHOWING
-if (couldHeadsUp)                                 return NO_FSI_EXPECTED_TO_HUN
-if (keyguardStateController.isShowing)            … FSI_KEYGUARD_OCCLUDED / FSI_LOCKED_SHADE
-…
-return NO_FSI_NO_HUN_OR_KEYGUARD          // ← the observed outcome
+```
+adb shell settings get global heads_up_notifications_enabled  →  0
 ```
 
-So the chain is: silent channel → heads-up suppressed → `couldHeadsUp = false` →
-execution falls past every FSI-granting branch to the terminal
-`NO_FSI_NO_HUN_OR_KEYGUARD`, whose `logReason` is the exact string observed on
-device. This also explains why the locked case works and is **not** luck:
-`FSI_KEYGUARD_SHOWING` is checked *before* `couldHeadsUp`, so a showing keyguard
-bypasses the heads-up question entirely.
-
-Note the asymmetry this creates: when `couldHeadsUp` is true the decision is
-`NO_FSI_EXPECTED_TO_HUN` — Android declines the full-screen alarm *because it
-expects a heads-up to stand in for it*. A silent channel gets neither.
-
-**Ruled out (was a competing hypothesis).** A reported Android 16 defect where a
-notification goes silent while another unread notification sits in the shade — the
-app always keeps notification 4401 (`quakealert_status`, `ONGOING_EVENT|SILENT`)
-posted, so it fit. It is not needed to explain the observation and the AOSP path
-above accounts for it completely. No shade-empty experiment was required.
-
-**Forward risk, and it raises the stakes on this decision.** The same AOSP file
-contains a flagged branch:
+`PeekDisabledSuppressor` (AOSP `CommonVisualInterruptionSuppressors.kt`) is a
+device-wide `VisualInterruptionCondition`, not a per-notification filter:
 
 ```kotlin
-if (android.service.notification.Flags.notificationSilentFlag()) {
-    if (sbn.notification.isSilent) return NO_FSI_SUPPRESSIVE_SILENT_NOTIFICATION
+class PeekDisabledSuppressor(...) :
+    VisualInterruptionCondition(types = setOf(PEEK), reason = "peek disabled by global setting") {
+    private var isEnabled = false
+    override fun shouldSuppress(): Boolean = !isEnabled
+    // isEnabled = globalSettings.getInt(HEADS_UP_NOTIFICATIONS_ENABLED, HEADS_UP_OFF) != HEADS_UP_OFF
 }
 ```
 
-If that flag ships enabled, a silent notification loses the full-screen intent
-**unconditionally — including on the lock screen**, which is the one path that
-works today. This is not a reason to rush a fix, but it is a reason not to file
-this as cosmetic: the current design's blast radius grows with a platform flag
-outside this project's control.
+`HEADS_UP_OFF` is `0`, so a stored `0` makes `isEnabled=false` and
+`shouldSuppress()=true`. `makeLoggablePeekDecision()` evaluates
+`checkConditions(PEEK)` **first**, before any filter, so heads-up is suppressed for
+**every notification from every app on this device** — `couldHeadsUp=false`
+unconditionally, which is exactly the input that drives
+`FullScreenIntentDecisionProvider` to its terminal `NO_FSI_NO_HUN_OR_KEYGUARD`.
 
-**What would settle it:** an owner decision on what an in-use device should
-receive. At least three readings exist and they are not equivalent:
- (a) full-screen alarm regardless of keyguard — most forceful, and hijacks the
-     screen of a user who may be driving or in a call;
+Corroborating FACT: across every logcat capture this session, `HeadsUp` and
+`VisualInterruptionDecisionProvider` appear **0** times for any package other than
+the suppression warning itself. No app on this phone produced a heads-up.
+
+**This is a device setting, not a QuakeAlert defect.** The app's notification is
+otherwise fully eligible: `mImportance=4` (passes `PeekNotImportantSuppressor`),
+screen on and not dreaming (passes `PeekDeviceNotInUseSuppressor`),
+`mZenMode=ZEN_MODE_OFF` (passes `PeekDndSuppressor`), and it carries a
+`fullScreenIntent`, which `PeekOldWhenSuppressor` treats as inherently
+time-sensitive and exempts from its `when`-age check regardless of timestamp:
+
+```kotlin
+entry.sbn.notification.fullScreenIntent != null || … -> false   // never suppressed
+```
+
+So the `setWhen()` / clock-skew line of enquiry is **ruled out** (FACT): with an
+FSI attached, `when` age cannot suppress heads-up.
+
+**Superseded explanation — retracted.** An earlier version of this entry claimed
+the cause was CONFIRMED as the silent channel via
+`HunSilentNotificationSuppressor`. That was asserted from the filter's *name* in
+`VisualInterruptionDecisionProviderImpl.start()` without reading its body, and it
+overstated the evidence. The body is gated:
+
+```kotlin
+override fun shouldSuppress(entry: NotificationEntry) =
+    entry.sbn.let { Flags.notificationSilentFlag() && it.notification.isSilent }
+```
+
+The flag *is* on for this device (FACT:
+`device_config` → `android.service.notification.notification_silent_flag=true`),
+so this filter is live — but it is a **secondary** suppressor that could only
+matter once the device-wide setting is re-enabled, and whether
+`notification.isSilent` is true for QuakeAlert's notification is **UNVERIFIED**.
+The silent-channel theory is therefore *possible but unproven*, and it is not the
+observed cause.
+
+**Remaining uncertainty (UNVERIFIED).**
+- Whether `heads_up_notifications_enabled=0` is a PixelOS default, a user setting,
+  or an artifact of this device's history. Not determinable from the value alone.
+- What fraction of real users have it off. Unknown, and it decides how much of the
+  in-use gap is device-specific versus universal.
+- Whether QuakeAlert's notification would heads-up with the setting on — i.e.
+  whether `HunSilentNotificationSuppressor` then blocks it. **This is the single
+  experiment that separates "device-specific" from "app design issue" and it has
+  not been run.**
+
+**Smallest appropriate fix — RECOMMENDATION ONLY, not a decision.** Do not change
+the channel or the architecture on this evidence. Re-run one drill with
+`heads_up_notifications_enabled=1` and observe whether a heads-up appears. Only
+that result justifies touching the channel, and only if heads-up is still
+suppressed. If heads-up *does* appear, the correct scope shrinks to detecting the
+setting and telling the user their device will not show the alert while in use —
+which is a UI/diagnostics change, not a delivery-behaviour change.
+
+**What the owner still decides (unchanged).** Even with the mechanism understood,
+what an in-use device *should* receive remains a policy question:
  (b) heads-up notification plus siren — visible without seizing the screen;
  (c) in-app takeover when the app is foreground, heads-up when backgrounded.
+Option (a) (full-screen alarm regardless of keyguard) was **rejected by the owner
+2026-08-31**: it would hijack the screen of a user who may be driving or in a call.
 
 **Precedent worth weighing.** Google's own Android Earthquake Alerts System ships
 two tiers: *Be Aware* (weak/light shaking) respects volume, Do Not Disturb and
@@ -440,20 +465,32 @@ Disturb, turns the screen on and plays a loud sound. The tiering is by shaking
 severity, not by device state — which maps onto this project's existing
 advisory/confirmed split (D-009) rather than cutting across it.
 
-**Cost of the likeliest fix, stated up front.** Making the siren the *channel*
-sound is what earns heads-up back, and it moves control of the alert sound from
-the app to the OS: the user could then silence it from Android's channel settings,
-and the app's own mute button no longer owns that audio. That is a real trade-off
-on a life-safety path, not an implementation detail, and it is part of what the
-owner is deciding. A second channel (one silent for advisories, one sounding for
-confirmed alerts) is a way to keep both, at the cost of two user-visible channels
-in Settings.
+**Cost of the channel-sound remedy, if it ever becomes justified.** Making the
+siren the *channel* sound moves control of the alert sound from the app to the OS:
+the user could then silence it from Android's channel settings, and the app's own
+mute button no longer owns that audio. Channel behaviour is immutable after
+creation — Android's documentation states importance and other notification
+behaviours cannot be changed once the channel is registered — so it means a **new
+channel ID**, and migrating users to one is itself a delivery-behaviour change. A
+single emergency channel remains the right shape either way: D-009 already keeps
+advisories off push entirely, so everything reaching this channel is a CONFIRMED
+event past the 200 km gate and deserves one urgency level, and a second channel
+would only add another switch a user can turn off on a life-safety path.
 
-**Do not** raise the existing channel's sound or importance as a side-effect of
-debugging this. Channel behaviour is immutable after creation — Android's own
-documentation states the importance and other notification behaviours cannot be
-changed once the channel is registered — so a change here means a **new channel
-ID**, and silently migrating users to one is itself a delivery-behaviour change.
+**Forward risk (FACT about AOSP, INFERENCE about impact).** The same AOSP file
+contains a flagged branch:
+
+```kotlin
+if (android.service.notification.Flags.notificationSilentFlag()) {
+    if (sbn.notification.isSilent) return NO_FSI_SUPPRESSIVE_SILENT_NOTIFICATION
+}
+```
+
+The flag is on for this device. If `notification.isSilent` is true for
+QuakeAlert's alert, this would remove the full-screen intent **unconditionally,
+including on the lock screen** — the one path that works today. Whether
+`isSilent` is true here is **UNVERIFIED** and is the same unknown as above, which
+makes it the highest-value thing to measure next.
 
 **Affects:** delivery behaviour, Android client. **Related:** U-001 (which is the
 same shape of gap one tier down: unconfirmed events reach a locked device not at

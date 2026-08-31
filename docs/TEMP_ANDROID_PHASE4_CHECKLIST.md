@@ -229,8 +229,13 @@ paths return **401** unauthenticated and **200** with the key.
       (`importance=4 pri=2 category=alarm vis=PUBLIC`,
       `flags=ONGOING_EVENT|HIGH_PRIORITY`, live `fullscreenIntent`) but SystemUI
       logged `FSI suppressed: no HUN or keyguard` and **no heads-up replaced it**;
-      `WarningActivity` never started. Nothing was visible to the user. Mechanism
-      since confirmed against AOSP source — see U-012.
+      `WarningActivity` never started. Nothing was visible to the user. Root cause
+      traced 2026-08-31 to a **device setting**:
+      `settings get global heads_up_notifications_enabled` → `0`, which makes AOSP's
+      `PeekDisabledSuppressor` suppress heads-up for every app on the phone. Not an
+      app defect on this evidence — see U-012, including the retraction of the
+      earlier silent-channel explanation and the one experiment still outstanding
+      (re-run with the setting enabled).
 - [x] Process death (recent-apps **swipe**), locked — **PASS** (2026-08-31). Drill
       `test-b04e344a-…`: `pidof` empty before, 20670 after, so FCM revived the
       process; `Displayed WarningActivity +960ms` (roughly double the +467ms of the

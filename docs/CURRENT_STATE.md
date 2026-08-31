@@ -139,13 +139,16 @@ only presence in *Demonstrated* is** (`PROJECT_RULES.md` §8).
 - **No measured lead time.** No end-to-end warning has preceded shaking for any
   real user. Do not claim EEW lead time.
 - **Push delivery not verified across device vendors.** One vendor, in testing.
-- **Delivery to an unlocked, in-use device does not happen.** Observed failing on
-  hardware 2026-08-31 in both process states, and the mechanism is confirmed
-  against AOSP source: the emergency channel is silent, SystemUI's
-  `HunSilentNotificationSuppressor` therefore suppresses heads-up, and
-  `FullScreenIntentDecisionProvider` falls through to `NO_FSI_NO_HUN_OR_KEYGUARD`.
-  The keyguard is the only reason the locked path works. Choice of remedy is
-  **U-012**.
+- **Delivery to an unlocked, in-use device does not happen on the one device
+  tested.** Observed failing on hardware 2026-08-31 in both process states. Root
+  cause is a **device setting**, not an app defect:
+  `settings get global heads_up_notifications_enabled` returns `0`, which makes
+  AOSP's `PeekDisabledSuppressor` suppress heads-up for every app on the phone;
+  `couldHeadsUp=false` then drives `FullScreenIntentDecisionProvider` to
+  `NO_FSI_NO_HUN_OR_KEYGUARD`. The keyguard is why the locked path works.
+  Whether QuakeAlert would heads-up with that setting enabled is **not yet
+  tested**, so how much of this gap is device-specific is unknown. Policy choice
+  is **U-012**.
 - **Alert delivery to a force-stopped app is impossible, by platform design.** Not
   a project gap: Android withholds broadcasts from a stopped app until the user
   launches it again.
