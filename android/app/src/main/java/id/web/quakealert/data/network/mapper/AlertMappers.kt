@@ -75,7 +75,7 @@ private fun String.toAlertTypeOrNull(): AlertType? =
  * an unknown `type` has no safe interpretation at all. Dropping the frame here would
  * re-create the exact failure the frozen enum exists to avoid, one field over.
  */
-private fun String.toEventStateOrNull(): EventState? =
+internal fun String.toEventStateOrNull(): EventState? =
     EventState.entries.firstOrNull { it.name.equals(this.trim(), ignoreCase = true) }
 
 /**

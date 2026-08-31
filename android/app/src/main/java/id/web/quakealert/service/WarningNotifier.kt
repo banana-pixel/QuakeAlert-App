@@ -38,6 +38,28 @@ object WarningNotifier {
     private const val NOTIFICATION_ID = 4301
     private const val TAG = "WarningNotifier"
 
+    /**
+     * The event_id of the notification currently posted, or blank when nothing is shown.
+     *
+     * Used by [clear] to guard against a stand-down for Event B clearing the notification
+     * that was posted for Event A. Volatile so writes from any thread are immediately
+     * visible to callers on other threads (same guarantee as AlertDedup's revision field).
+     *
+     * Blank is the correct sentinel: the server guarantees event_id is a non-blank UUID
+     * for every Phase-3 frame, and pre-Phase-3 frames that carry no id arrive as blank
+     * strings — the legacy behaviour (unconditional clear) is preserved when either side
+     * is blank.
+     */
+    @Volatile
+    private var activeEventId: String = ""
+
+    /**
+     * Returns the event_id of the notification currently posted by this object.
+     * Blank when no notification is active. Used by tests and by [WarningActivity]'s
+     * stand-down observer to compare without exposing the mutable field.
+     */
+    fun activeNotificationEventId(): String = activeEventId
+
     /** Registers the emergency channel. Safe to call repeatedly. */
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -121,6 +143,9 @@ object WarningNotifier {
         }
 
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
+        // Track which event_id is currently displayed so clear() can guard against
+        // a stand-down for a different event removing this notification.
+        activeEventId = message.eventId
         // Remember what was shown, for the status notification's "Last alert" line. Here
         // and not on arrival: the claim it feeds is that the app has alerted this user,
         // and an alert filtered out by the distance gate or dropped by the OS never did.
@@ -131,9 +156,28 @@ object WarningNotifier {
         return true
     }
 
-    /** Clears the emergency notification, on `EVENT_RESOLVED`. */
-    fun clear(context: Context) {
+    /**
+     * Clears the emergency notification on `EVENT_RESOLVED`, but only when the
+     * stand-down belongs to the event currently displayed.
+     *
+     * @param standDownEventId the event_id carried by the resolved/cancelled frame.
+     *   Blank (pre-Phase-3 frames, or callers that do not have an id) always clears
+     *   unconditionally, preserving the original behaviour.
+     */
+    fun clear(context: Context, standDownEventId: String = "") {
+        // Guard: if both sides are non-blank and they disagree, the stand-down is for
+        // a different event. Do nothing — the active notification stays.
+        if (standDownEventId.isNotBlank() && activeEventId.isNotBlank()
+            && standDownEventId != activeEventId
+        ) {
+            Log.d(
+                TAG,
+                "stand-down for $standDownEventId ignored; active notification is for $activeEventId"
+            )
+            return
+        }
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+        activeEventId = ""
     }
 
     /**

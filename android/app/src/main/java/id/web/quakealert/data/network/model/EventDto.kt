@@ -19,10 +19,20 @@ import kotlinx.serialization.Serializable
  * @param mmi Modified Mercalli intensity as a Roman numeral, e.g. "V".
  * @param intensityLabel "light" | "moderate" | "strong" (server-derived from PGA).
  * @param depthKm always null by contract — a 2D centroid carries no depth. Present
- *   so the model survives a future catalogue integration unchanged.
+ *   so the model survives future catalogue integration unchanged.
  * @param createdAt RFC3339 UTC, mapped from `started_at`; the feed's DESC sort key.
  * @param resolvedAt absent from the payload while [status] is "HAPPENING", hence
  *   defaulted rather than required.
+ * @param eventState Phase 3 lifecycle state. Absent on pre-Phase-3 rows — null means
+ *   "unknown", not a specific named state. Never UNCONFIRMED in this feed.
+ * @param eventRevision monotone revision counter for this event; absent on pre-Phase-3
+ *   rows, defaults to 0.
+ * @param originTs onset of shaking in ms epoch UTC. Distinct from [createdAt] (which
+ *   is when the server row was written). Absent on pre-Phase-3 rows, defaults to 0.
+ * @param originTsSource provenance of [originTs]: "SENSOR" (measured) or
+ *   "PUBLISH_BOUND" (upper bound only). Absent on pre-Phase-3 rows, defaults to "".
+ * @param independentCellCount number of mutually independent contributors (§7.3).
+ *   Always >= 2 for events in this feed. Absent on pre-Phase-3 rows, defaults to 0.
  */
 @Serializable
 data class EventDto(
@@ -37,7 +47,13 @@ data class EventDto(
     @SerialName("location_name") val locationName: String,
     @SerialName("triggered_nodes_count") val triggeredNodesCount: Int = 0,
     @SerialName("created_at") val createdAt: String,
-    @SerialName("resolved_at") val resolvedAt: String? = null
+    @SerialName("resolved_at") val resolvedAt: String? = null,
+    // Phase 3 fields — all optional so pre-Phase-3 responses decode without error.
+    @SerialName("event_state") val eventState: String? = null,
+    @SerialName("event_revision") val eventRevision: Int = 0,
+    @SerialName("origin_ts") val originTs: Long = 0L,
+    @SerialName("origin_ts_source") val originTsSource: String = "",
+    @SerialName("independent_cell_count") val independentCellCount: Int = 0,
 )
 
 /**

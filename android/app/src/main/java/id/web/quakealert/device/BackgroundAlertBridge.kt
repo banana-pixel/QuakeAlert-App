@@ -78,8 +78,10 @@ object BackgroundAlertBridge {
                     AlertType.EVENT_RESOLVED -> {
                         // All-clear cancels whatever this bridge posted; harmless if none.
                         // Dedup is marked so the FCM copy stays suppressed too.
+                        // Pass the event_id so WarningNotifier.clear() only removes the
+                        // notification it actually posted — not one from a different event.
                         QuakeNetwork.from(appContext).alertDedup.markIfNew(message)
-                        WarningNotifier.clear(appContext)
+                        WarningNotifier.clear(appContext, message.eventId)
                         // A withdrawal and an all-clear arrive as the SAME wire type and
                         // differ only in event_state, so the distinction has to be drawn
                         // here or nowhere. Logged rather than posted: this branch runs

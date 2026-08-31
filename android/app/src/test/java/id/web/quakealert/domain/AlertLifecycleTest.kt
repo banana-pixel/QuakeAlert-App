@@ -15,6 +15,8 @@ import org.junit.Test
  *     did before, first-wins;
  *  3. the copy for a WITHDRAWN report does not claim the shaking ended, and an
  *     unrecognised state falls back to all-clear wording rather than to silence.
+ *  4. (F-1) the event_id-scoped stand-down guard: a resolved frame for event B must
+ *     not be mistaken for a stand-down of event A.
  */
 class AlertLifecycleTest {
 

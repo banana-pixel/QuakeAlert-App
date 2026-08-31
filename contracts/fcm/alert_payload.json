@@ -114,6 +114,11 @@
               "description": "Jumlah sel geografis independen yang menyumbang bukti, sebagai string desimal. Menjawab mengapa sebuah event terkonfirmasi: tiga sensor di satu meja bukan tiga bukti.",
               "pattern": "^[0-9]+$",
               "examples": ["3"]
+            },
+            "is_test": {
+              "type": "string",
+              "enum": ["true"],
+              "description": "Hanya hadir dan bernilai \"true\" pada pesan latihan (drill) yang dikirim lewat POST /api/v1/admin/test-alert. TIDAK pernah hadir pada peringatan gempa sungguhan — ketiadaan field ini berarti real, bukan false. Klien WAJIB memperlakukan nilai apa pun selain string literal \"true\" (termasuk \"false\", \"1\", \"TRUE\", atau absen) sebagai real alert. Ini adalah pagar keselamatan: gempa sungguhan yang salah dibaca sebagai drill akan diabaikan."
             }
           }
         },

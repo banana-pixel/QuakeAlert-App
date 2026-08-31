@@ -415,6 +415,92 @@ class MappersTest {
         assertTrue(!unlocated.hasPosition)
     }
 
+    // --- F-3: Phase 3 REST event fields ------------------------------------
+
+    /** Full Phase 3 EventDto with all five new fields populated. */
+    private fun phase3EventDto() = EventDto(
+        eventId = "evt-phase3",
+        status = "RESOLVED",
+        pga = 182.4,
+        mmi = "VI",
+        intensityLabel = "strong",
+        latitude = -6.900,
+        longitude = 107.600,
+        locationName = "Ngamprah, West Java, ID",
+        triggeredNodesCount = 4,
+        createdAt = "2026-08-28T11:58:16Z",
+        resolvedAt = "2026-08-28T12:00:00Z",
+        eventState = "CONFIRMED",
+        eventRevision = 3,
+        originTs = 1755601320000L,
+        originTsSource = "SENSOR",
+        independentCellCount = 2,
+    )
+
+    @Test
+    fun `phase 3 event_state maps to EventState enum`() {
+        val event = phase3EventDto().toDomain()
+        assertEquals(EventState.CONFIRMED, event.eventState)
+    }
+
+    @Test
+    fun `phase 3 event_revision passes through`() {
+        assertEquals(3, phase3EventDto().toDomain().eventRevision)
+    }
+
+    @Test
+    fun `phase 3 origin_ts passes through as ms`() {
+        assertEquals(1755601320000L, phase3EventDto().toDomain().originTsMs)
+    }
+
+    @Test
+    fun `phase 3 origin_ts_source passes through`() {
+        assertEquals("SENSOR", phase3EventDto().toDomain().originTsSource)
+    }
+
+    @Test
+    fun `phase 3 independent_cell_count passes through`() {
+        assertEquals(2, phase3EventDto().toDomain().independentCellCount)
+    }
+
+    @Test
+    fun `pre-phase3 response absent fields use safe defaults`() {
+        // No Phase 3 fields set — the eventDto() helper is a pre-Phase-3 response.
+        val event = eventDto().toDomain()
+        assertNull("eventState must be null, not fabricated", event.eventState)
+        assertEquals("eventRevision default 0", 0, event.eventRevision)
+        assertEquals("originTsMs default 0", 0L, event.originTsMs)
+        assertEquals("originTsSource default blank", "", event.originTsSource)
+        assertEquals("independentCellCount default 0", 0, event.independentCellCount)
+    }
+
+    @Test
+    fun `unknown event_state string maps to null without crashing`() {
+        val dto = phase3EventDto().copy(eventState = "FUTURE_STATE_UNKNOWN")
+        assertNull(dto.toDomain().eventState)
+    }
+
+    @Test
+    fun `null event_state maps to null`() {
+        val dto = phase3EventDto().copy(eventState = null)
+        assertNull(dto.toDomain().eventState)
+    }
+
+    @Test
+    fun `zero revision from wire is preserved as zero`() {
+        // Zero is the correct default — must not be silently converted to something else.
+        val dto = phase3EventDto().copy(eventRevision = 0)
+        assertEquals(0, dto.toDomain().eventRevision)
+    }
+
+    @Test
+    fun `event_state case-insensitive mapping`() {
+        // Server sends uppercase; guard against case variation in future.
+        assertEquals(EventState.RESOLVED,  phase3EventDto().copy(eventState = "RESOLVED").toDomain().eventState)
+        assertEquals(EventState.CANCELLED, phase3EventDto().copy(eventState = "CANCELLED").toDomain().eventState)
+        assertEquals(EventState.CONFIRMED, phase3EventDto().copy(eventState = "confirmed").toDomain().eventState)
+    }
+
     private fun wsDto(
         type: String = "EARTHQUAKE_ALERT",
         eventId: String = "evt-1"

@@ -400,7 +400,7 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
                 // Both RESOLVED and CANCELLED arrive as this one type; the state is
                 // what tells an all-clear from a withdrawn report, and it changes
                 // nothing about the stand-down itself — only what the user is told.
-                AlertType.EVENT_RESOLVED -> standDown(message.eventState)
+                AlertType.EVENT_RESOLVED -> standDown(message.eventId, message.eventState)
             }
         }
     }
@@ -499,12 +499,19 @@ class WarningViewModel(application: Application) : AndroidViewModel(application)
      * the emergency card, so a torch that survived the stand-down would be one the
      * user has no way left to turn off.
      */
-    private fun standDown(eventState: EventState? = null) {
+    private fun standDown(eventId: String = "", eventState: EventState? = null) {
+        // Event-scoped guard: if both sides are non-blank and disagree, this stand-down
+        // belongs to a different event — leave the active alert on screen.
+        val currentId = (_uiState.value as? WarningUiState.ActiveAlert)?.eventId ?: ""
+        if (eventId.isNotBlank() && currentId.isNotBlank() && eventId != currentId) {
+            Log.d(TAG, "stand-down for $eventId ignored; active alert is for $currentId")
+            return
+        }
         siren.release()
         torch.stop()
         // Also takes down the ongoing push notification, which is deliberately
         // non-dismissible: the all-clear is the thing that removes it.
-        WarningNotifier.clear(getApplication())
+        WarningNotifier.clear(getApplication(), eventId)
         activeAlertDetails = null
         val snapshot = restingSnapshot(recentActivity)
         // A withdrawn report is not an ended earthquake, and the banner is the one

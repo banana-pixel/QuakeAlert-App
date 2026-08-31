@@ -31,11 +31,21 @@ enum class EventStatus { HAPPENING, RESOLVED }
  *   epicentre. Never present it as a precise epicentre location.
  * @param longitude see [latitude].
  * @param depthKm always null: a surface MEMS network estimates a 2D centroid, not
- *   a hypocentre. Kept so the model stays stable if a catalogue source (e.g. BMKG)
- *   is integrated later. Must never be rendered as "0 km".
+ *   a hypocentre. Kept so the model stays stable if a catalogue source is integrated
+ *   as an optional post-event reference. Must never be rendered as "0 km".
  * @param createdAt start of the event (server maps this from `started_at`); the
  *   DESC sort key of the history feed.
  * @param resolvedAt null while [status] is [EventStatus.HAPPENING].
+ * @param eventState Phase 3 lifecycle state (CONFIRMED, RESOLVED, or CANCELLED).
+ *   Null for pre-Phase-3 rows — absence means unknown, not a specific state.
+ *   Never UNCONFIRMED in this feed (unconfirmed events are not published here).
+ * @param eventRevision monotone revision counter; 0 for pre-Phase-3 rows.
+ * @param originTsMs onset of shaking in ms epoch UTC. Distinct from [createdAt].
+ *   0 for pre-Phase-3 rows.
+ * @param originTsSource provenance of [originTsMs]: "SENSOR" (measured) or
+ *   "PUBLISH_BOUND" (upper bound). Empty for pre-Phase-3 rows.
+ * @param independentCellCount number of mutually independent contributors (§7.3).
+ *   Always >= 2 for events in this feed. 0 for pre-Phase-3 rows.
  */
 data class EarthquakeEvent(
     val eventId: String,
@@ -49,5 +59,11 @@ data class EarthquakeEvent(
     val locationName: String,
     val triggeredNodesCount: Int,
     val createdAt: Instant,
-    val resolvedAt: Instant?
+    val resolvedAt: Instant?,
+    // Phase 3 fields — safe defaults so existing call sites compile without change.
+    val eventState: EventState? = null,
+    val eventRevision: Int = 0,
+    val originTsMs: Long = 0L,
+    val originTsSource: String = "",
+    val independentCellCount: Int = 0,
 )

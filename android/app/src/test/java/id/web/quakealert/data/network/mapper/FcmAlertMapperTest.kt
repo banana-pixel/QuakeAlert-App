@@ -79,6 +79,67 @@ class FcmAlertMapperTest {
         assertNull(base.plus("type" to "VOLCANO_ALERT").toWsAlertMessageOrNull(nowMs = NOW_MS))
     }
 
+    // --- F-6: is_test contract --------------------------------------------------
+
+    @Test
+    fun `is_test true string marks frame as drill`() {
+        // Server sends exactly "true" (lowercase string) for drills.
+        val message = confirmedPayload()
+            .plus("is_test" to "true")
+            .toWsAlertMessageOrNull(nowMs = NOW_MS, allowTestAlerts = true)
+
+        requireNotNull(message)
+        assertTrue("is_test='true' must be a drill", message.isTest)
+    }
+
+    @Test
+    fun `is_test absent means real alert`() {
+        // Server never sends is_test on a real event — absence = real.
+        val message = confirmedPayload()
+            .toWsAlertMessageOrNull(nowMs = NOW_MS, allowTestAlerts = false)
+
+        requireNotNull(message)
+        assertTrue("absent is_test must NOT be drill", !message.isTest)
+    }
+
+    @Test
+    fun `is_test false string is treated as real alert not drill`() {
+        // Server never sends "false"; if it somehow arrives, must not be a drill.
+        // Failing safe: a real quake misread as a drill would be dropped on release.
+        val message = confirmedPayload()
+            .plus("is_test" to "false")
+            .toWsAlertMessageOrNull(nowMs = NOW_MS, allowTestAlerts = false)
+
+        requireNotNull(message)
+        assertTrue("is_test='false' must NOT be drill", !message.isTest)
+    }
+
+    @Test
+    fun `unexpected is_test values are treated as real alert`() {
+        // Malformed / unexpected values must not trigger the drill fence.
+        // Only the exact string "true" (after trimming) is a drill — any other
+        // value is treated as real. Note: " true" and "true " both trim to "true"
+        // and ARE treated as drills by the mapper, so they belong in the drill
+        // test above, not here.
+        for (bad in listOf("TRUE", "True", "1", "yes", "drill")) {
+            val message = confirmedPayload()
+                .plus("is_test" to bad)
+                .toWsAlertMessageOrNull(nowMs = NOW_MS, allowTestAlerts = false)
+            requireNotNull(message) { "null for is_test='$bad'" }
+            assertTrue("is_test='$bad' must NOT be drill", !message.isTest)
+        }
+    }
+
+    @Test
+    fun `drill frame is dropped on release build (allowTestAlerts=false)`() {
+        // The client-side drill fence: a drill that reaches a release build is null.
+        val message = confirmedPayload()
+            .plus("is_test" to "true")
+            .toWsAlertMessageOrNull(nowMs = NOW_MS, allowTestAlerts = false)
+
+        assertNull("drill on release build must be dropped", message)
+    }
+
     @Test
     fun `defaults absent numeric fields to zero`() {
         val message = mapOf(

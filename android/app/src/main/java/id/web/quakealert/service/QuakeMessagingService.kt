@@ -80,7 +80,7 @@ class QuakeMessagingService : FirebaseMessagingService() {
         // being told something ended, and being told that too far away is harmless.
         if (message.type == AlertType.EVENT_RESOLVED) {
             network.alertDedup.markIfNew(message)
-            WarningNotifier.clear(applicationContext)
+            WarningNotifier.clear(applicationContext, message.eventId)
             // CANCELLED and RESOLVED share this wire type and differ only in
             // event_state (the type enum is frozen so an un-updated install still
             // clears its alarm); both take the notification down, and only the wording

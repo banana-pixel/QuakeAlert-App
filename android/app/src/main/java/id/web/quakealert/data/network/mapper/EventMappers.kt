@@ -2,6 +2,7 @@ package id.web.quakealert.data.network.mapper
 
 import id.web.quakealert.data.network.model.EventDto
 import id.web.quakealert.domain.EarthquakeEvent
+import id.web.quakealert.domain.EventState
 import id.web.quakealert.domain.EventStatus
 import id.web.quakealert.domain.UserLocation
 import id.web.quakealert.domain.distanceKmTo
@@ -14,6 +15,10 @@ import kotlin.math.roundToInt
 /**
  * Wire → domain. Unparseable timestamps and unknown status strings are coerced
  * rather than thrown on: one malformed row must not blank the whole history feed.
+ *
+ * Phase 3 fields (event_state, event_revision, origin_ts, origin_ts_source,
+ * independent_cell_count) are absent on pre-Phase-3 responses and carry safe
+ * defaults in [EventDto] — they are passed through here unchanged.
  */
 fun EventDto.toDomain(): EarthquakeEvent = EarthquakeEvent(
     eventId = eventId,
@@ -29,7 +34,15 @@ fun EventDto.toDomain(): EarthquakeEvent = EarthquakeEvent(
     locationName = locationName,
     triggeredNodesCount = triggeredNodesCount,
     createdAt = createdAt.toInstantOrEpoch(),
-    resolvedAt = resolvedAt?.toInstantOrNull()
+    resolvedAt = resolvedAt?.toInstantOrNull(),
+    // Phase 3 fields. Unknown event_state string maps to null (not a crash): this
+    // feed only ever carries CONFIRMED/RESOLVED/CANCELLED — if a future state string
+    // arrives on an older build, treating it as unknown is the safe direction.
+    eventState = eventState?.toEventStateOrNull(),
+    eventRevision = eventRevision,
+    originTsMs = originTs,
+    originTsSource = originTsSource,
+    independentCellCount = independentCellCount,
 )
 
 fun List<EventDto>.toDomain(): List<EarthquakeEvent> = map { it.toDomain() }

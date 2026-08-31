@@ -101,6 +101,29 @@ class BackgroundAlertBridgeTest {
         assertFalse(dedup.markIfNew(resolved)) // duplicate all-clear suppressed
     }
 
+    // F-1: event_id-scoped stand-down (dedup layer)
+    @Test
+    fun `resolved for event B does not mark event A as seen in dedup`() {
+        val dedup = AlertDedup()
+        val alertA   = alert(type = AlertType.EARTHQUAKE_ALERT, eventId = "EVT-A")
+        val resolvedB = alert(type = AlertType.EVENT_RESOLVED,  eventId = "EVT-B")
+        val resolvedA = alert(type = AlertType.EVENT_RESOLVED,  eventId = "EVT-A")
+
+        assertTrue("alert A is new",      dedup.markIfNew(alertA))
+        assertTrue("resolved B is new",   dedup.markIfNew(resolvedB))
+        // resolved B must NOT consume the resolved-A slot — A still needs clearing
+        assertTrue("resolved A still new after B resolved", dedup.markIfNew(resolvedA))
+    }
+
+    @Test
+    fun `resolved for same event is suppressed as duplicate`() {
+        val dedup = AlertDedup()
+        val resolved = alert(type = AlertType.EVENT_RESOLVED, eventId = "EVT-A")
+
+        assertTrue("first resolved",     dedup.markIfNew(resolved))
+        assertFalse("duplicate resolved", dedup.markIfNew(resolved))
+    }
+
     // --- staleness guard ----------------------------------------------------
 
     @Test
