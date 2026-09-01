@@ -115,6 +115,26 @@ de-duplication — **not** at-least-once (D-008).
 - Determinism of the independence count under map-iteration order — by test.
 - One firmware node ingesting through MQTTS with HMAC into the observation
   ledger, on a private VPS.
+- **Server-side stage latency, reported from real events** (`ca8262b`, deployed
+  2026-09-01; owner-approved SATISFIED for `P4-M3′` on 2026-09-01).
+  `GET /api/v1/admin/tracker/stats` reports two server stages as p50/p95 over a
+  256-sample ring, each alongside a cumulative `observed` count, with
+  `onset_ts → decided_at` split by onset provenance:
+  `event_latency_onset_to_decided_sensor_ms` **n=2** (measured onset, firmware
+  7.0.0 on `NODE-52960B47`), `event_latency_onset_to_decided_publish_bound_ms`
+  **n=4** (onset inferred as `publish_ts - dur_ms`, an upper bound, from the
+  earlier v1 binary on the same node), and `event_latency_decided_to_emit_ms`
+  **n=12**. The two onset series are never merged: a bound and a measurement are
+  not comparable quantities. **Server stages only** — every timestamp is either
+  the signed sensor onset or a server clock reading, so no client wake, heads-up,
+  or siren timing can enter the number. Two properties were confirmed against
+  live counters rather than argued: terminal transitions stay out of the onset
+  series (the RESOLVED sweep on `3adf752d-48f1-4f81-b98e-d31e3775c923` would have
+  contributed a 98138 ms sample; SENSOR `observed` did not move), and the sample
+  accounting closes exactly — 6 onset samples equal
+  `event_transitions_to_unconfirmed_total = 6`, and 12 decided→emit samples equal
+  the 6 `UNCONFIRMED` plus 6 `RESOLVED` transitions. See *NOT demonstrated* for
+  what these numbers do **not** support.
 - **On a physical device, drill path only** (POCO F1, Android 16 / API 36, PixelOS
   `BP3A.250905.014`, 2026-08-31): a full-screen alarm launching over the lock
   screen from Doze without user action (`Displayed WarningActivity +467ms`); the
@@ -132,6 +152,41 @@ only presence in *Demonstrated* is** (`PROJECT_RULES.md` §8).
 
 - **No CONFIRMED event has ever occurred in production.** With one node, the
   gate is unreachable — this is a network-density fact, not a gate defect (S2).
+- **No population-level latency performance.** The stage latencies in
+  *Demonstrated* rest on **n=2** SENSOR, **n=4** PUBLISH_BOUND, and **n=12**
+  decided→emit samples. At those counts `ceil(0.95 × n)` selects the largest
+  observation, so the reported `p95_ms` **is** the maximum of a handful of
+  events, not a percentile of a population. The numbers demonstrate that the
+  measurement works on real data; they support no claim about how fast the system
+  is, and must not be quoted as a latency figure. Small n here follows from a
+  one-node fleet and a handful of deliberate shakes; D-011 sets no sample-count
+  target, so this is a limit on what may be claimed, not a defect.
+- **CONFIRMED-path stage latency is unvalidated.**
+  `event_transitions_to_confirmed_total = 0`, so every onset→decided sample came
+  from an `UNCONFIRMED` decision. That `CONFIRMED` transitions also feed the
+  onset series is covered by unit test only — and it stays unvalidated for as
+  long as the physical fleet has one node (S2), since the gate is unreachable by
+  density.
+- **`onset_ts → decided_at` is not server processing time.** It structurally
+  contains the shake whenever PRELIM's peak-so-far is below `MinPGAGal`, because
+  the decision then waits for the FINAL observation at de-trigger. On the
+  2026-09-01 SENSOR event the sample was 6166 ms against `dur_ms` 6138: the
+  server's own share was 28 ms, of which 17 ms was network transit. Reporting
+  this stage as server latency would misstate it in the system's favour.
+- **PUBLISH_BOUND onset→decided is a bound, not a measurement.** Its onset is
+  `publish_ts - dur_ms`, whose error is the unbounded publish delay, so those
+  four samples are upper bounds and may never be averaged with, compared against,
+  or presented as the SENSOR series.
+- **`decided_at → emit` is reported below its own resolution.** p50 and p95 both
+  read 0 ms because the stage completes in under a millisecond. `observed = 12`
+  is what distinguishes "measured, and fast" from "nothing measured"; the
+  percentiles cannot distinguish 0 ms from 0.9 ms.
+- **Latency instrumentation unexercised at its edges.** Never observed in
+  production: the 256-sample ring wrapping, rejection of a negative sample from a
+  node clock ahead of the server's, a retry publish (`attempt_no > 1`), or the
+  series across a process restart — the samples are in memory only, and today's
+  counts begin at the 2026-09-01 deploy. All are unit-tested; none are field
+  evidence (S9).
 - **No multi-node correlation in the field.** All multi-node behaviour is proven
   by test only.
 - **No measured false-positive rate.** No population of events exists.

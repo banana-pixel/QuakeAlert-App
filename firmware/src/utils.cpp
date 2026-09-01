@@ -4,6 +4,7 @@
 
 #include "utils.h"
 #include "config.h"
+#include "onset.h"
 #include "state.h"
 
 #include <Preferences.h>
@@ -332,14 +333,13 @@ int64_t getEpochMillis() {
 }
 
 int64_t epochAtMillis(unsigned long atMillis) {
+    // Kedua jam dibaca berdampingan dan aritmetikanya diserahkan ke
+    // epochFromMonotonic (src/onset.cpp), yang bebas Arduino dan karena itu
+    // dapat diuji di host dengan T0/T1 yang dipatok. Yang tinggal di sini hanya
+    // pembacaan jamnya.
     const int64_t nowEpoch = getEpochMillis();
-    if (nowEpoch <= 0) {
-        return 0;
-    }
-    // Selisih millis() sengaja dihitung pada tipe unsigned: ia benar melewati
-    // wrap-around 32-bit, sedangkan mengurangkan dua nilai yang sudah dilebarkan
-    // ke int64 tidak.
-    return nowEpoch - static_cast<int64_t>(millis() - atMillis);
+    const uint32_t nowMillis = static_cast<uint32_t>(millis());
+    return epochFromMonotonic(nowEpoch, nowMillis, static_cast<uint32_t>(atMillis));
 }
 
 const char* getClockSource() {

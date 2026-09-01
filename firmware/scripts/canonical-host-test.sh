@@ -33,3 +33,13 @@ g++ -std=c++17 -Wall -Wextra -Werror -O1 \
     test/canonical_host_test.cpp src/canonical.cpp
 
 "$out/canonical_host_test"
+
+# src/onset.cpp bebas Arduino dengan alasan yang sama: pemetaan tick monotonik
+# onset ke ms epoch UTC adalah aritmetika yang, bila meleset, tetap menghasilkan
+# payload yang lolos skema dan lolos HMAC — angka salah berlabel SENSOR.
+g++ -std=c++17 -Wall -Wextra -Werror -O1 \
+    -DCANONICAL_BUFFER_SIZE="$size" \
+    -o "$out/onset_host_test" \
+    test/onset_host_test.cpp src/onset.cpp src/canonical.cpp
+
+"$out/onset_host_test"

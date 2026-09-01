@@ -135,6 +135,49 @@ safety threshold to silence a startup warning is how a system stops working
 without anyone deciding it should. **Affects:** real-time path.
 **Reversible:** yes.
 
+### D-011 — Phase 4 scope is fixed to six criteria measurable on a one-node fleet
+**Status:** ACCEPTED · **Owner-approved:** 2026-09-01 · **See:** `ROADMAP.md`
+§ Phase 4
+Phase 4 (`VALIDATION`) is bounded to acceptance criteria **P4-M1′ … P4-M6′**:
+trigger durability *reported* over a bounded ledger window, a near-confirmation
+log that survives a restart, server-side stage latency (`onset_ts → decided_at`,
+`decided_at → emit`), deterministic replay grouped by `algo_ver`, the existing
+simulated multi-node harnesses running in CI, and a read-only per-event forensic
+timeline. It produces instrumentation and read paths only.
+
+**Because:** the fleet is one physical node and no further nodes are planned
+during this phase, so CONFIRMED is unreachable in production throughout it (S2 —
+a network-density fact, not a defect). A phase whose exit depends on a confirmed
+event would be unpassable, and the temptation to pass it by loosening the gate is
+exactly what S4 and §6 forbid. Fixing the scope in advance also stops Phase 4
+from growing into the abandoned catalogue-comparison definition.
+
+**Three constraints carried by this decision, stated so they cannot be read
+away:**
+1. **No hard reliability target.** `event_persist_dropped_total` is *reported*,
+   never asserted zero. The ledger writer is bounded and drop-oldest by design
+   (D-002/S1): a drop means a durability record was shed *after* the warning was
+   emitted, which is the intended trade, so a zero-drop exit criterion would
+   misrepresent the architecture as well as being unpassable.
+2. **Simulation is software evidence only.** `sim_multi_node.sh` /
+   `sim_dual_event.sh` passing in CI may never be cited as multi-node field
+   correlation (S9). Field multi-node evidence belongs to Phase F.
+3. **N-node compatibility is required now, extra nodes are not.** The
+   instrumentation records `node_id`, per-node onset time and provenance,
+   `event_id`, `algo_ver`, and cell identity from the start — all already present
+   in Phase 3/3.x rows — so a second node participates correctly without
+   redesigning the event or consensus model.
+
+**Affects:** phase scope, observability surface. **Reversible:** yes — Phase 4
+may be re-scoped by a later owner decision; nothing here changes what the system
+decides.
+
+**Does not decide:** U-001 … U-013 remain unresolved. In particular Phase 4 is
+deliberately designed to need **none** of them: it adds no wire field, no
+delivery tier, no notification-policy change, and no contract change, so it can
+proceed while U-010 (alert validity), U-011 (concurrent alarms), U-012 (in-use
+delivery) and U-013 (raise-path logging) stay open.
+
 ---
 
 ## Unresolved questions

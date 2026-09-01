@@ -99,6 +99,58 @@ Intended concept:
   (`PROJECT_RULES.md` §11).
 - Manual, post-event forensic reconstruction of individual events.
 
+**Fleet reality bounding this phase (FACT).** One physical ESP32, and no
+additional nodes are planned during Phase 4. The confirmation gate needs ≥3
+verified contributors in ≥2 independence cells, so **CONFIRMED is unreachable in
+production for the whole of Phase 4**, by network density and not by defect (S2).
+Every criterion below is therefore written to be satisfiable, or explicitly
+reported as unsatisfiable, on a one-node fleet. The instrumentation must be
+N-node-correct on the day a second node appears, which means it records
+`node_id`, per-node onset provenance, `event_id`, `algo_ver` and cell identity
+from the outset — all of which the Phase 3/3.x rows already carry.
+
+#### Exit criteria — owner-approved P4-M1′ … P4-M6′
+
+Each is bound to `algo_ver = phase3-1.1/ic=<independence_km>`. Unit tests grant
+`IMPLEMENTED` only; `VALIDATED` needs the archived evidence named in each row and
+may not be granted by the agent that implemented it (`PROJECT_RULES.md` §8, S9).
+
+- [ ] **P4-M1′ — Trigger durability, measured not asserted.** Over a bounded
+      window (last N ledger observations, **not** a fixed calendar period), every
+      `sensor_observations` row with `pga ≥ MinPGAGal` has exactly one
+      `event_state_log` transition into `UNCONFIRMED` and one advisory WebSocket
+      frame; `event_persist_dropped_total` and `event_upsert_failures_total` are
+      **reported alongside**, never required to be zero.
+- [ ] **P4-M2′ — Near-confirmation log is queryable and survives a restart.**
+      With one node the correct answer is **empty**, and it must still be empty —
+      and answerable — after the process restarts, rather than merely absent
+      because the in-memory map was rebuilt.
+- [x] **P4-M3′ — Server-side stage latency reported.** Per event:
+      `onset_ts → decided_at` and `decided_at → emit`, as p50/p95 over the
+      window. **Server stages only** — no client-side wake, heads-up, or siren
+      timing enters this number.
+      `IMPLEMENTED` `ca8262b` (deployed 2026-09-01); **owner-approved SATISFIED
+      2026-09-01** on runtime evidence from real physical events on
+      `NODE-52960B47`, firmware 7.0.0 — SENSOR onset→decided n=2,
+      PUBLISH_BOUND onset→decided n=4, decided→emit n=12. Terminal-transition
+      exclusion and onset-provenance separation both confirmed against live
+      counters. **No population-level latency performance is claimed**: at n=2
+      and n=4 the reported p95 is the maximum of a handful of observations.
+      **CONFIRMED-path latency remains unvalidated** —
+      `event_transitions_to_confirmed_total = 0` because the physical fleet has
+      one node (S2), so every sample came from an `UNCONFIRMED` decision. See
+      `docs/CURRENT_STATE.md` for the demonstrated/not-demonstrated split.
+- [ ] **P4-M4′ — Deterministic replay.** Replaying recorded observations grouped
+      by `algo_ver` through a fresh tracker reproduces the same `event_id`,
+      `revision`, and `independent_cell_count` decisions (V7).
+- [ ] **P4-M5′ — Simulated multi-node runs in CI.** `sim_multi_node.sh` and
+      `sim_dual_event.sh` pass in CI and archive their tracker counters and
+      evidence snapshots. **This is software validation, never field
+      validation** (S9) — it may not be cited as multi-node correlation.
+- [ ] **P4-M6′ — Forensic timeline for one event.** A read-only path returns, for
+      one `event_id`, the event row, its ordered `event_state_log` history, the
+      `evidence_summary` per revision, and the contributing observations.
+
 Explicitly **out of scope** for Phase 4:
 - Any external catalogue as ground truth (`PROJECT_RULES.md` §2).
 - Automatic false-positive classification.
