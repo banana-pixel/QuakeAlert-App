@@ -77,6 +77,10 @@ type Tracker struct {
 
 	counters counters
 
+	// latency memegang sampel latensi tahap server (P4-M3′, D-011). Dilindungi
+	// t.mu bersama counters — bukan kunci kedua. Lihat latency.go.
+	latency latency
+
 	// nearConfirmed mencatat setiap event yang pernah mencapai >= minCells
 	// kontributor independen. Tidak dihapus saat event terminal atau dievakuasi:
 	// tujuannya rekonstruksi pasca-kejadian. Lihat nearconfirmed.go.
@@ -172,6 +176,21 @@ func (t *Tracker) publish(ctx context.Context, ts []Snapshot) {
 		}
 	}
 
+	// Pengukuran latensi P4-M3′ (D-011) DI SINI, setelah emisi, sebelum
+	// persistensi. Posisinya adalah keseluruhan alasannya:
+	//
+	//   - SETELAH emisi, jadi tidak ada satu pun jam yang dibaca, kunci yang
+	//     diambil, atau cabang yang dievaluasi sebelum frame keluar. Sebuah
+	//     peringatan tidak boleh menunggu instrumentasinya sendiri (S1).
+	//   - emit_at karena itu berarti "saat frame sudah diserahkan ke sink", yang
+	//     memang batas tahap yang diukur. Ia BUKAN waktu tiba di perangkat: tidak
+	//     ada tahap sisi klien di angka ini.
+	//   - Kegagalan tidak mungkin di sini — tidak ada I/O — dan tetap begitu:
+	//     apa pun yang ditambahkan ke blok ini nanti harus tetap tidak dapat
+	//     mengembalikan galat, karena tidak ada pemanggil yang dapat
+	//     menanganinya tanpa mempengaruhi jalur peringatan.
+	t.observeLatency(ts)
+
 	// Persistensi menyusul, per transisi, satu satuan masing-masing. Tidak ada
 	// satu pun jalur di sini yang dapat mengembalikan galat ke pemanggil: satuan
 	// yang dibuang atau gagal hanya menjadi counter (§15.5).
@@ -181,6 +200,52 @@ func (t *Tracker) publish(ctx context.Context, ts []Snapshot) {
 	for _, s := range ts {
 		t.persist.RecordEventUnit(t.unitFor(s))
 	}
+}
+
+// observeLatency mencatat kedua tahap latensi server untuk sekumpulan transisi
+// yang BARU SAJA diemisikan.
+//
+// Satu pengambilan kunci untuk seluruh batch, dan satu pembacaan jam untuk
+// seluruh batch: transisi-transisi ini diemisikan dalam satu loop tanpa I/O di
+// antaranya, jadi memberi masing-masing emit_at sendiri akan mengukur biaya loop
+// alih-alih biaya jalurnya.
+//
+// OriginTS == 0 dilewati. Nol bukan "onset pada epoch"; ia berarti event ini tidak
+// punya jangkar onset yang dapat dipertanggungjawabkan (baris pra-Fase-3 yang
+// direkonsiliasi, misalnya), dan latensi terhadap jangkar yang tidak ada bukan
+// nol — ia tidak terdefinisi.
+//
+// KEDUA tahap tidak memakai himpunan transisi yang sama, dan itu disengaja:
+//
+//   - onset->decided HANYA untuk transisi ke UNCONFIRMED dan CONFIRMED. Tahap ini
+//     menjawab "berapa lama sejak tanah bergerak sampai sistem memutuskan sesuatu
+//     yang dikirim ke orang", dan hanya kedua state itu yang melakukannya.
+//     RESOLVED dan CANCELLED dibuang karena waktunya BUKAN latensi yang diukur:
+//     sweep menaikkannya ResolveAfterMs setelah bukti terakhir, secara konfigurasi
+//     (§9.4). Memasukkannya akan membuat p95 melaporkan timer resolve — puluhan
+//     detik, sesuai desain — sebagai latensi deteksi, yaitu satu angka buruk yang
+//     tidak menggambarkan apa pun yang rusak.
+//   - decided->emit untuk SETIAP transisi. Tahap ini biaya jalur penyerahan frame,
+//     dan biaya itu tidak bergantung pada state tujuan.
+func (t *Tracker) observeLatency(ts []Snapshot) {
+	emitAt := t.now().UnixMilli()
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for _, s := range ts {
+		if s.OriginTS > 0 && isDetectionDecision(s.To) {
+			t.latency.observeOnsetToDecided(s.OriginTSSource, s.DecidedAt-s.OriginTS)
+		}
+		t.latency.observeDecidedToEmit(emitAt - s.DecidedAt)
+	}
+}
+
+// isDetectionDecision benar untuk state yang keputusannya digerakkan BUKTI, jadi
+// jarak dari onset ke keputusan itu adalah latensi sistem. State terminal
+// digerakkan waktu, bukan bukti — lihat catatan di observeLatency.
+func isDetectionDecision(to State) bool {
+	return to == StateUnconfirmed || to == StateConfirmed
 }
 
 // Keempat callback ledger.EventPersistObserver. Counter-nya dimiliki Tracker

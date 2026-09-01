@@ -46,6 +46,9 @@ func (t *Tracker) logCounters(reason string) {
 	for k, v := range c.transitions {
 		transitions[k] = v
 	}
+	onsetSensor := t.latency.onsetToDecidedSensor.snapshot()
+	onsetPublish := t.latency.onsetToDecidedPublish.snapshot()
+	decidedEmit := t.latency.decidedToEmit.snapshot()
 	t.mu.Unlock()
 
 	t.log.Info("event: counters",
@@ -64,6 +67,24 @@ func (t *Tracker) logCounters(reason string) {
 		"event_state_log_skipped_total", c.stateLogSkipped,
 		"event_open_gauge", open,
 		"event_tombstone_gauge", tombs,
+		// Latensi tahap server (P4-M3′). Dicetak bersama counter lain dengan
+		// alasan yang sama: sebuah angka yang tidak pernah dicetak sama dengan
+		// angka yang tidak ada.
+		"event_latency_onset_to_decided_sensor_ms", latencyAttr(onsetSensor),
+		"event_latency_onset_to_decided_publish_bound_ms", latencyAttr(onsetPublish),
+		"event_latency_decided_to_emit_ms", latencyAttr(decidedEmit),
+	)
+}
+
+// latencyAttr membuat satu seri latensi terbaca dalam satu baris log, dengan
+// jumlah sampel ikut serta: p95 atas tiga sampel dan p95 atas dua ratus sampel
+// adalah dua klaim yang sangat berbeda, dan pembaca log harus dapat membedakannya
+// tanpa meninggalkan barisnya.
+func latencyAttr(s LatencyStats) slog.Value {
+	return slog.GroupValue(
+		slog.Int64("observed", s.Observed),
+		slog.Int64("p50_ms", s.P50Ms),
+		slog.Int64("p95_ms", s.P95Ms),
 	)
 }
 
@@ -93,6 +114,14 @@ type TrackerStats struct {
 	// Gauge — snapshot ukuran map saat ini, bukan counter kumulatif.
 	OpenGauge      int `json:"event_open_gauge"`
 	TombstoneGauge int `json:"event_tombstone_gauge"`
+
+	// Latensi tahap server (P4-M3′, D-011). Onset->decided DIPISAH menurut
+	// provenance onset: seri PUBLISH_BOUND adalah batas atas, bukan pengukuran,
+	// karena jangkarnya sendiri disimpulkan dari publish_ts - dur_ms. Menyatukan
+	// keduanya akan menyebut sebuah batas sebagai pengukuran. Lihat latency.go.
+	OnsetToDecidedSensor  LatencyStats `json:"event_latency_onset_to_decided_sensor_ms"`
+	OnsetToDecidedPublish LatencyStats `json:"event_latency_onset_to_decided_publish_bound_ms"`
+	DecidedToEmit         LatencyStats `json:"event_latency_decided_to_emit_ms"`
 }
 
 // Stats mengembalikan potret seluruh counter dan gauge dalam satu pengambilan
@@ -102,6 +131,11 @@ func (t *Tracker) Stats() TrackerStats {
 	c := t.counters
 	open := len(t.openLocked())
 	tombs := len(t.tombstonesLocked())
+	// Diambil di bawah kunci yang sama: satu potret, bukan dua yang dapat
+	// menggambarkan dua titik waktu berbeda.
+	onsetSensor := t.latency.onsetToDecidedSensor.snapshot()
+	onsetPublish := t.latency.onsetToDecidedPublish.snapshot()
+	decidedEmit := t.latency.decidedToEmit.snapshot()
 	t.mu.Unlock()
 
 	return TrackerStats{
@@ -122,6 +156,9 @@ func (t *Tracker) Stats() TrackerStats {
 		TransitionToCancelled:   c.transitions[StateCancelled],
 		OpenGauge:               open,
 		TombstoneGauge:          tombs,
+		OnsetToDecidedSensor:    onsetSensor,
+		OnsetToDecidedPublish:   onsetPublish,
+		DecidedToEmit:           decidedEmit,
 	}
 }
 

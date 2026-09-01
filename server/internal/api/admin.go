@@ -253,6 +253,22 @@ type TrackerStatsJSON struct {
 	TransitionToCancelled   int64 `json:"event_transitions_to_cancelled_total"`
 	OpenGauge               int   `json:"event_open_gauge"`
 	TombstoneGauge          int   `json:"event_tombstone_gauge"`
+
+	// Latensi tahap server (P4-M3′). Onset->decided dipisah menurut provenance
+	// onset: seri publish-bound adalah BATAS ATAS, bukan pengukuran.
+	OnsetToDecidedSensor  LatencyStatsJSON `json:"event_latency_onset_to_decided_sensor_ms"`
+	OnsetToDecidedPublish LatencyStatsJSON `json:"event_latency_onset_to_decided_publish_bound_ms"`
+	DecidedToEmit         LatencyStatsJSON `json:"event_latency_decided_to_emit_ms"`
+}
+
+// LatencyStatsJSON adalah ringkasan satu seri latensi. observed adalah jumlah
+// sampel kumulatif; p50/p95 hanya berbicara tentang jendela sampel terakhir yang
+// disimpan Tracker, jadi keduanya dibawa bersama supaya sebuah persentil tidak
+// dapat dibaca seolah mewakili seluruh riwayat.
+type LatencyStatsJSON struct {
+	Observed int64 `json:"observed"`
+	P50Ms    int64 `json:"p50_ms"`
+	P95Ms    int64 `json:"p95_ms"`
 }
 
 // NearConfirmedEntryJSON adalah potret satu event yang pernah mencapai

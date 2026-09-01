@@ -625,6 +625,20 @@ func (a trackerStatsAdapter) Stats() api.TrackerStatsJSON {
 		TransitionToCancelled:   s.TransitionToCancelled,
 		OpenGauge:               s.OpenGauge,
 		TombstoneGauge:          s.TombstoneGauge,
+		OnsetToDecidedSensor:    latencyJSON(s.OnsetToDecidedSensor),
+		OnsetToDecidedPublish:   latencyJSON(s.OnsetToDecidedPublish),
+		DecidedToEmit:           latencyJSON(s.DecidedToEmit),
+	}
+}
+
+// latencyJSON menyalin satu ringkasan latensi melewati batas paket, mengikuti
+// pola mirror yang sama dengan TrackerStatsJSON: paket api tidak mengimpor paket
+// event, jadi main.go yang menjembatani.
+func latencyJSON(l event.LatencyStats) api.LatencyStatsJSON {
+	return api.LatencyStatsJSON{
+		Observed: l.Observed,
+		P50Ms:    l.P50Ms,
+		P95Ms:    l.P95Ms,
 	}
 }
 

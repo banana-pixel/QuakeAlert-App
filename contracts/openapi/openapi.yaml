@@ -964,6 +964,31 @@ paths:
                     type: integer
                   event_tombstone_gauge:
                     type: integer
+                  event_latency_onset_to_decided_sensor_ms:
+                    $ref: '#/components/schemas/LatencyStats'
+                    description: >
+                      Latensi onset -> keputusan Tracker untuk observasi dengan onset
+                      TERUKUR SENSOR. Ini sebuah pengukuran. Hanya transisi ke
+                      UNCONFIRMED dan CONFIRMED dihitung: RESOLVED dan CANCELLED
+                      digerakkan timer ResolveAfterMs, bukan bukti, jadi memasukkannya
+                      akan melaporkan timer resolve sebagai latensi deteksi.
+                  event_latency_onset_to_decided_publish_bound_ms:
+                    $ref: '#/components/schemas/LatencyStats'
+                    description: >
+                      Seri yang sama untuk observasi yang onsetnya disimpulkan sebagai
+                      publish_ts - dur_ms (PUBLISH_BOUND). Ini BATAS ATAS, bukan
+                      pengukuran — galatnya adalah keterlambatan publish. Dilaporkan
+                      terpisah justru supaya tidak dibaca sebagai pengukuran, dan tidak
+                      boleh digabungkan dengan seri sensor.
+                  event_latency_decided_to_emit_ms:
+                    $ref: '#/components/schemas/LatencyStats'
+                    description: >
+                      Latensi keputusan Tracker -> penyerahan frame ke sink dispatch,
+                      untuk SETIAP transisi termasuk yang terminal: biaya penyerahan
+                      frame tidak bergantung pada state tujuan. Kedua ujungnya jam
+                      server yang sama. TIDAK mencakup tahap sisi klien apa pun:
+                      pengiriman jaringan, bangun perangkat, heads-up, dan sirene
+                      tidak masuk angka ini.
         '401':
           description: Header X-Admin-Key tidak valid
           content:
@@ -1752,3 +1777,44 @@ components:
             (default 5 km). Selalu >= 2 untuk event di umpan ini, karena itu
             prasyarat CONFIRMED. Absen pada baris pra-Fase-3.
           example: 3
+
+    LatencyStats:
+      type: object
+      description: >
+        Ringkasan satu seri latensi tahap SERVER (P4-M3′). Hanya in-memory: tidak
+        dipersistensi, jadi seluruh angka kembali nol setelah proses restart.
+        observed adalah jumlah sampel KUMULATIF, sedangkan p50/p95 hanya berbicara
+        tentang paling banyak 256 sampel TERAKHIR — keduanya dilaporkan bersama
+        supaya sebuah persentil tidak dapat dibaca seolah mewakili seluruh riwayat.
+        Ketika observed = 0, p50 dan p95 adalah 0 karena tidak ada yang diukur;
+        itu BUKAN latensi nol.
+      required: [observed, p50_ms, p95_ms]
+      properties:
+        observed:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >
+            Jumlah sampel yang pernah dicatat untuk seri ini sejak proses mulai.
+            Sampel negatif — onset lebih baru daripada keputusan yang
+            menjelaskannya, yaitu jam node mendahului jam server — DIBUANG dan
+            tidak dihitung di sini, jadi selisih terhadap jumlah transisi yang
+            terjadi adalah petunjuk masalah jam.
+          example: 12
+        p50_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >
+            Persentil ke-50 dalam milidetik, metode nearest-rank: nilainya adalah
+            salah satu pengamatan yang benar-benar terjadi, bukan interpolasi.
+          example: 620
+        p95_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >
+            Persentil ke-95 dalam milidetik, metode nearest-rank. Pada jumlah
+            sampel kecil p95 dapat sama dengan nilai maksimum — baca bersama
+            observed.
+          example: 1480
