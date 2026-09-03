@@ -220,6 +220,49 @@ de-duplication — **not** at-least-once (D-008).
   recorded, and a divergence caused by a historical drop is indistinguishable
   from one caused by a defect. One event on one node, so the `CONFIRMED` path
   stays unexercised by replay (S2).
+- **The two simulation harnesses execute in CI and archive their own evidence —
+  P4-M5′, software simulation, 2026-09-03.** IMPLEMENTED under **D-014**;
+  **awaiting owner sign-off, not `VALIDATED`** (`PROJECT_RULES.md` §8, S9). A
+  fourth CI job, `simulation`, runs `sim_multi_node.sh` then `sim_dual_event.sh`
+  **serially** on one runner — mandatory, because both publish the same fixed host
+  ports (5432/6379/1883/8080), name their containers by a fixed compose prefix,
+  and assert on absolute deltas in shared tracker counters, so concurrency would
+  turn `delta == 2` into a coin toss. Each harness emits
+  `.sim-evidence/<script>.evidence.json` (`schema_version 1`) **itself**, from an
+  EXIT trap that fires before teardown and re-raises the original exit code —
+  never reconstructed from CI logs — carrying `run_id`, `git_sha`, `git_dirty`,
+  `checkpoint`, `status`, `exit_code`, `tracker_counters_before` / `_after`, the
+  observed scalars, the D-012 coverage envelope, and the assertion list its
+  verdict rested on. `status` is three-valued: `PASS` / `FAIL` / **`ERROR`**, the
+  last meaning the run never reached a verdict, because a broken runner is not a
+  broken detector. Both files upload as `simulation-evidence` under
+  `if: always()` with `if-no-files-found: error`, then a following step
+  re-validates each for valid JSON, its required fields, and
+  `evidence_class == "SOFTWARE_SIMULATION"`. Local evidence: checkpoint 3.1 exit 0
+  with 9 PASS / 0 FAIL, checkpoint 3.2 exit 0 with 11 PASS / 0 FAIL (STEP 9, the
+  Android `WarningNotifierStandDownTest`, retained and now recorded as an
+  assertion), both artifacts valid JSON whose assertion text is **byte-identical**
+  to stdout, counters reconciled against the observed scalars. A `BASE_URL`
+  pointed at an unbound port failed the job non-zero with both artifacts still
+  written `status=ERROR` and still uploaded, so a pass is distinguishable from a
+  gate that cannot fail; no pass/fail logic was weakened to produce it. Two
+  harness configuration names were corrected at **unchanged values**:
+  `RESOLVE_AFTER_MS` → the real `EVENT_RESOLVE_AFTER_MS` (the built-in default
+  90000 had been silently in force), and the `MIN_PGA_GAL` /
+  `MIN_NODES_CONFIRMED` exports were **deleted** — `config.go` reads neither, they
+  are compile-time constants (D-007), and a variable that looks like a knob and
+  moves nothing is a lie about the gate (§8). `go build ./...`, `go vet ./...` and
+  `go test -race -count=1 ./...` clean across all 10 packages.
+  **Not claimed, and this is the whole point of the entry:** M5′ demonstrates that
+  the multi-node and dual-event simulation harnesses execute successfully in CI
+  and produce archived software evidence. It does not validate field correlation,
+  production behavior, or real multi-node sensor performance. The harnesses drive
+  **virtual nodes that are database rows** with hand-picked coordinates (S9, D-011
+  constraint 2); the fleet is still one physical ESP32, so no real multi-node
+  correlation occurred and none may be inferred from a green job. **Not yet run on
+  GitHub Actions** either, as of this commit — the job was validated by a local
+  reproduction that executes the workflow's own step bodies; the first real run is
+  the one this commit triggers. Not deployed.
 
 ## NOT demonstrated
 
@@ -334,8 +377,12 @@ evidence in *Demonstrated*; committed, **not deployed**. **P4-M4′** (determini
 replay) is owner-approved SATISFIED / `VALIDATED` as of 2026-09-03, authorized by
 **D-013**, on the isolated-PostgreSQL evidence in *Demonstrated*; committed, **not
 deployed**, and read-only — it adds no migration and no contract change, so D-012
-remains the phase's only authorized contract exception. P4-M1′, P4-M5′ and P4-M6′
-are not met.
+remains the phase's only authorized contract exception. **P4-M5′** (simulated
+multi-node runs in CI) is **IMPLEMENTED 2026-09-03** under **D-014** and
+**awaiting owner sign-off — it is not `VALIDATED`**, and it must not be read as
+one: its evidence is software simulation only (S9, D-011 constraint 2), it adds no
+migration and no contract change, and it had not yet run on GitHub Actions when it
+was committed. P4-M1′ and P4-M6′ are not met.
 
 Phase F remains `BLOCKED` on the owner deploying additional nodes. Every item in
 *NOT demonstrated* that requires a confirmed event, multiple nodes, or a
@@ -369,6 +416,14 @@ not a Phase 4 failure.
   unfixed as outside D-013's scope. `go test -p 1` is green (272 passed / 0
   failed). A fix belongs with the test harness — a `TestMain` guard or a
   per-package database — not with a Phase 4 criterion.
+- `server/scripts/sim_setup_nodes.go` is not `gofmt`-clean, so the existing
+  `server` CI job's *Verify formatting* step (`gofmt -l .`, run from `server/`,
+  which covers `scripts/`) fails on it. **Pre-existing and unrelated to Phase 4:**
+  the file is byte-identical to `HEAD` and the `HEAD` blob is itself unformatted,
+  introduced by `0822d35` with the checkpoint-3 harnesses; found during P4-M5′
+  validation on 2026-09-03, deliberately left unfixed as outside D-014's scope. It
+  will fail that job independently of the simulation job. One `gofmt -w` fixes it;
+  that belongs with whoever owns the Phase 3.x harness files.
 
 ## Maintenance
 

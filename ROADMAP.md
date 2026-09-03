@@ -252,6 +252,46 @@ may not be granted by the agent that implemented it (`PROJECT_RULES.md` §8, S9)
       `sim_dual_event.sh` pass in CI and archive their tracker counters and
       evidence snapshots. **This is software validation, never field
       validation** (S9) — it may not be cited as multi-node correlation.
+      **IMPLEMENTED 2026-09-03, authorized by D-014; awaiting owner sign-off — not
+      `VALIDATED`.** `.github/workflows/ci.yml` gains a fourth job, `simulation`,
+      which runs the two harnesses **serially** on one runner (both publish the
+      same fixed host ports 5432/6379/1883/8080, both assert on absolute deltas
+      in shared tracker counters, so concurrency would make `delta == 2` a coin
+      toss) and uploads `simulation-evidence` —
+      `.sim-evidence/sim_multi_node.evidence.json` and
+      `.sim-evidence/sim_dual_event.evidence.json`, `schema_version 1` — under
+      `if: always()` with `if-no-files-found: error`. Each artifact is emitted by
+      the harness itself from an EXIT trap that fires **before** teardown and
+      re-raises the original exit code, never reconstructed from CI logs, and
+      carries `run_id`, `git_sha`, `git_dirty`, `checkpoint`, `status`
+      (`PASS`/`FAIL`/**`ERROR`** — a broken runner is not a broken detector),
+      `exit_code`, `tracker_counters_before` / `_after`, and the observed scalars,
+      the D-012 coverage envelope, and the assertion list its verdict rested on.
+      The boundary travels **inside** the artifact:
+      `evidence_class: "SOFTWARE_SIMULATION"` plus an explicit `not_claimed` list.
+      `sim_dual_event.sh` STEP 9 (Android `WarningNotifierStandDownTest`) is
+      retained and its outcome recorded. Two harness config names were corrected
+      at unchanged values: `RESOLVE_AFTER_MS` → the real `EVENT_RESOLVE_AFTER_MS`
+      (the built-in default 90000 had been silently in force), and the
+      `MIN_PGA_GAL` / `MIN_NODES_CONFIRMED` exports were **deleted** — `config.go`
+      reads neither, they are compile-time constants (D-007), and a variable that
+      looks like a knob and moves nothing is a lie about the gate (§8). Local
+      evidence: 3.1 exit 0 with 9 PASS / 0 FAIL, 3.2 exit 0 with 11 PASS / 0 FAIL,
+      both artifacts valid JSON whose assertion text is byte-identical to stdout;
+      a `BASE_URL` pointed at an unbound port failed the job non-zero with both
+      artifacts still `status=ERROR` and still uploaded, so a pass is
+      distinguishable from a gate that cannot fail. **Not yet run on GitHub
+      Actions** at the time of this commit — validated by a local reproduction
+      executing the workflow's own step bodies; the first real run is the one this
+      commit triggers, and its result is not yet evidence of anything.
+      **Stated for the record:** M5′
+      demonstrates that the multi-node and dual-event simulation harnesses execute
+      successfully in CI and produce archived software evidence. It does not
+      validate field correlation, production behavior, or real multi-node sensor
+      performance. **Still not demonstrated:** the harnesses drive **virtual nodes
+      that are database rows** with hand-picked coordinates (S9, D-011 constraint
+      2); the fleet remains one physical ESP32, and Phase F owns the field
+      evidence. Not deployed.
 - [ ] **P4-M6′ — Forensic timeline for one event.** A read-only path returns, for
       one `event_id`, the event row, its ordered `event_state_log` history, the
       `evidence_summary` per revision, and the contributing observations.

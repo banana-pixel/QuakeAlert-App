@@ -441,6 +441,126 @@ scalars are independent evidence; the replay parameters were operator-asserted;
 not historically recoverable. Full detail in `docs/CURRENT_STATE.md`
 § Demonstrated and `ROADMAP.md` § Phase 4 (P4-M4′).
 
+### D-014 — The simulation harnesses run as one serial CI job that archives its own evidence, and that evidence is software only
+**Status:** ACCEPTED · **Owner-approved:** 2026-09-03 · **See:** `ROADMAP.md`
+§ Phase 4 (P4-M5′), D-011 constraint 2, `PROJECT_RULES.md` §8 and S9,
+`.github/workflows/ci.yml` job `simulation`, `server/scripts/sim_evidence.sh`
+
+P4-M5′ is satisfied by **one dedicated GitHub Actions job** that runs the two
+existing harnesses and archives a structured JSON artifact per harness. Six
+parts, decided together:
+
+**A — a dedicated job, not a step inside an existing one.** `.github/workflows/ci.yml`
+gains a fourth job, `simulation`, alongside `server`, `firmware` and `android`.
+It declares no `needs` and nothing declares `needs: simulation`: those three jobs
+answer *does the code hold together*, this one answers *does the pipeline reach
+CONFIRMED end to end*, and folding either into the other would put a four-minute
+Docker run in front of every unit test in the repo. A red simulation is still a
+red workflow — the job's own result carries that — but it blocks no other job.
+
+**B — serial execution, by construction.** `sim_multi_node.sh` then
+`sim_dual_event.sh`, two sequential steps on one runner. This is a requirement,
+not a preference: both harnesses publish the **same fixed host ports** (5432,
+6379, 1883, 8080) and name their containers by a fixed compose prefix, and both
+assert on **absolute deltas** in shared tracker counters. Run concurrently they
+would contend for the ports and, worse, read each other's counters, turning
+`delta == 2` into a coin toss. The first harness runs under `continue-on-error`
+so that a red 3.1 cannot hide 3.2's result; the job's pass/fail is re-derived
+from both recorded outcomes in a final gate step, so suppressing the step-level
+exit code does not weaken the verdict.
+
+**C — the artifact is emitted by the harness, not reconstructed from logs.** A
+shared library, `server/scripts/sim_evidence.sh`, is sourced by both scripts and
+owns the field names, so the two artifacts cannot drift apart. Each run writes
+`.sim-evidence/sim_multi_node.evidence.json` and
+`.sim-evidence/sim_dual_event.evidence.json` at `schema_version 1`, carrying
+`run_id`, `git_sha`, `git_dirty`, `script`, `checkpoint`, `status`, `exit_code`,
+`started_at`, `finished_at`, `error`, `tracker_counters_before`,
+`tracker_counters_after`, and an `evidence` object holding the scalars and the
+assertion list the run's verdict actually rested on. It is written from an EXIT
+trap that fires **before** teardown and re-raises the original exit code, so a
+run that dies in STEP 0 still leaves an artifact behind and PASS/FAIL semantics
+are untouched. `status` is three-valued — `PASS` / `FAIL` / **`ERROR`** — because
+*the system misbehaved* and *the run never reached a verdict* are different
+findings, and reading a broken runner as a broken detector is the exact confusion
+this milestone exists to prevent.
+
+**D — the artifact is uploaded, and its absence is an error.** `actions/upload-artifact`
+publishes both files as `simulation-evidence` under `if: always()`, because a
+failing simulation is when its counters matter most, and with
+`if-no-files-found: error`, because a job that reports success while archiving no
+evidence makes M5′ meaningless. A following step re-validates each uploaded file
+for valid JSON, the required top-level fields, a `status` in the enum, and
+`evidence_class == "SOFTWARE_SIMULATION"`.
+
+**E — the boundary travels inside the artifact.** Every artifact declares
+`evidence_class: "SOFTWARE_SIMULATION"` and an explicit `not_claimed` list —
+field validation, production validation, real multi-node sensor performance, real
+multi-node correlation. An artifact travels: it is uploaded, downloaded, pasted
+into a report, quoted months later. The numbers alone read like field evidence,
+so the qualification is stored beside them rather than left in a document that
+may not travel with them.
+
+**F — STEP 9 of `sim_dual_event.sh` is retained.** The Android
+`WarningNotifierStandDownTest` continues to run as part of checkpoint 3.2; the CI
+job installs Temurin 21 and a read-only Gradle cache for it. Its outcome is now
+recorded as an assertion in the artifact instead of only reaching stdout. No
+Android behaviour is changed.
+
+**Because:** the harnesses already existed and already passed locally, which is
+precisely the problem — evidence that lives on one developer's machine and
+survives only as scrollback is not archived evidence, and P4-M5′ asks for CI
+execution *and* archival. Generating the JSON inside the script rather than
+parsing it out of CI logs afterwards is what makes the artifact evidence at all:
+a reconstruction is a claim about what the run did, while an emission is what the
+run recorded about itself.
+
+**Configuration-name corrections, carried by this decision.** Both harnesses
+exported `RESOLVE_AFTER_MS`, which `config.go` never reads — the sweep deadline
+is `EVENT_RESOLVE_AFTER_MS`, and the built-in default 90000 had been silently in
+force all along. Corrected to the real name at the **same value**, so no timing
+changes. Both also exported `MIN_PGA_GAL` and `MIN_NODES_CONFIRMED`, which are
+**compile-time constants** (D-007) and were read by nothing: the exports are
+deleted rather than kept as decoration, because a variable that looks like a knob
+and moves nothing is a lie about the gate's tunability (§8 — naming must match
+behaviour).
+
+**Nothing about what the system decides is touched.** No threshold, quorum,
+radius, correlation window, independence rule, confirmation semantic, simulation
+coordinate, or event algorithm is changed. No migration, no contract change, no
+new table, no metrics infrastructure, no firmware change, no deployment. The
+harnesses remain runnable locally outside CI and keep their human-readable
+stdout; the artifact directory is git-ignored, being per-run output rather than
+tracked source.
+
+**Cross-reference (nothing in D-011 or D-012 is rewritten).** This decision is
+the mechanism for D-011's fifth criterion and is bound by **D-011 constraint 2**
+exactly as written: `sim_multi_node.sh` / `sim_dual_event.sh` passing in CI may
+never be cited as multi-node field correlation (S9), and field multi-node
+evidence belongs to Phase F. D-011 constraint 3 also stands: the harnesses drive
+virtual nodes that are database rows, which is what N-node compatibility lets
+them do, and it is not a claim that a second physical node exists. **D-012**
+supplies the read path the artifacts snapshot — the near-confirmed coverage
+envelope is captured verbatim into `evidence.near_confirmed` — and D-012 remains
+Phase 4's **only** authorized contract exception; M5′ adds none.
+
+**Stated for the record, and not to be softened:** M5′ demonstrates that the
+multi-node and dual-event simulation harnesses execute successfully in CI and
+produce archived software evidence. It does not validate field correlation,
+production behavior, or real multi-node sensor performance.
+
+**Affects:** CI surface, `server/scripts/sim_*.sh`, `.gitignore`.
+**Reversible:** yes — the job may be removed or re-scoped by a later owner
+decision; nothing here changes what the system decides, and deleting it would
+cost archival, not behaviour.
+
+**Does not decide:** U-001 … U-013 remain unresolved, U-007 included; nothing
+here reopens or reinterprets any of them. It does not decide P4-M1′ or P4-M6′, it
+does not resolve the M4′ open items F2/F3, and it grants **no** `VALIDATED`
+status: `IMPLEMENTED → VALIDATED` for P4-M5′ requires an owner ruling on the
+archived evidence, and may not be granted by the agent that implemented it
+(`PROJECT_RULES.md` §8, S9). One physical ESP32 remains the entire fleet.
+
 ---
 
 ## Unresolved questions

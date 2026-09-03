@@ -1,10 +1,15 @@
 # Continuous integration for the QuakeAlert monorepo.
 #
-# Three independent jobs, because the halves of the system fail for unrelated
+# Four independent jobs, because the halves of the system fail for unrelated
 # reasons and a Go compile error should not hide an Android lint regression. Each
 # is scoped by `paths` at the workflow level only loosely: a contract change under
 # contracts/ must run all of them, since ADR-0004 makes the OpenAPI document the
 # source every side is meant to agree with.
+#
+# The fourth, `simulation`, runs the two end-to-end simulation harnesses and
+# archives their JSON evidence (P4-M5', D-014). Nothing depends on it: its
+# evidence is SOFTWARE evidence, and a red simulation must be readable next to a
+# green server job rather than in place of it.
 name: CI
 
 on:
@@ -133,3 +138,182 @@ jobs:
             android/app/build/reports/
             android/app/build/test-results/
           if-no-files-found: ignore
+
+  simulation:
+    # P4-M5' — the two end-to-end simulation harnesses, run in CI, with their
+    # JSON evidence archived (D-014).
+    #
+    # EVIDENCE CLASS: SOFTWARE SIMULATION. A green run here means the harnesses
+    # execute and their assertions hold against a server built from this commit,
+    # driving virtual nodes that are database rows with hand-picked coordinates.
+    # It is NOT field validation, NOT production validation, and NOT real
+    # multi-node sensor performance (S9, D-011 constraint 2). Phase F owns those,
+    # and it is blocked on physical hardware, not on this job.
+    #
+    # Separate from server/firmware/android, and nothing depends on it: those
+    # jobs answer "does the code hold together", this one answers "does the
+    # pipeline reach CONFIRMED end to end", and folding either into the other
+    # would mean one 4-minute Docker run gating every unit test in the repo.
+    name: Simulation harnesses (software evidence)
+    runs-on: ubuntu-latest
+    # ~4.5 min of deliberate sleeping (12s + 15s classification waits, 100s for
+    # the resolve sweep) plus two Docker stacks and a Gradle test. The cap is
+    # generous but finite: a hung compose wait should end the job, not the hour.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          # Same pin as the android job: sim_dual_event.sh STEP 9 runs a real
+          # Gradle unit test, and two Java versions across one repo is a defect
+          # waiting for a slow afternoon.
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          # Read-only everywhere: the android job owns this cache. Two jobs
+          # writing one Gradle cache is a race whose prize is a corrupt cache.
+          cache-read-only: true
+
+      - name: Preflight tools and ports
+        # The harnesses preflight their own tools and die with a clear message.
+        # Repeated here so a missing tool costs seconds rather than surfacing
+        # four minutes into a Docker run.
+        #
+        # The port check earns its place: both harnesses publish fixed host ports,
+        # and the runner image ships Postgres and Redis preinstalled. They are
+        # stopped by default, but if that ever changes the failure would otherwise
+        # arrive as an opaque compose bind error. Named here instead.
+        run: |
+          set -euo pipefail
+          for bin in docker go curl jq openssl java; do
+            command -v "$bin" >/dev/null 2>&1 || { echo "MISSING required tool: $bin" >&2; exit 1; }
+            echo "ok        $bin -> $(command -v "$bin")"
+          done
+          # psql is used only by sim_multi_node.sh cleanup, which guards it with
+          # `command -v` and skips it when absent. The database it would tidy is
+          # torn down with `-v` moments later, so its absence is worth reporting
+          # and not worth failing over.
+          if command -v psql >/dev/null 2>&1; then
+            echo "ok        psql -> $(command -v psql)"
+          else
+            echo "note      psql absent; sim_multi_node.sh cleanup will skip its node delete"
+          fi
+          docker compose version
+          rc=0
+          for port in 5432 6379 1883 8080; do
+            if ss -ltn "sport = :$port" 2>/dev/null | grep -q LISTEN; then
+              echo "PORT $port is already in use; the harnesses need it free" >&2
+              rc=1
+            else
+              echo "free      port $port"
+            fi
+          done
+          exit "$rc"
+
+      - name: Generate ephemeral ADMIN_API_KEY
+        # Generated per run, never a repository secret. It authenticates the two
+        # admin read endpoints on a server that exists for ~2 minutes inside this
+        # runner, and it protects nothing that outlives the job — so a stored
+        # secret would be a durable credential guarding a disposable process.
+        # Written to $GITHUB_ENV, so it is not visible in any command line.
+        run: echo "ADMIN_API_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      # The two harnesses run SERIALLY, in this one job, on this one runner.
+      #
+      # That is a hard requirement, not a preference: both bind the same fixed
+      # host ports (5432, 6379, 1883, 8080) and both name their containers by a
+      # fixed prefix. In parallel they would fight for the ports and — worse —
+      # read each other's tracker counters, turning a deterministic assertion
+      # like "delta == 2" into a coin toss. `continue-on-error` on the first step
+      # is what keeps them serial without letting a red 3.1 hide 3.2's result.
+      - name: Checkpoint 3.1 — multi-node CONFIRMED simulation
+        id: sim31
+        continue-on-error: true
+        run: server/scripts/sim_multi_node.sh
+
+      - name: Checkpoint 3.2 — dual simultaneous events
+        id: sim32
+        continue-on-error: true
+        # Runs even when 3.1 failed: they exercise different behaviour, and
+        # knowing whether dual-event separation still holds is exactly what a
+        # reviewer wants when correlation has just broken.
+        run: server/scripts/sim_dual_event.sh
+
+      - name: Archive simulation evidence
+        # if: always() — the artifact is the point of this job (P4-M5'), and a
+        # failing simulation is when its counters matter most. Both harnesses
+        # emit their artifact from an EXIT trap, so a run that dies in STEP 0
+        # still leaves one behind, marked ERROR.
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: simulation-evidence
+          path: .sim-evidence/*.evidence.json
+          # error, not warn: an upload step that quietly finds nothing would let
+          # this job report success while archiving no evidence at all, which is
+          # the one outcome that makes M5' meaningless.
+          if-no-files-found: error
+
+      - name: Verify archived evidence is well-formed
+        # Guards the artifact itself, not the simulation: a run whose evidence is
+        # truncated or missing its declared fields has archived nothing usable,
+        # and that must be visible here rather than discovered months later by
+        # whoever opens the artifact. Deliberately checks shape and the evidence
+        # boundary, not the values — the harnesses' own assertions own those.
+        if: always()
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(.sim-evidence/*.evidence.json)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "no evidence artifact was produced" >&2
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            echo "--- $f"
+            jq -e '
+              . as $a
+              | ["schema_version","run_id","git_sha","script","status","started_at",
+                 "finished_at","tracker_counters_before","tracker_counters_after","evidence"]
+                | all(. as $k | $a | has($k))
+            ' "$f" > /dev/null || { echo "missing required top-level field in $f" >&2; exit 1; }
+            # `.status as $s |` first: piping into a literal array rebinds `.` to
+            # that array, so the naive form looks up .status on the array itself.
+            jq -e '.status as $s | ["PASS","FAIL","ERROR"] | index($s) != null' "$f" > /dev/null \
+              || { echo "unexpected status in $f" >&2; exit 1; }
+            jq -e '.evidence.evidence_class == "SOFTWARE_SIMULATION"' "$f" > /dev/null \
+              || { echo "$f does not declare itself software evidence" >&2; exit 1; }
+            jq -r '"  \(.script)  status=\(.status)  exit_code=\(.exit_code)  " +
+                   "passed=\(.evidence.assertions_passed)  failed=\(.evidence.assertions_failed)"' "$f"
+          done
+
+      - name: Simulation result gate
+        # The two harnesses run under continue-on-error so that 3.2 still runs and
+        # still archives its evidence when 3.1 goes red. That suppresses their exit
+        # codes at the step level, so the job's pass/fail is re-derived here from
+        # the recorded outcomes — a red simulation is still a red job, exactly as
+        # running the scripts by hand would be (D-014).
+        if: always()
+        run: |
+          rc=0
+          echo "checkpoint 3.1: ${{ steps.sim31.outcome }}"
+          echo "checkpoint 3.2: ${{ steps.sim32.outcome }}"
+          [ "${{ steps.sim31.outcome }}" = "success" ] || rc=1
+          [ "${{ steps.sim32.outcome }}" = "success" ] || rc=1
+          if [ "$rc" -ne 0 ]; then
+            echo "one or more simulations failed; see the simulation-evidence artifact" >&2
+            exit "$rc"
+          fi
+          echo "Both simulation harnesses passed."
+          echo "M5′ demonstrates that the multi-node and dual-event simulation harnesses"
+          echo "execute successfully in CI and produce archived software evidence. It does"
+          echo "not validate field correlation, production behavior, or real multi-node"
+          echo "sensor performance."

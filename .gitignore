@@ -87,3 +87,7 @@ session.txt
 
 # Firebase config files (root-level staging copies; the app/ one is already ignored)
 google-services*.json
+
+# P4-M5' simulation evidence artifacts (server/scripts/sim_*.sh). Per-run output
+# archived by CI as a build artifact, not tracked source.
+.sim-evidence/
