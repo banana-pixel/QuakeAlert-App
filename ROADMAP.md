@@ -248,12 +248,13 @@ may not be granted by the agent that implemented it (`PROJECT_RULES.md` §8, S9)
       and `pgBreakNearConfirmedTable` race each other. Reproduced 3/3 on a clean
       `git archive HEAD` tree containing no replay code; `-p 1` is green. It
       predates Phase 4 and is outside D-013's scope.
-- [ ] **P4-M5′ — Simulated multi-node runs in CI.** `sim_multi_node.sh` and
+- [x] **P4-M5′ — Simulated multi-node runs in CI.** `sim_multi_node.sh` and
       `sim_dual_event.sh` pass in CI and archive their tracker counters and
       evidence snapshots. **This is software validation, never field
       validation** (S9) — it may not be cited as multi-node correlation.
-      **IMPLEMENTED 2026-09-03, authorized by D-014; awaiting owner sign-off — not
-      `VALIDATED`.** `.github/workflows/ci.yml` gains a fourth job, `simulation`,
+      `IMPLEMENTED` 2026-09-03, authorized by **D-014**; **owner-approved
+      SATISFIED / `VALIDATED` 2026-09-03**, on the archived evidence from GitHub
+      Actions **CI #22**. `.github/workflows/ci.yml` gains a fourth job, `simulation`,
       which runs the two harnesses **serially** on one runner (both publish the
       same fixed host ports 5432/6379/1883/8080, both assert on absolute deltas
       in shared tracker counters, so concurrency would make `delta == 2` a coin
@@ -280,15 +281,44 @@ may not be granted by the agent that implemented it (`PROJECT_RULES.md` §8, S9)
       both artifacts valid JSON whose assertion text is byte-identical to stdout;
       a `BASE_URL` pointed at an unbound port failed the job non-zero with both
       artifacts still `status=ERROR` and still uploaded, so a pass is
-      distinguishable from a gate that cannot fail. **Not yet run on GitHub
-      Actions** at the time of this commit — validated by a local reproduction
-      executing the workflow's own step bodies; the first real run is the one this
-      commit triggers, and its result is not yet evidence of anything.
+      distinguishable from a gate that cannot fail.
+      **Validation evidence — GitHub Actions CI #22** (run id `33737869128`,
+      attempt 1, `workflow_dispatch` on `development` at head
+      `84d46d52856cc97b69f45164041a2070ea5aada1`, 2026-09-03T09:15:51Z →
+      09:22:14Z): workflow conclusion **success**, all four jobs green — Go
+      server, Firmware host tests, Android app, and *Simulation harnesses
+      (software evidence)*, whose 13 steps all succeeded. Two artifacts uploaded;
+      `simulation-evidence` (3278 B, SHA-256
+      `62605c4f9e4737c982769c80f55b9f0ab364f119bfe0f6e46c822f7f00fd0bac`) contains
+      exactly `.sim-evidence/sim_multi_node.evidence.json` (checkpoint 3.1,
+      `status=PASS`, `exit_code=0`, 9 assertions passed / 0 failed) and
+      `.sim-evidence/sim_dual_event.evidence.json` (checkpoint 3.2, `status=PASS`,
+      `exit_code=0`, 11 passed / 0 failed), both `schema_version 1`,
+      `evidence_class: "SOFTWARE_SIMULATION"`, `git_dirty=false`, `git_sha` equal
+      to the run's head — emitted by the harnesses themselves, downloaded and
+      re-read from the archive rather than transcribed from logs. The re-validation
+      step re-parsed both on the runner. The ephemeral `ADMIN_API_KEY` appears as
+      `***` in every `env:` block of the run log and in no artifact. The **first**
+      real run, CI #21 on `1e09a6b`, is part of this record: it passed every
+      simulation assertion and archived nothing, because `actions/glob` skips
+      dotted path components unless `include-hidden-files` is set, and it printed
+      the generated key unmasked; both were delivery-path defects, fixed in
+      `acd25d4` (`include-hidden-files: true`, `::add-mask::` before the
+      `$GITHUB_ENV` write, plus `sim_evidence_selftest.sh` pinning the contract)
+      and `84d46d5` (unrelated pre-existing `gofmt` baseline). No simulation
+      semantics, threshold, coordinate, or confirmation rule was touched by either.
       **Stated for the record:** M5′
       demonstrates that the multi-node and dual-event simulation harnesses execute
       successfully in CI and produce archived software evidence. It does not
       validate field correlation, production behavior, or real multi-node sensor
-      performance. **Still not demonstrated:** the harnesses drive **virtual nodes
+      performance. The `VALIDATED` status granted here is `VALIDATED` **for what
+      D-014 authorized and nothing more** — that the harnesses execute in CI and
+      archive their own evidence. Each artifact carries the same boundary as a
+      machine-readable `not_claimed` list: *field validation*, *production
+      validation*, *real multi-node sensor performance*, *real multi-node
+      correlation*. A green CI #22 is none of those four, and citing it as any of
+      them is a §8 violation regardless of this checkbox.
+      **Still not demonstrated:** the harnesses drive **virtual nodes
       that are database rows** with hand-picked coordinates (S9, D-011 constraint
       2); the fleet remains one physical ESP32, and Phase F owns the field
       evidence. Not deployed.

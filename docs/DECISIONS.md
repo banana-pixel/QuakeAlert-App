@@ -561,6 +561,51 @@ status: `IMPLEMENTED → VALIDATED` for P4-M5′ requires an owner ruling on the
 archived evidence, and may not be granted by the agent that implemented it
 (`PROJECT_RULES.md` §8, S9). One physical ESP32 remains the entire fleet.
 
+**Validation record (appended 2026-09-03; nothing above is rewritten).** The owner
+ruling this decision required has been given. P4-M5′ is **owner-approved SATISFIED
+/ `VALIDATED` 2026-09-03**, on GitHub Actions **CI #22** — run id `33737869128`,
+attempt 1, `workflow_dispatch` on `development` at head
+`84d46d52856cc97b69f45164041a2070ea5aada1`, 2026-09-03T09:15:51Z → 09:22:14Z,
+conclusion **success**, all four jobs green (Go server, Firmware host tests,
+Android app, and *Simulation harnesses (software evidence)* with all 13 steps
+successful). The `simulation-evidence` artifact (3278 B, SHA-256
+`62605c4f9e4737c982769c80f55b9f0ab364f119bfe0f6e46c822f7f00fd0bac`) was downloaded
+and re-read from the archive rather than transcribed from the log: it contains
+exactly `.sim-evidence/sim_multi_node.evidence.json` (checkpoint 3.1, `status=PASS`,
+`exit_code=0`, 9 assertions passed / 0 failed) and
+`.sim-evidence/sim_dual_event.evidence.json` (checkpoint 3.2, `status=PASS`,
+`exit_code=0`, 11 passed / 0 failed), both `schema_version 1`, both
+`evidence_class: "SOFTWARE_SIMULATION"`, both with `git_dirty=false` and `git_sha`
+equal to the run head, and both carrying the `not_claimed` list verbatim. The
+ephemeral `ADMIN_API_KEY` shows as `***` in every `env:` block of the run log and
+in neither artifact.
+
+Two delivery-path defects surfaced in the first real run, CI #21 on `1e09a6b`, and
+belong in this record: the upload archived **nothing** while every simulation
+assertion passed, because `actions/glob` skips dotted path components unless
+`include-hidden-files` is set, and the generated key printed unmasked five times.
+Both were fixed in `acd25d4` (`include-hidden-files: true`; `::add-mask::`
+registered before the `$GITHUB_ENV` write; `server/scripts/sim_evidence_selftest.sh`
+pinning the delivery contract with 24 assertions, each mutation-tested red) with the
+unrelated pre-existing `gofmt` baseline fixed separately in `84d46d5`. `if: always()`
+and `if-no-files-found: error` were left intact — the files were made findable, not
+the empty archive acceptable. No simulation semantics, threshold, coordinate,
+confirmation rule, production runtime behaviour or Android behaviour was changed.
+
+**What this `VALIDATED` covers, and what it must never be read as.** It covers
+exactly what this decision authorized: the two harnesses execute in CI and produce
+archived software evidence. It is **not** field validation, **not** production
+validation, **not** real multi-node sensor performance, and **not** real multi-node
+correlation — the four claims each artifact names in `not_claimed`. The harnesses
+drive virtual nodes that are database rows with hand-picked coordinates (S9, D-011
+constraint 2); the fleet is still one physical ESP32, and Phase F owns the field
+evidence. **D-011 and D-012 are unchanged in meaning**: D-011 constraint 2 is what
+bounds this evidence, and D-012 remains Phase 4's only authorized contract
+exception — M5′ adds no migration and no contract change. **U-001 … U-013 remain
+unresolved, U-007 included**; nothing in this validation reopens or reinterprets any
+of them. Not deployed: the code is committed only. Full detail in
+`docs/CURRENT_STATE.md` § Demonstrated and `ROADMAP.md` § Phase 4 (P4-M5′).
+
 ---
 
 ## Unresolved questions

@@ -29,6 +29,7 @@ IMPLEMENTED only.
 | Near-confirmation observability log | yes | **yes — restart survival demonstrated 2026-09-03 against a real PostgreSQL database** | in-memory version: yes, private VPS · durable version (P4-M2′): **committed, not deployed** | Durable since P4-M2′/D-012: crossings are written to `event_near_confirmed` (migration `000009`) through the bounded drop-oldest ledger queue, and the read path answers with an explicit coverage envelope. Silent crossings (no state transition) are recorded too. Restart survival, terminal state outliving its parent row, persistence failure not blocking emission, and recorded `algo_ver`/`min_independent_cells` surviving a **different** running configuration are all demonstrated — see *Demonstrated*. The in-memory map remains the authority (§9.5); the table is a follower. |
 | Admin tracker endpoints | yes | no | yes, private VPS | Behind the admin API key. |
 | Deterministic replay (P4-M4′ forensics) | yes | **yes — recorded window reproduced 2026-09-03 against a real PostgreSQL database** | **not deployed** — operator tooling, `//go:build ignore` | Read-only by construction (D-013): two `SELECT`s feed a fresh `Tracker` with no persister and no ledger, never reconciled; no migration, no contract change. Identity is compared as an observation-grouping **bijection** (F2) and `decided_at` as an elapsed **delta** within tolerance (F3); revision, states, reason, `node_count` and `independent_cells` are compared exactly. One event on one node, and parameters other than `INDEPENDENCE_CELL_KM` are operator-asserted — see *Demonstrated* and *NOT demonstrated*. |
+| Simulation harnesses in CI (P4-M5′) | yes | **yes — executed in GitHub Actions CI #22 with archived evidence, 2026-09-03** | n/a — CI only, nothing deployed | **Software evidence only.** A fourth CI job runs `sim_multi_node.sh` then `sim_dual_event.sh` serially and each harness emits its own `schema_version 1` artifact from an EXIT trap; both upload and are re-validated on the runner. The nodes are database rows with hand-picked coordinates (S9, D-011 constraint 2), so this is **not** field validation, production validation, real multi-node sensor performance, or real multi-node correlation — each artifact names those four in `not_claimed`. |
 | WebSocket delivery | yes | partial | yes, private VPS | Advisory frames observed; alert frames not observed in production. |
 | Push delivery | yes | no | yes, private VPS | Never triggered in production; one device vendor only in testing. |
 | Firmware detection | yes | partial | one node | One board, one location, one firmware build. |
@@ -222,7 +223,8 @@ de-duplication — **not** at-least-once (D-008).
   stays unexercised by replay (S2).
 - **The two simulation harnesses execute in CI and archive their own evidence —
   P4-M5′, software simulation, 2026-09-03.** IMPLEMENTED under **D-014**;
-  **awaiting owner sign-off, not `VALIDATED`** (`PROJECT_RULES.md` §8, S9). A
+  **owner-approved SATISFIED / `VALIDATED` 2026-09-03**, on the archived evidence
+  from GitHub Actions **CI #22** (`PROJECT_RULES.md` §8, S9). A
   fourth CI job, `simulation`, runs `sim_multi_node.sh` then `sim_dual_event.sh`
   **serially** on one runner — mandatory, because both publish the same fixed host
   ports (5432/6379/1883/8080), name their containers by a fixed compose prefix,
@@ -259,10 +261,32 @@ de-duplication — **not** at-least-once (D-008).
   production behavior, or real multi-node sensor performance. The harnesses drive
   **virtual nodes that are database rows** with hand-picked coordinates (S9, D-011
   constraint 2); the fleet is still one physical ESP32, so no real multi-node
-  correlation occurred and none may be inferred from a green job. **Not yet run on
-  GitHub Actions** either, as of this commit — the job was validated by a local
-  reproduction that executes the workflow's own step bodies; the first real run is
-  the one this commit triggers. Not deployed.
+  correlation occurred and none may be inferred from a green job.
+  **Validation evidence — GitHub Actions CI #22**, run id `33737869128`, attempt 1,
+  `workflow_dispatch` on `development` at head
+  `84d46d52856cc97b69f45164041a2070ea5aada1`, 2026-09-03T09:15:51Z → 09:22:14Z:
+  conclusion **success** with all four jobs green (Go server, Firmware host tests,
+  Android app, and *Simulation harnesses (software evidence)* — all 13 steps of the
+  simulation job succeeded). The `simulation-evidence` artifact (3278 B, SHA-256
+  `62605c4f9e4737c982769c80f55b9f0ab364f119bfe0f6e46c822f7f00fd0bac`) was
+  downloaded and re-read from the archive, not transcribed from the log: it holds
+  exactly the two files, `sim_multi_node.evidence.json` (checkpoint 3.1,
+  `status=PASS`, `exit_code=0`, 9 assertions passed / 0 failed) and
+  `sim_dual_event.evidence.json` (checkpoint 3.2, `status=PASS`, `exit_code=0`, 11
+  passed / 0 failed), both `schema_version 1`, `evidence_class:
+  "SOFTWARE_SIMULATION"`, `git_dirty=false`, and `git_sha` equal to the run head —
+  so the archived evidence provably describes the commit that was tested. The
+  ephemeral `ADMIN_API_KEY` shows as `***` in every `env:` block of the run log and
+  appears in neither artifact. The **first** real run belongs in this record too:
+  CI #21 on `1e09a6b` passed every simulation assertion and archived **nothing**,
+  because `actions/glob` skips dotted path components unless `include-hidden-files`
+  is set, and it printed the generated key unmasked five times. Both were
+  delivery-path defects around the harnesses, not detector defects, and were fixed
+  in `acd25d4` — `include-hidden-files: true`, `::add-mask::` registered before the
+  `$GITHUB_ENV` write, and `sim_evidence_selftest.sh` (24 assertions, each
+  mutation-tested red) pinning the delivery contract that no assertion inside the
+  harnesses was watching. No simulation semantics, threshold, coordinate, or
+  confirmation rule changed. Not deployed.
 
 ## NOT demonstrated
 
@@ -378,11 +402,15 @@ replay) is owner-approved SATISFIED / `VALIDATED` as of 2026-09-03, authorized b
 **D-013**, on the isolated-PostgreSQL evidence in *Demonstrated*; committed, **not
 deployed**, and read-only — it adds no migration and no contract change, so D-012
 remains the phase's only authorized contract exception. **P4-M5′** (simulated
-multi-node runs in CI) is **IMPLEMENTED 2026-09-03** under **D-014** and
-**awaiting owner sign-off — it is not `VALIDATED`**, and it must not be read as
-one: its evidence is software simulation only (S9, D-011 constraint 2), it adds no
-migration and no contract change, and it had not yet run on GitHub Actions when it
-was committed. P4-M1′ and P4-M6′ are not met.
+multi-node runs in CI) is owner-approved SATISFIED / `VALIDATED` as of
+2026-09-03 under **D-014**, on the archived GitHub Actions **CI #22** evidence in
+*Demonstrated*; committed, **not deployed**. That `VALIDATED` covers exactly what
+D-014 authorized — the harnesses execute in CI and archive their own evidence —
+and **nothing beyond it**: the evidence is software simulation only (S9, D-011
+constraint 2), and each artifact names what it does not claim (*field validation*,
+*production validation*, *real multi-node sensor performance*, *real multi-node
+correlation*). It adds no migration and no contract change, so D-012 remains the
+phase's only authorized contract exception. P4-M1′ and P4-M6′ are not met.
 
 Phase F remains `BLOCKED` on the owner deploying additional nodes. Every item in
 *NOT demonstrated* that requires a confirmed event, multiple nodes, or a
@@ -416,14 +444,15 @@ not a Phase 4 failure.
   unfixed as outside D-013's scope. `go test -p 1` is green (272 passed / 0
   failed). A fix belongs with the test harness — a `TestMain` guard or a
   per-package database — not with a Phase 4 criterion.
-- `server/scripts/sim_setup_nodes.go` is not `gofmt`-clean, so the existing
-  `server` CI job's *Verify formatting* step (`gofmt -l .`, run from `server/`,
-  which covers `scripts/`) fails on it. **Pre-existing and unrelated to Phase 4:**
-  the file is byte-identical to `HEAD` and the `HEAD` blob is itself unformatted,
-  introduced by `0822d35` with the checkpoint-3 harnesses; found during P4-M5′
-  validation on 2026-09-03, deliberately left unfixed as outside D-014's scope. It
-  will fail that job independently of the simulation job. One `gofmt -w` fixes it;
-  that belongs with whoever owns the Phase 3.x harness files.
+- ~~`server/scripts/sim_setup_nodes.go` is not `gofmt`-clean~~ — **closed
+  2026-09-03 by `84d46d5`.** The `server` CI job's *Verify formatting* step
+  (`gofmt -l .`, run from `server/`, which covers `scripts/`) failed on this file
+  in CI #21. Pre-existing and unrelated to Phase 4: the blob was unformatted since
+  `0822d35` introduced it with the checkpoint-3 harnesses, and it was found during
+  P4-M5′ validation on 2026-09-03. Fixed as its own commit, deliberately kept out
+  of the M5′ feature and CI-fix commits — `gofmt -w` only, every changed line a
+  comment line, non-comment token stream identical. *Verify formatting* is green in
+  CI #22.
 
 ## Maintenance
 
