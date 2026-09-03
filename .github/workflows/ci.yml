@@ -218,13 +218,46 @@ jobs:
           done
           exit "$rc"
 
+      - name: Evidence delivery contract selftest
+        # Runs BEFORE the harnesses, and takes about a second: no Docker, no
+        # database, no server. It pins the delivery path rather than the
+        # simulation — that both harnesses share one artifact contract, that the
+        # EXIT trap writes an artifact on every way out (including ERROR), that
+        # teardown cannot delete it, that a red 3.1 does not silence 3.2, and
+        # that the upload step's glob can actually see a dotted directory.
+        #
+        # It exists because run 33722818922 passed every simulation assertion,
+        # wrote both artifacts, and archived nothing: the failures were entirely
+        # in the delivery path, where no assertion inside the harnesses was
+        # looking. Placed first so that a broken path costs a second instead of
+        # five minutes.
+        run: server/scripts/sim_evidence_selftest.sh
+
       - name: Generate ephemeral ADMIN_API_KEY
         # Generated per run, never a repository secret. It authenticates the two
         # admin read endpoints on a server that exists for ~2 minutes inside this
         # runner, and it protects nothing that outlives the job — so a stored
         # secret would be a durable credential guarding a disposable process.
-        # Written to $GITHUB_ENV, so it is not visible in any command line.
-        run: echo "ADMIN_API_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+        #
+        # ::add-mask:: comes FIRST, and that ordering is the whole point. A value
+        # in $GITHUB_ENV becomes a job-level env var, and the runner prints the
+        # entire `env:` block at the head of every subsequent step — so without a
+        # mask registered beforehand the generated key appears in the log once per
+        # later step, in plaintext (observed five times in run 33722818922). The
+        # mask is registered against the value before anything can render it, and
+        # from that point the runner redacts it to *** wherever it appears.
+        #
+        # It stays ephemeral and stays out of repository secrets: a mask is about
+        # what the log shows, not about where the credential lives.
+        #
+        # `tr -d '\n'` is not cosmetic: $GITHUB_ENV parses `KEY=VALUE` one line at
+        # a time, so a value carrying a newline would both defeat the mask past
+        # the first line and let the remainder be read as another env assignment.
+        run: |
+          set -euo pipefail
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          echo "::add-mask::$key"
+          echo "ADMIN_API_KEY=$key" >> "$GITHUB_ENV"
 
       # The two harnesses run SERIALLY, in this one job, on this one runner.
       #
@@ -253,10 +286,21 @@ jobs:
         # emit their artifact from an EXIT trap, so a run that dies in STEP 0
         # still leaves one behind, marked ERROR.
         if: always()
+        id: archive
         uses: actions/upload-artifact@v7
         with:
           name: simulation-evidence
           path: .sim-evidence/*.evidence.json
+          # REQUIRED, and not a preference: `.sim-evidence` is a DOTTED directory,
+          # and actions/glob drops any path component whose basename starts with
+          # `.` unless hidden files are included — it never descends, so the glob
+          # resolves to zero files and the step fails with "No files were found"
+          # even though both artifacts are sitting there. That is exactly what
+          # happened in run 33722818922: the next step's bash glob listed both
+          # files moments later. Bash and Python globs match literal dotted
+          # components; actions/glob does not. Removing this line silently
+          # un-archives every future run's evidence.
+          include-hidden-files: true
           # error, not warn: an upload step that quietly finds nothing would let
           # this job report success while archiving no evidence at all, which is
           # the one outcome that makes M5' meaningless.
