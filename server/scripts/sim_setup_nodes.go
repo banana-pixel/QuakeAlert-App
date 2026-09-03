@@ -4,11 +4,13 @@
 // Bypasses provisioning API rate limit. Dev-only, never production.
 //
 // Usage:
-//   go run scripts/sim_setup_nodes.go
+//
+//	go run scripts/sim_setup_nodes.go
 //
 // Env:
-//   DATABASE_URL (default: postgres://quakealert:devpassword@localhost:5432/quakealert?sslmode=disable)
-//   MASTER_KEY_HEX (default: 0000000000000000000000000000000000000000000000000000000000000001)
+//
+//	DATABASE_URL (default: postgres://quakealert:devpassword@localhost:5432/quakealert?sslmode=disable)
+//	MASTER_KEY_HEX (default: 0000000000000000000000000000000000000000000000000000000000000001)
 //
 // Prints plaintext secrets to stdout for use by sim_confirm_scenario.go.
 // Nodes are inserted with is_active=true and verified=true.
