@@ -184,9 +184,70 @@ may not be granted by the agent that implemented it (`PROJECT_RULES.md` §8, S9)
       `event_transitions_to_confirmed_total = 0` because the physical fleet has
       one node (S2), so every sample came from an `UNCONFIRMED` decision. See
       `docs/CURRENT_STATE.md` for the demonstrated/not-demonstrated split.
-- [ ] **P4-M4′ — Deterministic replay.** Replaying recorded observations grouped
+- [x] **P4-M4′ — Deterministic replay.** Replaying recorded observations grouped
       by `algo_ver` through a fresh tracker reproduces the same `event_id`,
       `revision`, and `independent_cell_count` decisions (V7).
+      `IMPLEMENTED` 2026-09-03, authorized by **D-013**, which defines how each
+      quantity is compared: **F2** — `event_id` is compared as an
+      observation-grouping **bijection** (the sorted set of `node_id#obs_seq`
+      behind each event's last revision), not as UUID equality, because the
+      identifier is minted fresh at DETECTED and equality is unsatisfiable by
+      construction; **F3** — `decided_at` is compared as an elapsed **delta** from
+      the event's first decision, within a tolerance defaulting to
+      `EVENT_SWEEP_INTERVAL_MS + 1000` ms, because the sweep tick phase was never
+      recorded. `revision`, `from_state`, `to_state`, `reason`, `node_count` and
+      `independent_cells` are compared **exactly**. Canonical input order is
+      `received_ts, observation_id` — total, because `observation_id` is
+      `BIGSERIAL`. Read-only by construction: two `SELECT`s
+      (`ListObservationsForReplay`, `ListStateLogForReplay`), a fresh `Tracker`
+      with no persister and no ledger, never reconciled.
+      **Owner-approved SATISFIED / `VALIDATED` 2026-09-03**, on archived evidence
+      from an isolated PostgreSQL/PostGIS database (`TEST_DATABASE_URL`,
+      loopback-only container, all nine migrations applied): 3 new PG-gated tests
+      in `internal/store/replay_read_test.go` exercised the two readers against a
+      real schema for the first time (canonical order including the
+      `observation_id` tie-break, interval closed at both ends, and the
+      **non-filtering** property — a failed-verification row and a NULL
+      `node_location` row both return, NULL arriving as NULL rather than `(0,0)`);
+      34 M4′ tests green in total (27 `internal/event/replay_test.go`, 4
+      `replay_realsensor_test.go`, 3 `replay_read_test.go`); the full suite 272
+      passed / 0 skipped / 0 failed run serially, and `go test -race` clean across
+      all 10 packages. The recorded real-sensor window was then seeded and
+      replayed: event `3adf752d-48f1-4f81-b98e-d31e3775c923` on `NODE-52960B47`,
+      observations 28 (PRELIM) and 29 (FINAL), exit code 0, **bijective** under
+      the signature `NODE-52960B47#1507330`, both revisions reproduced
+      (`DETECTED→UNCONFIRMED FLOOR_MET`, then `UNCONFIRMED→RESOLVED
+      NO_NEW_EVIDENCE`) with `independent_cells` matching, F3 deltas 0 ms and
+      2194 ms against a 6000 ms tolerance, and re-feeding the same window produced
+      no second event. Read-only was **proven, not argued**, three independent
+      ways: per-row `xmin`, row counts and sequence `last_value` unchanged;
+      `pg_stat_user_tables` insert/update/delete/hot-update counters unchanged;
+      and the same run under an enforced `default_transaction_read_only = on`
+      session producing byte-identical output at exit 0. A deliberately divergent
+      fixture reported `independent_cells: historis=2 replay=1` at exit 1, so a
+      pass is distinguishable from a comparison that cannot fail; operator exit
+      codes 0 / 1 / 2 / 1 were confirmed on a built binary, the rejected-profile
+      path (`INDEPENDENCE_CELL_KM=9` against rows carrying `ic=5`) included.
+      **Still not demonstrated:** production or field validation of any kind (S9)
+      — nothing is deployed and the production stack was untouched; more than one
+      event on more than one node, so the `CONFIRMED` path stays unexercised by
+      replay for as long as the fleet has one node (S2); the real-sensor fixture's
+      `evidence_summary`, which is **reconstructed** because that session captured
+      only the scalars — evidence-field agreement there is tautological and only
+      the recorded scalars are independent evidence; replay parameters other than
+      `INDEPENDENCE_CELL_KM`, which are **operator-asserted** and not recoverable
+      from the rows; absolute `decided_at` agreement, F3 being relative by design;
+      `event_persist_dropped_total` / ledger drops, which are logged and not
+      stored, so a divergence caused by a historical drop cannot be distinguished
+      from one caused by a defect; and a durable operator-level regression test for
+      the divergence path — the divergence fixture was manual and was deleted.
+      One **unrelated pre-existing** test-isolation defect was found and
+      deliberately left unfixed: `internal/store` and `internal/event` share one
+      database and run concurrently by default, so the migration-down tests
+      (`TestMigration000006DownRestoresSchema`, `TestMigration000009DownRestoresSchema`)
+      and `pgBreakNearConfirmedTable` race each other. Reproduced 3/3 on a clean
+      `git archive HEAD` tree containing no replay code; `-p 1` is green. It
+      predates Phase 4 and is outside D-013's scope.
 - [ ] **P4-M5′ — Simulated multi-node runs in CI.** `sim_multi_node.sh` and
       `sim_dual_event.sh` pass in CI and archive their tracker counters and
       evidence snapshots. **This is software validation, never field

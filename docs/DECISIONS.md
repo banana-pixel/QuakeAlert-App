@@ -292,6 +292,155 @@ U-007 included** — nothing in this validation reopened any of them. Not deploy
 the code is committed only. Full detail in `docs/CURRENT_STATE.md` § Demonstrated
 and `ROADMAP.md` § Phase 4 (P4-M2′).
 
+### D-013 — Deterministic replay proves the decisions; identity is compared by grouping and time by elapsed offset
+**Status:** ACCEPTED · **Owner-approved:** 2026-09-03 · **See:** `ROADMAP.md`
+§ Phase 4 (P4-M4′), D-011, `PROJECT_RULES.md` V5/V7 and §11,
+`server/internal/event/replay.go`, `server/scripts/replay_window.go`
+
+P4-M4′ replays recorded observations through a fresh tracker, read-only, and
+compares the decisions it makes against the recorded `event_state_log`. Four
+comparison boundaries are approved, and V7 is satisfied through them:
+
+**F2 — event identity is compared as an observation-grouping bijection, not as
+UUID equality.** `event_id` is a freshly generated UUID minted when DETECTED is
+created, so a replayed run can never reproduce the historical value; requiring
+equality would make V7 unsatisfiable by construction. Each historical event and
+each replayed event is instead reduced to its **grouping signature** — the sorted
+set of `node_id#obs_seq` contributing to its last revision — and the two sets of
+events must stand in a one-to-one correspondence under that signature. That is
+the property V7 asks for: the same observations grouped into the same events, one
+for one, no merge and no split.
+
+**F3 — `decided_at` is compared as a relative delta with tolerance, never as an
+absolute timestamp.** Wall-clock equality is unreachable: `decided_at` is a
+server clock reading taken at decision time, and the phase of the sweep tick that
+produced a terminal transition was never recorded. Every revision after the first
+is compared as its elapsed offset from that event's first decision — historical
+against replayed — and must agree within a tolerance defaulting to
+`EVENT_SWEEP_INTERVAL_MS + 1000` ms. A sweep-quantised difference is not a
+divergence; a different decision is.
+
+**Canonical input order is `received_ts, observation_id`.** That, and only that,
+is the order in which recorded observations are fed to the tracker. It is a
+*total* order because `observation_id` is `BIGSERIAL` and breaks ties on an
+identical `received_ts`. Reproducibility under V7 is defined against this order;
+a replay fed in any other order is a different experiment and its outcome is
+evidence neither for nor against V7.
+
+**Replay parameters are operator-asserted unless they were historically
+recorded.** `algo_ver` records `INDEPENDENCE_CELL_KM`, and nothing else.
+Correlation window, attach radius, resolve-after, sweep interval, max diameter
+and `MIN_INDEPENDENT_CELLS` were never written beside the rows, so replay takes
+them from the operator, prints them as an assertion **before** any result, and
+rejects a profile whose `INDEPENDENCE_CELL_KM` contradicts the `algo_ver` on the
+rows being replayed. A matching replay therefore proves *these observations,
+under **these** parameters, produce those decisions* — never that those
+parameters were the ones in force.
+
+**Because:** V7 read as identifier equality is unsatisfiable, and an
+unsatisfiable criterion is either quietly abandoned or "satisfied" by a replay
+that reuses the historical `event_id` and proves nothing. The two quantities that
+cannot be reproduced exactly are precisely the two that carry no decision
+meaning — a random UUID and a clock reading — while everything that does carry
+decision meaning is still compared exactly: revision count, `from_state`,
+`to_state`, `reason`, `node_count`, `independent_cells`, and the grouping itself.
+Recovering the unrecorded parameters is impossible without rewriting history
+(V3/V6, D-006), and adding a schema change to record them retroactively is beyond
+a read-only forensics phase (D-011). Asserting them out loud, with the one
+contradiction the data *can* detect rejected outright, is the honest alternative
+to a silent default.
+
+**This decision explicitly authorizes,** and nothing beyond:
+1. **Two read-only readers.** `ListObservationsForReplay` and
+   `ListStateLogForReplay` in `server/internal/store/event_lifecycle.go`: two
+   `SELECT`s, canonical order, interval closed at both ends, no filtering.
+2. **The replay engine.** `server/internal/event/replay.go` — a fresh `Tracker`
+   per call, no persister, no ledger, never reconciled.
+3. **The operator CLI.** `server/scripts/replay_window.go` (`//go:build
+   ignore`), with exit codes 0 success / 1 divergence or rejected profile /
+   2 empty observation window.
+4. **Grouping by `algo_ver` before comparison** (V5, `PROJECT_RULES.md` §11).
+   Rows carrying different labels are never replayed as one stream.
+
+**Constraints carried by this decision, stated so they cannot be read away:**
+1. **Read-only by construction.** No migration, no schema change, no contract
+   change, and no `INSERT`, `UPDATE` or `DELETE` on any path this decision
+   authorizes. Replay builds its own tracker, holds no persister, and never
+   reconciles.
+2. **Comparison is per event, never as one global stream.** `sweepLocked()`
+   iterates a map, so the order of terminal transitions *between* events inside
+   one sweep tick is undefined; a global-stream comparison would report that
+   undefined order as a divergence.
+3. **A matching replay is software evidence, never field validation (S9).** It
+   shows that recorded input reproduces recorded decisions. It says nothing about
+   production, about the network, or about which parameters were actually in
+   force.
+4. **Rows the tracker cannot use are reported, not dropped silently.** Failed
+   verification, NULL `node_location`, and no onset anchor are counted and named
+   in the input report. The SQL deliberately does not filter them, so the count
+   cannot be lost before the caller sees it.
+5. **`event_persist_dropped_total` / ledger drops are not historically
+   recoverable.** Drops are logged, not stored, so replay cannot distinguish an
+   observation the tracker never saw from one that was never recorded. A
+   divergence caused by a historical drop is indistinguishable from a divergence
+   caused by a defect; the operator asserts what is known and the assertion is
+   printed with the result.
+6. **U-007 is not reopened.** Historical independence is never recomputed against
+   current node coordinates. Replay uses each observation's own recorded
+   location, and a stored `algo_ver` is a gate, never something to be corrected.
+
+**Affects:** the forensics surface only — two read-only store readers, one
+package-internal replay engine, one build-ignored operator script, and the
+governance records of P4-M4′. No schema, no published contract, no counter, no
+runtime behaviour of the deployed server binary. **Reversible:** yes, completely
+— deleting the three new files and the two readers leaves no trace, because
+nothing was written and nothing was migrated.
+
+**Does not decide:** nothing about what the system decides. Thresholds
+(`MinPGAGal`, `MinNodesConfirmed`, `MinIndependentCells`), quorum, attach radius,
+the legal transitions and every event semantic are unchanged; this is a read path
+and a comparison. **`event_state_log` semantics are untouched** — one row per
+state transition, and replay adds none. **U-001 … U-013 remain unresolved, U-007
+included.** D-011 is **not** superseded: its scope, its three constraints and its
+reasoning stand as written, and this decision changes none of them — in
+particular D-011's "no wire field, no delivery tier, no notification-policy
+change, and no contract change" holds here in full, since replay adds no contract
+change at all. D-012 is **not** superseded and is unaffected. The pre-existing
+Phase 3.x `TRACKER_DISABLED` enum gap (`server/internal/api/admin.go:297,309`
+versus `Error.code` in `contracts/openapi/openapi.yaml`) is **not** addressed
+here and remains open as a Phase 3.x matter.
+
+**Validation record (appended 2026-09-03; nothing above is rewritten).** P4-M4′ is
+**owner-approved SATISFIED / `VALIDATED` 2026-09-03**. Evidence: an isolated
+loopback-only PostGIS container with all nine migrations applied; 3 new
+PG-gated tests in `server/internal/store/replay_read_test.go` proving the two
+readers' canonical order, closed interval and non-filtering against a real
+schema for the first time; 34 M4′ tests green in total; the whole suite 272
+passed / 0 skipped / 0 failed run serially, and `go test -race` clean across all
+10 packages. The recorded real-sensor window (`NODE-52960B47`, event
+`3adf752d-48f1-4f81-b98e-d31e3775c923`, observations 28 and 29) was seeded and
+replayed at exit code 0: bijective under the signature `NODE-52960B47#1507330`,
+both revisions reproduced (`DETECTED→UNCONFIRMED FLOOR_MET`, then
+`UNCONFIRMED→RESOLVED NO_NEW_EVIDENCE`) with `independent_cells` matching, F3
+deltas 0 ms and 2194 ms against a 6000 ms tolerance, and re-feeding the same
+window produced no second event. Read-only was proven three ways rather than
+argued: per-row `xmin`, row counts and sequence `last_value` unchanged;
+`pg_stat_user_tables` insert/update/delete/hot-update counters unchanged; and the
+same run under an enforced `default_transaction_read_only = on` session producing
+byte-identical output at exit 0. A deliberately divergent fixture reported
+`independent_cells: historis=2 replay=1` and exit 1, so a passing result is
+distinguishable from a comparison that cannot fail. Operator exit codes 0 / 1 /
+2 / 1 were confirmed on a built binary, the rejected-profile path included.
+**Not claimed:** production or field validation of any kind (S9) — nothing was
+deployed and the production stack was untouched; one event on one node, so the
+CONFIRMED path stayed unexercised (S2); the real-sensor fixture's
+`evidence_summary` is **reconstructed**, that session having captured only the
+scalars, so evidence-field agreement there is tautological and only the recorded
+scalars are independent evidence; the replay parameters were operator-asserted;
+`decided_at` agreement is relative, not absolute; and `ledger_drops_total` was
+not historically recoverable. Full detail in `docs/CURRENT_STATE.md`
+§ Demonstrated and `ROADMAP.md` § Phase 4 (P4-M4′).
+
 ---
 
 ## Unresolved questions

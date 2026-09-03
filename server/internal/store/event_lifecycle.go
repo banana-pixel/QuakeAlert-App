@@ -286,6 +286,156 @@ func (s *Store) ListActiveNodeLocations(ctx context.Context) ([]NodeLocation, er
 }
 
 // ---------------------------------------------------------------------------
+// Pembacaan untuk replay deterministik (P4-M4′).
+//
+// Dua query di bawah adalah SATU-SATUNYA jalur baca ke sensor_observations dan
+// ke riwayat event_state_log yang dimiliki paket ini, dan keduanya READ-ONLY:
+// tidak ada INSERT, UPDATE, DELETE, tidak ada tabel bantu, tidak ada migrasi.
+// V4 melarang menulis ulang baris historis, jadi replay hanya boleh MEMBACA
+// ledger dan membandingkan — bukan memperbaikinya.
+//
+// Keduanya mengembalikan baris APA ADANYA, termasuk baris yang tidak akan
+// dipakai konsensus (verify_result != 'OK', node_location NULL). Penyaringan
+// dilakukan pemanggil supaya jumlah yang tersaring dapat DILAPORKAN; query yang
+// menyaring sendiri akan membuat replay tampak lengkap padahal masukannya
+// tidak.
+// ---------------------------------------------------------------------------
+
+// ReplayObservation adalah satu baris sensor_observations sebagaimana dibutuhkan
+// pemutaran ulang: kolom mentah, tanpa turunan apa pun.
+//
+// Berbeda dari Observation (jalur tulis) dalam dua hal yang penting: ada
+// ObservationID — kunci urut kedatangan dan tie-break kanonik — dan ada
+// VerifyResult yang dibawa keluar apa adanya supaya pemanggil dapat menghitung
+// baris yang ia saring.
+//
+// Lat/Lon adalah SNAPSHOT node_location saat ingest, bukan koordinat node
+// sekarang. Replay wajib memakai snapshot ini: node yang pindah atau dihapus
+// setelah kejadian tidak boleh mengubah keputusan historis.
+type ReplayObservation struct {
+	ObservationID     int64
+	NodeID            string
+	Phase             string
+	ProtoVer          *int16
+	ObsSeq            *int64
+	PGAGal            float64
+	DurMs             int64
+	PublishTS         int64
+	ReceivedTS        int64
+	OnsetTS           *int64
+	OnsetTSUpperBound *int64
+	OnsetTSSource     string
+	AttemptNo         *int16
+	DetriggerTS       *int64
+	Lat               *float64
+	Lon               *float64
+	VerifyResult      string
+}
+
+// ListObservationsForReplay mengembalikan seluruh observasi dengan
+// received_ts di dalam [fromTS, toTS] (kedua ujung tertutup), diurutkan
+// KANONIK: received_ts lalu observation_id.
+//
+// Urutan itu DIDEKLARASIKAN, bukan direkonstruksi. Handler MQTT produksi
+// berjalan dengan SetOrderMatters(false), sehingga urutan pemrosesan historis
+// yang sebenarnya tidak tersimpan di mana pun dan tidak dapat dipulihkan dari
+// baris. observation_id (BIGSERIAL) adalah urutan PENULISAN ledger, yang juga
+// bukan urutan pemrosesan. Jadi replay memutar satu urutan yang tertentu dan
+// dapat diulang, dan divergensi yang muncul karenanya WAJIB dilaporkan, bukan
+// disembunyikan.
+//
+// Batasnya received_ts, bukan publish_ts: publish_ts berasal dari jam node dan
+// distempel ulang pada tiap retry, jadi ia bukan sumbu waktu yang monoton di
+// sisi server.
+func (s *Store) ListObservationsForReplay(ctx context.Context, fromTS, toTS int64) ([]ReplayObservation, error) {
+	const q = `
+		SELECT observation_id, node_id, phase, proto_ver, obs_seq,
+		       pga_gal::double precision AS pga_gal,
+		       dur_ms, publish_ts, received_ts,
+		       onset_ts, onset_ts_upper_bound, onset_ts_source,
+		       attempt_no, detrigger_ts,
+		       ST_Y(node_location::geometry) AS lat,
+		       ST_X(node_location::geometry) AS lon,
+		       verify_result
+		FROM sensor_observations
+		WHERE received_ts >= $1 AND received_ts <= $2
+		ORDER BY received_ts ASC, observation_id ASC`
+	rows, err := s.pool.Query(ctx, q, fromTS, toTS)
+	if err != nil {
+		return nil, fmt.Errorf("query observations for replay: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]ReplayObservation, 0, 64)
+	for rows.Next() {
+		var o ReplayObservation
+		if err := rows.Scan(
+			&o.ObservationID, &o.NodeID, &o.Phase, &o.ProtoVer, &o.ObsSeq,
+			&o.PGAGal, &o.DurMs, &o.PublishTS, &o.ReceivedTS,
+			&o.OnsetTS, &o.OnsetTSUpperBound, &o.OnsetTSSource,
+			&o.AttemptNo, &o.DetriggerTS,
+			&o.Lat, &o.Lon, &o.VerifyResult,
+		); err != nil {
+			return nil, fmt.Errorf("scan replay observation: %w", err)
+		}
+		out = append(out, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate replay observations: %w", err)
+	}
+	return out, nil
+}
+
+// ListStateLogForReplay mengembalikan seluruh baris event_state_log dengan
+// decided_at di dalam [fromTS, toTS], diurutkan (event_id, revision).
+//
+// Urutan itu per-event dan disengaja: sweepLocked() mengiterasi map, sehingga
+// urutan RESOLVED antar-event di dalam satu tik TIDAK terdefinisi. Satu aliran
+// global karena itu tidak dapat dibandingkan; perbandingan hanya sah PER EVENT,
+// dan bentuk hasil ini yang memaksa pemanggil melakukannya.
+//
+// Jendelanya decided_at, bukan started_at induknya: transisi terakhir sebuah
+// event (RESOLVED lewat sweep) jatuh sampai ResolveAfterMs + SweepIntervalMs
+// SETELAH observasi terakhirnya, jadi jendela log harus lebih panjang daripada
+// jendela observasi. Pemanggil yang memilih panjangnya.
+//
+// AlgoVer dibawa apa adanya supaya pemanggil dapat mengelompokkan menurutnya
+// (V5) dan MENOLAK memutar ulang baris yang basis algoritmanya tidak dikenal
+// biner ini.
+func (s *Store) ListStateLogForReplay(ctx context.Context, fromTS, toTS int64) ([]EventStateLog, error) {
+	const q = `
+		SELECT event_id, revision, from_state, to_state, reason,
+		       decided_at, node_count, independent_cells,
+		       peak_pga::double precision AS peak_pga,
+		       evidence_summary, algo_ver
+		FROM event_state_log
+		WHERE decided_at >= $1 AND decided_at <= $2
+		ORDER BY event_id ASC, revision ASC`
+	rows, err := s.pool.Query(ctx, q, fromTS, toTS)
+	if err != nil {
+		return nil, fmt.Errorf("query state log for replay: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]EventStateLog, 0, 32)
+	for rows.Next() {
+		var l EventStateLog
+		if err := rows.Scan(
+			&l.EventID, &l.Revision, &l.FromState, &l.ToState, &l.Reason,
+			&l.DecidedAt, &l.NodeCount, &l.IndependentCells, &l.PeakPGA,
+			&l.EvidenceSummary, &l.AlgoVer,
+		); err != nil {
+			return nil, fmt.Errorf("scan replay state log: %w", err)
+		}
+		out = append(out, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate replay state log: %w", err)
+	}
+	return out, nil
+}
+
+// ---------------------------------------------------------------------------
 // Persistensi durable catatan near-confirmation (P4-M2′, migrasi 000009, D-012).
 //
 // Satu baris per EVENT yang pernah melampaui ambang independensi. Ia BUKAN baris

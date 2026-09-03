@@ -28,6 +28,7 @@ IMPLEMENTED only.
 | Global spatial correctness (Phase 3.x) | yes | no | yes, private VPS | Proven by test at every latitude; no field data outside one location. |
 | Near-confirmation observability log | yes | **yes — restart survival demonstrated 2026-09-03 against a real PostgreSQL database** | in-memory version: yes, private VPS · durable version (P4-M2′): **committed, not deployed** | Durable since P4-M2′/D-012: crossings are written to `event_near_confirmed` (migration `000009`) through the bounded drop-oldest ledger queue, and the read path answers with an explicit coverage envelope. Silent crossings (no state transition) are recorded too. Restart survival, terminal state outliving its parent row, persistence failure not blocking emission, and recorded `algo_ver`/`min_independent_cells` surviving a **different** running configuration are all demonstrated — see *Demonstrated*. The in-memory map remains the authority (§9.5); the table is a follower. |
 | Admin tracker endpoints | yes | no | yes, private VPS | Behind the admin API key. |
+| Deterministic replay (P4-M4′ forensics) | yes | **yes — recorded window reproduced 2026-09-03 against a real PostgreSQL database** | **not deployed** — operator tooling, `//go:build ignore` | Read-only by construction (D-013): two `SELECT`s feed a fresh `Tracker` with no persister and no ledger, never reconciled; no migration, no contract change. Identity is compared as an observation-grouping **bijection** (F2) and `decided_at` as an elapsed **delta** within tolerance (F3); revision, states, reason, `node_count` and `independent_cells` are compared exactly. One event on one node, and parameters other than `INDEPENDENCE_CELL_KM` are operator-asserted — see *Demonstrated* and *NOT demonstrated*. |
 | WebSocket delivery | yes | partial | yes, private VPS | Advisory frames observed; alert frames not observed in production. |
 | Push delivery | yes | no | yes, private VPS | Never triggered in production; one device vendor only in testing. |
 | Firmware detection | yes | partial | one node | One board, one location, one firmware build. |
@@ -169,6 +170,56 @@ de-duplication — **not** at-least-once (D-008).
   **This says nothing about production:** the code is committed and not deployed,
   and the runs used a locally built binary against a test database, never the
   production stack.
+- **Deterministic replay of a recorded window reproduces its decisions — P4-M4′,
+  isolated PostgreSQL, 2026-09-03.** Owner-approved SATISFIED / `VALIDATED`,
+  authorized by **D-013**. Two read-only `SELECT`s
+  (`ListObservationsForReplay`, `ListStateLogForReplay`) feed recorded
+  observations, in canonical `received_ts, observation_id` order, through a
+  **fresh** `Tracker` that holds no persister, no ledger, and is never
+  reconciled; the decisions it makes are compared against the recorded
+  `event_state_log`. 3 new PG-gated tests in
+  `server/internal/store/replay_read_test.go` exercised those two queries against
+  a real schema for the first time — canonical order including the
+  `observation_id` tie-break on an identical `received_ts`, interval closed at
+  both ends, and the **non-filtering** property (a failed-verification row and a
+  NULL `node_location` row both come back, NULL arriving as NULL rather than as
+  the perfectly valid coordinate `(0,0)`). 34 M4′ tests are green in total; the
+  full suite ran 272 passed / 0 skipped / 0 failed serially, and `go test -race`
+  was clean across all 10 packages. The real recorded window was then seeded and
+  replayed: event `3adf752d-48f1-4f81-b98e-d31e3775c923` on `NODE-52960B47`,
+  observations 28 (PRELIM) and 29 (FINAL), exit code 0, **bijective** under the
+  grouping signature `NODE-52960B47#1507330`, both revisions reproduced
+  (`DETECTED→UNCONFIRMED FLOOR_MET`, then `UNCONFIRMED→RESOLVED
+  NO_NEW_EVIDENCE`) with `independent_cells` matching, and re-feeding the same
+  window produced no second event. **Read-only was proven three ways rather than
+  argued:** per-row `xmin`, row counts and sequence `last_value` all unchanged;
+  `pg_stat_user_tables` insert/update/delete/hot-update counters all unchanged;
+  and the same run under an enforced `default_transaction_read_only = on` session
+  producing byte-identical output at exit 0. A deliberately divergent fixture
+  reported `independent_cells: historis=2 replay=1` at exit 1, so a pass is
+  distinguishable from a comparison that cannot fail; operator exit codes
+  0 / 1 / 2 / 1 were confirmed on a built binary, the rejected-profile path
+  included. What this does **not** claim, stated as limits and not as caveats:
+  **no production or field validation** (S9) — the code is committed, nothing is
+  deployed, the production stack was untouched, and every run used a locally
+  built binary against a test database; **replay parameters are
+  operator-asserted** — `algo_ver` records `INDEPENDENCE_CELL_KM` and nothing
+  else, so correlation window, attach radius, resolve-after, sweep interval, max
+  diameter and `MIN_INDEPENDENT_CELLS` come from the operator, are printed as an
+  assertion before any result, and a match proves *these observations under
+  **these** parameters produced those decisions*, never that those parameters were
+  in force; **`decided_at` agreement is relative, not absolute** — compared as an
+  elapsed delta from the event's first decision within a
+  `EVENT_SWEEP_INTERVAL_MS + 1000` ms tolerance (0 ms and 2194 ms against 6000 ms
+  here), because the sweep tick phase was never recorded; the real-sensor
+  fixture's **`evidence_summary` is reconstructed** — that session captured only
+  the scalars, so evidence-field agreement there is tautological and only the
+  recorded scalars are independent evidence; and **`ledger_drops_total` is not
+  historically recoverable** — drops are logged, not stored, so replay cannot
+  distinguish an observation the tracker never saw from one that was never
+  recorded, and a divergence caused by a historical drop is indistinguishable
+  from one caused by a defect. One event on one node, so the `CONFIRMED` path
+  stays unexercised by replay (S2).
 
 ## NOT demonstrated
 
@@ -212,6 +263,25 @@ only presence in *Demonstrated* is** (`PROJECT_RULES.md` §8).
   series across a process restart — the samples are in memory only, and today's
   counts begin at the 2026-09-01 deploy. All are unit-tested; none are field
   evidence (S9).
+- **Deterministic replay proves reproduction, not the parameters and not the
+  field.** The P4-M4′ result in *Demonstrated* rests on **one** event on **one**
+  node, replayed against a test database by a locally built binary; nothing is
+  deployed, so no production or field claim follows from it (S9). Four limits are
+  structural, not incidental: replay parameters other than `INDEPENDENCE_CELL_KM`
+  are **operator-asserted**, since `algo_ver` records only that one, so a match
+  proves *these observations under **these** parameters produced those decisions*
+  and never that those parameters were in force; **`decided_at` agreement is
+  relative** (an elapsed delta within a `EVENT_SWEEP_INTERVAL_MS + 1000` ms
+  tolerance), because the sweep tick phase was never recorded, so absolute
+  timestamp reproduction is neither claimed nor testable; the real-sensor
+  fixture's **`evidence_summary` is reconstructed** rather than recorded, making
+  evidence-field agreement there tautological — only the recorded scalars are
+  independent evidence; and **`event_persist_dropped_total` / ledger drops are not
+  historically recoverable**, being logged and not stored, so a divergence caused
+  by a historical drop cannot be distinguished from one caused by a defect. The
+  `CONFIRMED` path is unexercised by replay for as long as the fleet has one node
+  (S2). No durable regression test covers the operator-level divergence path: the
+  divergent fixture was manual and was deleted after use.
 - **No multi-node correlation in the field.** All multi-node behaviour is proven
   by test only.
 - **No measured false-positive rate.** No population of events exists.
@@ -260,8 +330,12 @@ operator-only one the owner authorized in **D-012**, behind `X-Admin-Key`.
 **P4-M3′** (server-side stage latency reported) is owner-approved SATISFIED as of
 2026-09-01. **P4-M2′** (near-confirmation log queryable and surviving a restart) is
 owner-approved SATISFIED / `VALIDATED` as of 2026-09-03, on the real-PostgreSQL
-evidence in *Demonstrated*; committed, **not deployed**. P4-M1′, P4-M4′, P4-M5′ and
-P4-M6′ are not met.
+evidence in *Demonstrated*; committed, **not deployed**. **P4-M4′** (deterministic
+replay) is owner-approved SATISFIED / `VALIDATED` as of 2026-09-03, authorized by
+**D-013**, on the isolated-PostgreSQL evidence in *Demonstrated*; committed, **not
+deployed**, and read-only — it adds no migration and no contract change, so D-012
+remains the phase's only authorized contract exception. P4-M1′, P4-M5′ and P4-M6′
+are not met.
 
 Phase F remains `BLOCKED` on the owner deploying additional nodes. Every item in
 *NOT demonstrated* that requires a confirmed event, multiple nodes, or a
@@ -285,6 +359,16 @@ not a Phase 4 failure.
   P4-M2′ validation on 2026-09-03, deliberately left unfixed because it lies
   outside D-012's scope. Either the enum gains the value or the handler uses an
   existing one; that is a Phase 3.x decision, not a Phase 4 one.
+- The `internal/store` and `internal/event` test packages share one database and
+  run concurrently by default, so `TestMigration000006DownRestoresSchema` and
+  `TestMigration000009DownRestoresSchema` (which drop tables) race
+  `pgBreakNearConfirmedTable` (which renames `event_near_confirmed` and back).
+  Failures are non-deterministic and vary per run. **Pre-existing and unrelated to
+  Phase 4:** reproduced 3/3 on a clean `git archive HEAD` tree containing no
+  replay code, found during P4-M4′ validation on 2026-09-03, deliberately left
+  unfixed as outside D-013's scope. `go test -p 1` is green (272 passed / 0
+  failed). A fix belongs with the test harness — a `TestMain` guard or a
+  per-package database — not with a Phase 4 criterion.
 
 ## Maintenance
 
