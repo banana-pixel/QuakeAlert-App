@@ -228,7 +228,7 @@ func toBroadcastDTO(b store.Broadcast) broadcastDTO {
 // Implementasi: *event.Tracker.
 type TrackerStatsSource interface {
 	Stats() TrackerStatsJSON
-	NearConfirmedLog() []NearConfirmedEntryJSON
+	NearConfirmedReport() NearConfirmedReportJSON
 }
 
 // TrackerStatsJSON dan NearConfirmedEntryJSON adalah tipe mirror yang
@@ -236,17 +236,23 @@ type TrackerStatsSource interface {
 // Mereka identik secara struktural dengan event.TrackerStats dan
 // event.NearConfirmedEntry; main.go mengisinya lewat adapter tipis.
 type TrackerStatsJSON struct {
-	Created                 int64 `json:"event_created_total"`
-	ForcedResolutions       int64 `json:"event_forced_resolutions_total"`
-	ReonsetSplits           int64 `json:"event_reonset_splits_total"`
-	DiameterRejections      int64 `json:"event_diameter_rejections_total"`
-	StaleAbsorbed           int64 `json:"event_stale_evidence_absorbed_total"`
-	TombstoneEvictions      int64 `json:"event_tombstone_evictions_total"`
-	Reconciled              int64 `json:"event_reconciled_total"`
-	PersistDropped          int64 `json:"event_persist_dropped_total"`
-	UpsertFailures          int64 `json:"event_upsert_failures_total"`
-	StateLogFailures        int64 `json:"event_state_log_failures_total"`
-	StateLogSkipped         int64 `json:"event_state_log_skipped_total"`
+	Created            int64 `json:"event_created_total"`
+	ForcedResolutions  int64 `json:"event_forced_resolutions_total"`
+	ReonsetSplits      int64 `json:"event_reonset_splits_total"`
+	DiameterRejections int64 `json:"event_diameter_rejections_total"`
+	StaleAbsorbed      int64 `json:"event_stale_evidence_absorbed_total"`
+	TombstoneEvictions int64 `json:"event_tombstone_evictions_total"`
+	Reconciled         int64 `json:"event_reconciled_total"`
+	PersistDropped     int64 `json:"event_persist_dropped_total"`
+	UpsertFailures     int64 `json:"event_upsert_failures_total"`
+	StateLogFailures   int64 `json:"event_state_log_failures_total"`
+	StateLogSkipped    int64 `json:"event_state_log_skipped_total"`
+
+	// Akuntansi catatan near-confirmation durable (P4-M2′). Dilaporkan, tidak
+	// pernah diklaim nol (D-011 batasan 1).
+	NearConfirmedDropped        int64 `json:"event_near_confirmed_persist_dropped_total"`
+	NearConfirmedUpsertFailures int64 `json:"event_near_confirmed_upsert_failures_total"`
+
 	TransitionToUnconfirmed int64 `json:"event_transitions_to_unconfirmed_total"`
 	TransitionToConfirmed   int64 `json:"event_transitions_to_confirmed_total"`
 	TransitionToResolved    int64 `json:"event_transitions_to_resolved_total"`
@@ -273,6 +279,12 @@ type LatencyStatsJSON struct {
 
 // NearConfirmedEntryJSON adalah potret satu event yang pernah mencapai
 // >= 2 kontributor independen.
+//
+// MinIndependentCells dan AlgoVer adalah parameter yang BERLAKU saat persilangan
+// itu, dibawa apa adanya: sebuah hitungan independensi hanya dapat ditafsirkan
+// bersama ambang dan jarak pemisahan yang menghasilkannya. Source menyatakan
+// apakah proses ini menyaksikan persilangannya atau membacanya kembali dari
+// tabel durable saat boot (P4-M2′).
 type NearConfirmedEntryJSON struct {
 	EventID                string `json:"event_id"`
 	FirstTwoIndependentAt  int64  `json:"first_two_independent_at_ms"`
@@ -281,6 +293,46 @@ type NearConfirmedEntryJSON struct {
 	ConfirmedAt            int64  `json:"confirmed_at_ms,omitempty"`
 	TerminalState          string `json:"terminal_state,omitempty"`
 	TerminalAt             int64  `json:"terminal_at_ms,omitempty"`
+	MinIndependentCells    int    `json:"min_independent_cells"`
+	AlgoVer                string `json:"algo_ver"`
+	Source                 string `json:"source"`
+	UpdatedInProcess       bool   `json:"updated_in_process,omitempty"`
+}
+
+// NearConfirmedCoverageJSON adalah selubung cakupan jawaban near-confirmed (B1,
+// P4-M2′). Ia ada karena `entries: []` punya dua arti yang sangat berbeda —
+// "tidak ada satu pun persilangan yang pernah terjadi" dan "tidak ada yang dapat
+// dijawab" — dan tanpa selubung ini keduanya terkirim sebagai byte yang identik.
+// Pada fleet satu-node arti pertama adalah jawaban yang BENAR, jadi keduanya
+// justru harus dapat dibedakan.
+//
+// Tidak ada field bernama complete, healthy, atau valid, dan ketiadaan itu
+// disengaja: ini pengukuran cakupan, bukan penilaian.
+type NearConfirmedCoverageJSON struct {
+	ProcessStartedAtMs int64 `json:"process_started_at_ms"`
+	AsOfMs             int64 `json:"as_of_ms"`
+
+	DurableReadAttempted bool   `json:"durable_read_attempted"`
+	DurableReadOK        bool   `json:"durable_read_ok"`
+	DurableReadAtMs      int64  `json:"durable_read_at_ms,omitempty"`
+	DurableRowsLoaded    int    `json:"durable_rows_loaded"`
+	DurableReadError     string `json:"durable_read_error,omitempty"`
+
+	EntriesRecordedInProcess int `json:"entries_recorded_in_process"`
+	EntriesLoadedFromDurable int `json:"entries_loaded_from_durable"`
+
+	AlgoVer             string `json:"algo_ver"`
+	MinIndependentCells int    `json:"min_independent_cells"`
+}
+
+// NearConfirmedReportJSON adalah badan respons endpoint near-confirmed.
+//
+// `entries` TETAP array tingkat atas dengan nama yang sama: selubungnya ADITIF,
+// bukan pembungkus, sehingga pembaca yang sudah ada (skrip simulasi) membacanya
+// seperti sebelumnya.
+type NearConfirmedReportJSON struct {
+	Entries  []NearConfirmedEntryJSON  `json:"entries"`
+	Coverage NearConfirmedCoverageJSON `json:"coverage"`
 }
 
 // SetTrackerStats memasang sumber statistik Tracker. Opsional: tanpa ini,
@@ -304,15 +356,24 @@ func (s *Server) HandleTrackerStats(w http.ResponseWriter, r *http.Request) {
 // HandleTrackerNearConfirmed melayani GET /api/v1/admin/tracker/near-confirmed.
 // Mengembalikan semua event yang pernah mencapai >= 2 kontributor independen,
 // dengan outcome-nya: apakah CONFIRMED, kapan terminal, berapa lama macet.
+//
+// Sejak P4-M2′ jawabannya membawa selubung cakupan, dan itu bukan hiasan: pada
+// fleet satu-node daftar yang BENAR adalah kosong (S2 — kuorum tidak terjangkau),
+// jadi tanpa selubung itu jawaban yang benar tidak dapat dibedakan dari tidak
+// adanya jawaban sama sekali.
 func (s *Server) HandleTrackerNearConfirmed(w http.ResponseWriter, r *http.Request) {
 	if s.trackerStats == nil {
 		writeError(w, http.StatusServiceUnavailable, "TRACKER_DISABLED",
 			"event tracker tidak aktif (EVENT_TRACKER_ENABLED=false)")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"entries": s.trackerStats.NearConfirmedLog(),
-	})
+	rep := s.trackerStats.NearConfirmedReport()
+	if rep.Entries == nil {
+		// `entries` harus selalu berupa array, bukan null: pembaca yang menghitung
+		// panjangnya tidak boleh melihat dua bentuk berbeda untuk "kosong".
+		rep.Entries = []NearConfirmedEntryJSON{}
+	}
+	writeJSON(w, http.StatusOK, rep)
 }
 
 // broadcastText menormalkan dan memvalidasi satu bidang teks siaran.

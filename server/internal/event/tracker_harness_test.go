@@ -102,6 +102,25 @@ type recPersister struct {
 	// pelanggaran foreign key adalah bahwa "append" tidak pernah muncul setelah
 	// "upsert gagal".
 	calls []string
+
+	// nearRows adalah catatan near-confirmation durable yang benar-benar diantre
+	// (P4-M2′). Dipegang di fake yang SAMA dengan satuan event, dan itu disengaja:
+	// sebagian besar uji di paket ini memasang satu persister saja, dan sebuah
+	// jalur durable yang hanya terlihat oleh fake keduanya adalah jalur yang tidak
+	// pernah diuji oleh uji-uji itu.
+	nearRows []*store.NearConfirmedRow
+
+	// dropNear mensimulasikan antrean penuh untuk catatan near-confirmation SAJA:
+	// akuntansinya terpisah dari satuan event, jadi keduanya harus dapat gagal
+	// sendiri-sendiri.
+	dropNear bool
+	// failNear mensimulasikan UpsertNearConfirmed yang selalu gagal.
+	failNear bool
+
+	// nearAttempts adalah jumlah catatan yang benar-benar DICOBA tulis, termasuk
+	// yang gagal. Dibedakan dari len(nearRows) supaya "tidak pernah dicoba" tidak
+	// tampak sama dengan "dicoba lalu gagal".
+	nearAttempts int
 }
 
 func (p *recPersister) RecordEventUnit(u *store.EventUnit) {
@@ -126,6 +145,50 @@ func (p *recPersister) RecordEventUnit(u *store.EventUnit) {
 	if p.failStateLog {
 		p.trk.EventStateLogFailed()
 	}
+}
+
+// RecordNearConfirmed menerima satu catatan near-confirmation durable, dan
+// melaporkan kegagalannya lewat callback observer yang sama dengan yang dipakai
+// ledger.Writer sungguhan. Sengaja TIDAK mengembalikan galat: Tracker tidak boleh
+// punya cara untuk mengetahui apakah pencatatannya berhasil (§9.5, S1).
+func (p *recPersister) RecordNearConfirmed(r *store.NearConfirmedRow) {
+	if p.dropNear {
+		p.trk.EventNearConfirmedDropped()
+		return
+	}
+	// SENGAJA tidak masuk p.calls: daftar itu menyatakan urutan tulis event unit
+	// yang menjaga FK event_state_log, dan tabel near-confirmation justru tidak
+	// punya FK ke induk mana pun (migrasi 000009). Mencampurnya akan membuat uji
+	// urutan FK menegaskan hal yang bukan urutan FK.
+	p.nearAttempts++
+	if p.failNear {
+		p.trk.EventNearConfirmedUpsertFailed()
+		return
+	}
+	p.nearRows = append(p.nearRows, r)
+}
+
+// nearFor mengembalikan setiap catatan durable untuk satu event, dalam urutan
+// kedatangan. Urutan itu bermakna: puncak hanya boleh bergerak naik.
+func (p *recPersister) nearFor(eventID string) []*store.NearConfirmedRow {
+	out := make([]*store.NearConfirmedRow, 0, len(p.nearRows))
+	for _, r := range p.nearRows {
+		if r.EventID == eventID {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// lastNearFor mengembalikan catatan durable TERAKHIR untuk satu event, yaitu yang
+// akan menang di tabel setelah merge monoton ON CONFLICT.
+func (p *recPersister) lastNearFor(t *testing.T, eventID string) *store.NearConfirmedRow {
+	t.Helper()
+	rows := p.nearFor(eventID)
+	if len(rows) == 0 {
+		t.Fatalf("tidak ada catatan near-confirmed durable untuk %s", eventID)
+	}
+	return rows[len(rows)-1]
 }
 
 // withPersister memasang perekam persistensi pada harness.
@@ -191,6 +254,12 @@ func newHarness(t *testing.T, mutate ...func(*Options)) *harness {
 	}
 	h.trk = NewTracker(h.loc, opt, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	h.trk.now = h.clock.now
+	// NewTracker menstempel startedAtMs dari jam yang dipasang PADA saat itu, yaitu
+	// time.Now — jam palsu baru menggantikannya sebaris di atas. Tanpa penyelarasan
+	// ini selubung cakupan akan melaporkan awal jendela dari jam nyata dan ujung
+	// jendela dari jam palsu, dua besaran yang tidak dapat dibandingkan. Bahwa
+	// NewTracker sendiri mengisinya diuji terpisah, terhadap jam nyata.
+	h.trk.startedAtMs = h.clock.now().UnixMilli()
 	// Id yang dapat diprediksi membuat pemutus-seri leksikografis §4.3 dapat
 	// diuji, dan membuat pesan kegagalan dapat dibaca.
 	h.trk.newID = func() string {

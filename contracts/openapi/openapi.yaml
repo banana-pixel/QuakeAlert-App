@@ -948,6 +948,19 @@ paths:
                   event_state_log_skipped_total:
                     type: integer
                     format: int64
+                  event_near_confirmed_persist_dropped_total:
+                    type: integer
+                    format: int64
+                    description: >
+                      Catatan near-confirmation yang dijatuhkan antrean ledger (drop-oldest).
+                      DILAPORKAN, bukan target: S1 mengizinkan pencatatan gagal agar jalur
+                      peringatan tidak pernah terhambat. Tidak ada SLO nol untuk angka ini.
+                  event_near_confirmed_upsert_failures_total:
+                    type: integer
+                    format: int64
+                    description: >
+                      Upsert event_near_confirmed yang gagal di basis data. Sama seperti di
+                      atas: dilaporkan, tanpa target nol.
                   event_transitions_to_unconfirmed_total:
                     type: integer
                     format: int64
@@ -1008,10 +1021,18 @@ paths:
       summary: Log event yang mencapai >= 2 kontributor independen
       description: >
         Mengembalikan semua event yang pernah mencapai >= MinIndependentCells kontributor
-        independen sejak proses dimulai. Untuk setiap entry: kapan pertama kali
-        mencapai kondisi itu, apakah akhirnya CONFIRMED, kapan terminal, berapa lama
-        macet. Dipakai untuk analisis pasca-kejadian manual. Read-only, tidak mengubah
-        state Tracker. Mengembalikan 503 bila EVENT_TRACKER_ENABLED=false.
+        independen: yang disaksikan proses ini, DITAMBAH yang dibaca kembali dari tabel
+        durable event_near_confirmed saat boot (P4-M2′). Untuk setiap entry: kapan pertama
+        kali mencapai kondisi itu, apakah akhirnya CONFIRMED, kapan terminal, berapa lama
+        macet, beserta ambang dan algo_ver yang BERLAKU saat persilangan itu.
+
+
+        Cakupan jawaban TIDAK boleh disimpulkan dari panjang `entries`: `entries: []`
+        dapat berarti "tidak ada satu pun persilangan yang pernah terjadi" atau "tidak
+        ada yang dapat dijawab", dan pada fleet satu-node arti pertama adalah jawaban
+        yang BENAR karena kuorum tidak terjangkau (S2). Objek `coverage` menyatakan yang
+        mana. Read-only, tidak mengubah state Tracker. Mengembalikan 503 bila
+        EVENT_TRACKER_ENABLED=false.
       operationId: getTrackerNearConfirmed
       security:
         - adminKey: []
@@ -1022,13 +1043,24 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [entries]
+                required: [entries, coverage]
                 properties:
                   entries:
                     type: array
+                    description: >
+                      Tetap array tingkat atas dengan nama yang sama seperti sebelum
+                      P4-M2′: `coverage` bersifat ADITIF, bukan pembungkus. Selalu array,
+                      tidak pernah null.
                     items:
                       type: object
-                      required: [event_id, first_two_independent_at_ms, independent_count_at_peak, node_count_at_peak]
+                      required:
+                        - event_id
+                        - first_two_independent_at_ms
+                        - independent_count_at_peak
+                        - node_count_at_peak
+                        - min_independent_cells
+                        - algo_ver
+                        - source
                       properties:
                         event_id:
                           type: string
@@ -1054,6 +1086,99 @@ paths:
                           type: integer
                           format: int64
                           description: Unix ms saat terminal. 0 atau absen = masih terbuka.
+                        min_independent_cells:
+                          type: integer
+                          description: >
+                            Ambang independensi yang BERLAKU saat persilangan itu, dicatat
+                            saat itu dan dibawa apa adanya. Bukan nilai konfigurasi
+                            sekarang: sebuah hitungan independensi hanya dapat ditafsirkan
+                            bersama ambang yang menghasilkannya.
+                        algo_ver:
+                          type: string
+                          description: >
+                            algo_ver yang berlaku saat persilangan itu, mis.
+                            phase3-1.1/ic=5. Tidak pernah ditulis ulang untuk baris lama
+                            (D-006).
+                        source:
+                          type: string
+                          enum: [RECORDED, LOADED]
+                          description: >
+                            RECORDED = persilangannya disaksikan oleh proses ini.
+                            LOADED = dibaca kembali dari event_near_confirmed saat boot;
+                            proses ini tidak menyaksikannya.
+                        updated_in_process:
+                          type: boolean
+                          description: >
+                            Absen/false kecuali sebuah entri LOADED kemudian berubah di
+                            proses ini (puncak naik, atau menjadi terminal). Provenance
+                            tetap LOADED: entri itu tidak boleh mengaku disaksikan.
+                  coverage:
+                    type: object
+                    description: >
+                      Selubung cakupan (B1). Ia ada karena `entries: []` punya dua arti
+                      yang terkirim sebagai byte identik tanpa selubung ini. Tidak ada
+                      field complete, healthy, atau valid — ini pengukuran cakupan, bukan
+                      penilaian.
+                    required:
+                      - process_started_at_ms
+                      - as_of_ms
+                      - durable_read_attempted
+                      - durable_read_ok
+                      - durable_rows_loaded
+                      - entries_recorded_in_process
+                      - entries_loaded_from_durable
+                      - algo_ver
+                      - min_independent_cells
+                    properties:
+                      process_started_at_ms:
+                        type: integer
+                        format: int64
+                        description: >
+                          Unix ms saat proses ini mulai. Awal jendela yang dijamin
+                          tercatat oleh proses ini sendiri.
+                      as_of_ms:
+                        type: integer
+                        format: int64
+                        description: Unix ms saat jawaban ini dibentuk (ujung akhir jendela).
+                      durable_read_attempted:
+                        type: boolean
+                        description: >
+                          Apakah pembacaan tabel durable dicoba saat boot. false berarti
+                          store yang terpasang tidak menyediakan kapabilitas itu — bukan
+                          berarti tabelnya kosong.
+                      durable_read_ok:
+                        type: boolean
+                        description: >
+                          Apakah pembacaan itu berhasil. false dengan attempted=true
+                          berarti riwayat sebelum boot TIDAK terwakili di `entries`.
+                      durable_read_at_ms:
+                        type: integer
+                        format: int64
+                        description: Unix ms pembacaan durable. Absen bila tidak pernah dicoba.
+                      durable_rows_loaded:
+                        type: integer
+                        description: Jumlah baris yang terbaca dari event_near_confirmed.
+                      durable_read_error:
+                        type: string
+                        description: >
+                          Galat pembacaan durable, bila ada. Dilaporkan, tidak ditelan
+                          menjadi daftar kosong.
+                      entries_recorded_in_process:
+                        type: integer
+                        description: Entri yang persilangannya disaksikan proses ini.
+                      entries_loaded_from_durable:
+                        type: integer
+                        description: Entri yang berasal dari tabel durable.
+                      algo_ver:
+                        type: string
+                        description: >
+                          algo_ver biner yang sedang berjalan. Dapat berbeda dari algo_ver
+                          sebuah entri, dan perbedaan itu bermakna (D-006).
+                      min_independent_cells:
+                        type: integer
+                        description: >
+                          Ambang yang berlaku SEKARANG. Dapat berbeda dari
+                          min_independent_cells sebuah entri.
         '401':
           description: Header X-Admin-Key tidak valid
           content:

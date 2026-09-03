@@ -89,9 +89,10 @@ const DefaultQueueSize = 1024
 // tempat yang bisa saling menyimpang, dan pemanggil (ingest, dispatch) tetap
 // tidak perlu mengimpor store hanya untuk mencatat.
 type (
-	Observation = store.Observation
-	Emission    = store.AlertEmission
-	EventUnit   = store.EventUnit
+	Observation   = store.Observation
+	Emission      = store.AlertEmission
+	EventUnit     = store.EventUnit
+	NearConfirmed = store.NearConfirmedRow
 )
 
 // ledgerStore adalah bagian store yang dibutuhkan Writer. Interface, bukan
@@ -113,6 +114,16 @@ type eventPersister interface {
 	AppendStateLog(ctx context.Context, l *store.EventStateLog) error
 }
 
+// nearConfirmedPersister adalah bagian store yang dibutuhkan catatan
+// near-confirmation durable (P4-M2′, D-012). Interface KETIGA, dan bukan sebuah
+// metode tambahan pada eventPersister, dengan alasan yang persis sama seperti
+// pemisahan eventPersister dari ledgerStore: sebuah store yang belum menjalankan
+// migrasi 000009 — dan setiap fake yang tidak peduli pada P4-M2′ — harus tetap
+// dapat dipakai sebagai ledgerStore, bukan gagal dikompilasi karena Fase 4 ada.
+type nearConfirmedPersister interface {
+	UpsertNearConfirmed(ctx context.Context, r *store.NearConfirmedRow) error
+}
+
 // EventPersistObserver menerima hasil penulisan satuan event dari goroutine
 // drain.
 //
@@ -126,14 +137,25 @@ type EventPersistObserver interface {
 	EventUpsertFailed()
 	EventStateLogSkipped()
 	EventStateLogFailed()
+
+	// Kedua callback P4-M2′ dihitung TERPISAH dari ketiga di atas, dan
+	// pemisahannya adalah keseluruhan alasannya ada. Sebuah satuan event yang
+	// dibuang berarti kehilangan baris earthquake_events; sebuah catatan
+	// near-confirmation yang dibuang berarti kehilangan JAWABAN atas pertanyaan
+	// forensik, pada event yang barisnya mungkin tertulis sempurna. Menggabungkan
+	// keduanya dalam satu counter akan membuat kedua kerugian itu tidak dapat
+	// dibedakan justru pada saat seseorang perlu membedakannya.
+	EventNearConfirmedDropped()
+	EventNearConfirmedUpsertFailed()
 }
 
-// item adalah satu satuan kerja dalam antrean: tepat satu dari ketiga field
+// item adalah satu satuan kerja dalam antrean: tepat satu dari keempat field
 // terisi.
 type item struct {
 	obs  *Observation
 	emis *Emission
 	evt  *EventUnit
+	near *NearConfirmed
 }
 
 // Writer menerima baris ledger dari jalur peringatan dan menuliskannya dari satu
@@ -232,6 +254,26 @@ func (w *Writer) RecordEventUnit(u *EventUnit) {
 	w.enqueue(item{evt: u})
 }
 
+// RecordNearConfirmed memasukkan satu catatan near-confirmation ke antrean
+// (P4-M2′, D-012).
+//
+// Antrean yang SAMA dengan satuan event, bukan antrean kedua: sebuah jalur
+// persistensi kedua akan berarti kedalaman kedua, tekanan kedua, dan aturan
+// pembuangan kedua yang harus dijelaskan — sementara sifat yang harus dijaga
+// justru satu dan sudah tertulis, yaitu bahwa pencatatan tidak pernah dapat
+// menahan jalur peringatan (S1, §9.5).
+//
+// Pemanggilnya adalah jalur transisi DAN jalur persilangan sunyi. Yang kedua
+// tidak menghasilkan frame sama sekali — tidak ada transisi, jadi tidak ada yang
+// diemisikan — dan itu sebabnya catatan ini tidak dapat menumpang pada EventUnit:
+// tidak ada satuan induk yang membawanya.
+func (w *Writer) RecordNearConfirmed(r *NearConfirmed) {
+	if w == nil || r == nil || r.EventID == "" || w.stopped.Load() {
+		return
+	}
+	w.enqueue(item{near: r})
+}
+
 // RecordEmission memasukkan satu baris keputusan dispatch ke antrean. Sama
 // seperti RecordObservation: tanpa error, tanpa blocking.
 func (w *Writer) RecordEmission(e *Emission) {
@@ -314,8 +356,19 @@ func (w *Writer) enqueue(it item) {
 // di basis data (D30/R9): kerugiannya nyata, terbatas pada model baca, dan
 // satu-satunya cara ia tidak menjadi kerugian yang SUNYI adalah counter ini.
 func (w *Writer) notifyDropped(it item) {
-	if it.evt != nil && w.eventObs != nil {
+	if w.eventObs == nil {
+		return
+	}
+	switch {
+	case it.evt != nil:
 		w.eventObs.EventPersistDropped()
+	case it.near != nil:
+		// Catatan near-confirmation yang dibuang berarti sebuah persilangan ambang
+		// yang BENAR-BENAR terjadi tidak akan dapat dijawab setelah restart. Ia
+		// dihitung, dan TIDAK ada target nol untuknya (D-011 batasan 1): sebuah
+		// SLO nol-buangan pada antrean yang sengaja boleh membuang akan menjadi
+		// janji yang hanya dapat ditepati dengan memblokir jalur peringatan.
+		w.eventObs.EventNearConfirmedDropped()
 	}
 }
 
@@ -378,6 +431,8 @@ func (w *Writer) write(ctx context.Context, it item) {
 		w.writeEmission(ctx, it.emis)
 	case it.evt != nil:
 		w.writeEventUnit(ctx, it.evt)
+	case it.near != nil:
+		w.writeNearConfirmed(ctx, it.near)
 	}
 }
 
@@ -428,6 +483,42 @@ func (w *Writer) writeEventUnit(ctx context.Context, u *EventUnit) {
 			"event_id", u.Log.EventID, "revision", u.Log.Revision)
 		if w.eventObs != nil {
 			w.eventObs.EventStateLogFailed()
+		}
+		return
+	}
+	w.written.Add(1)
+}
+
+// writeNearConfirmed menuliskan satu catatan near-confirmation (P4-M2′).
+//
+// Ia TIDAK bergantung pada keberhasilan penulisan satuan event mana pun, dan
+// tidak boleh: sebuah persilangan sunyi tidak punya satuan induk sama sekali,
+// dan sebuah satuan induk yang dibuang antrean tidak membuat persilangannya tidak
+// pernah terjadi. Itu sebabnya event_near_confirmed sengaja tidak memiliki foreign
+// key ke earthquake_events (lihat migrasi 000009) — dengan FK, satu pembuangan yang
+// sah akan berubah menjadi kegagalan tulis, yaitu galat kedua pada jalur yang tidak
+// punya siapa pun untuk melapor.
+func (w *Writer) writeNearConfirmed(ctx context.Context, r *NearConfirmed) {
+	if r == nil {
+		return
+	}
+
+	p, ok := w.store.(nearConfirmedPersister)
+	if !ok {
+		// Store ini tidak mendukung catatan near-confirmation durable (jalur
+		// pra-000009, atau fake pada test). Bukan galat, dengan alasan yang sama
+		// seperti pada writeEventUnit.
+		return
+	}
+
+	wctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
+
+	if err := p.UpsertNearConfirmed(wctx, r); err != nil {
+		w.writeFailures.Add(1)
+		w.log.Error("gagal upsert event_near_confirmed", "err", err, "event_id", r.EventID)
+		if w.eventObs != nil {
+			w.eventObs.EventNearConfirmedUpsertFailed()
 		}
 		return
 	}

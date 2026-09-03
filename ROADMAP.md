@@ -1,8 +1,11 @@
 # ROADMAP.md
 
-> ## ACTIVE PHASE: **Phase 4 — Self-Measurement & Forensics** — status `PLANNED`
-> Scope not yet approved. No phase is `IN_PROGRESS`. Implementing agents must
-> not begin Phase 4 work until the owner marks it `IN_PROGRESS` here.
+> ## ACTIVE PHASE: **Phase 4 — Self-Measurement & Forensics** — status `IN_PROGRESS`
+> Scope approved by the owner 2026-09-01 as acceptance criteria **P4-M1′ … P4-M6′**
+> (see § Phase 4 below, and D-011 in `docs/DECISIONS.md`). Work is bounded to those
+> six criteria: instrumentation and read-only forensics on a **one-node** fleet.
+> Nothing outside them is in scope, and no threshold, quorum, radius, contract,
+> event semantic, or notification policy changes under this phase.
 
 Baseline commit: `1ad1777`. Authority: see `PROJECT_RULES.md` §5.
 
@@ -45,7 +48,7 @@ evidence, no feature), `RELEASE` (produces a verified deployed state),
 | 2 — Consensus engine | ENGINEERING | `SUPERSEDED` by Phase 3 | 1 | met, superseded |
 | 3 — Event architecture | ENGINEERING | `IMPLEMENTED` (`9752c5e`) | 1, 2 | see below |
 | 3.x — Global spatial hardening + observability | ENGINEERING | `IMPLEMENTED` (`1ad1777`) | 3 | see below |
-| 4 — Self-measurement & forensics | VALIDATION | `PLANNED` | 3.x | see below |
+| 4 — Self-measurement & forensics | VALIDATION | `IN_PROGRESS` | 3.x | P4-M1′…P4-M6′, see below |
 | F — Field validation | VALIDATION | `BLOCKED` | 3.x | see below |
 
 ### Phase 1 — Observation ledger & ingest — `RELEASED`
@@ -84,13 +87,13 @@ Exit criteria:
 - [x] New endpoints documented in `contracts/openapi/openapi.yaml`.
 - [ ] Field-validated → requires Phase F.
 
-### Phase 4 — Self-measurement & forensics — `PLANNED`
-**Concept only. Not approved. Requirements deliberately not invented here.**
+### Phase 4 — Self-measurement & forensics — `IN_PROGRESS`
+**Scope approved by the owner 2026-09-01.** Recorded as **D-011** in
+`docs/DECISIONS.md`. Phase 4 measures **this system against itself**. It is a
+`VALIDATION` phase and produces instrumentation plus read-only forensics, no
+feature and no change to any decision the system makes.
 
-Phase 4 measures **this system against itself**. It is a `VALIDATION` phase and
-may legitimately produce no new features.
-
-Intended concept:
+Intended concept (unchanged):
 - Measure whether CONFIRMED is reachable by the current network, and what stops
   it when it is not.
 - Measure stage latency, split rate, network geometry ceiling, per-node trigger
@@ -121,10 +124,51 @@ may not be granted by the agent that implemented it (`PROJECT_RULES.md` §8, S9)
       `event_state_log` transition into `UNCONFIRMED` and one advisory WebSocket
       frame; `event_persist_dropped_total` and `event_upsert_failures_total` are
       **reported alongside**, never required to be zero.
-- [ ] **P4-M2′ — Near-confirmation log is queryable and survives a restart.**
+- [x] **P4-M2′ — Near-confirmation log is queryable and survives a restart.**
       With one node the correct answer is **empty**, and it must still be empty —
       and answerable — after the process restarts, rather than merely absent
       because the in-memory map was rebuilt.
+      `IMPLEMENTED` 2026-09-02, authorized by **D-012** (A2 + B1): durable
+      `event_near_confirmed` (migration `000009`, additive) written asynchronously
+      through the existing bounded drop-oldest ledger queue, plus an additive
+      `coverage` envelope on `GET /api/v1/admin/tracker/near-confirmed` so that an
+      empty list states the window it covers and its provenance. Silent crossings —
+      those that produce no state transition, hence no `event_state_log` row — are
+      recorded too.
+      **Owner-approved SATISFIED / `VALIDATED` 2026-09-03**, on archived evidence
+      from a real PostgreSQL database (`TEST_DATABASE_URL`, isolated container,
+      migration `000009` applied): 14 integration tests that had never run before
+      now pass — 11 in `internal/store/near_confirmed_test.go` (merge monotonicity,
+      first-wins terminal columns, recorded parameters never rewritten, one row per
+      event, list order, `000009` up/down idempotence, no parent-event requirement,
+      NULL ≠ zero) and 3 in `internal/event/nearconfirmed_pg_test.go` (restart
+      survival, terminal state outliving its parent row, persistence failure not
+      blocking emission), alongside 19 pre-existing Postgres tests re-run green on
+      the same schema (11 event-lifecycle, 5 ledger, 3 pending-node purge). Restart was then reproduced end-to-end through the HTTP
+      surface across four service runs against that database: a real silent crossing
+      driven by two signed MQTT triggers produced `source=RECORDED` plus a durable
+      row while `event_state_log` gained **no** row for the crossing; after process
+      termination and reload the same entries returned `source=LOADED`; and a run
+      configured with `ic=5`/threshold 3 — different from every stored row —
+      returned per-entry `algo_ver` `[ic=5, ic=5, ic=9]` and per-entry
+      `min_independent_cells` 2 against `coverage.algo_ver = ic=5` and
+      `coverage.min_independent_cells = 3`, with the durable rows byte-identical
+      after boot: the running configuration does not overwrite recorded history.
+      On an empty database the endpoint answered `entries: []` with
+      `durable_read_attempted: true`, `durable_read_ok: true`,
+      `durable_rows_loaded: 0` — the empty answer states its own coverage, which is
+      what this criterion asks for on a one-node fleet. All five captured 200 bodies
+      validated against `contracts/openapi/openapi.yaml` with zero undocumented
+      fields; both 401 bodies validated against `Error`.
+      **Still not demonstrated:** production deployment of this code, concurrent
+      multi-process writers against one row (merge order-independence is proven at
+      SQL level only), and `ListNearConfirmed` full-scan cost at large table size.
+      One **unrelated pre-existing** contract gap was found and deliberately left
+      unfixed: the 503 body's `code` value `TRACKER_DISABLED`
+      (`server/internal/api/admin.go:297,309`) is absent from the `Error.code` enum
+      in `contracts/openapi/openapi.yaml`. It was introduced by `1ad1777` with the
+      Phase 3.x stats endpoint, affects both admin tracker endpoints equally, and is
+      outside D-012's scope.
 - [x] **P4-M3′ — Server-side stage latency reported.** Per event:
       `onset_ts → decided_at` and `decided_at → emit`, as p50/p95 over the
       window. **Server stages only** — no client-side wake, heads-up, or siren
@@ -151,12 +195,17 @@ may not be granted by the agent that implemented it (`PROJECT_RULES.md` §8, S9)
       one `event_id`, the event row, its ordered `event_state_log` history, the
       `evidence_summary` per revision, and the contributing observations.
 
-Explicitly **out of scope** for Phase 4:
+#### Explicitly **out of scope** for Phase 4
 - Any external catalogue as ground truth (`PROJECT_RULES.md` §2).
-- Automatic false-positive classification.
-- Automatic threshold calibration.
-- Any change to detection thresholds, confirmation semantics, or delivery
-  behaviour. Those require accepted decisions, not a phase.
+- Automatic false-positive classification; any claimed false-positive or
+  false-negative **rate**.
+- Automatic threshold calibration; any change to detection thresholds,
+  confirmation semantics, quorum, alert radius, delivery behaviour, notification
+  policy, or a published contract. Those require accepted decisions, not a phase.
+- Manufacturing a CONFIRMED event in production.
+- Any lead-time claim (S2), and any real-world multi-node validation claim.
+- A hard reliability target such as "zero dropped persists", which the bounded
+  drop-oldest writer can legitimately violate without suppressing a warning (S1).
 
 An earlier plan defined a BMKG-comparison Phase 4. That definition is
 `ABANDONED` — see § Superseded and abandoned phase definitions.

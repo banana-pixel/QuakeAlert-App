@@ -62,6 +62,12 @@ func TestStatsZeroOnFreshTracker(t *testing.T) {
 	if s.StateLogSkipped != 0 {
 		t.Errorf("StateLogSkipped = %d, mau 0", s.StateLogSkipped)
 	}
+	if s.NearConfirmedDropped != 0 {
+		t.Errorf("NearConfirmedDropped = %d, mau 0", s.NearConfirmedDropped)
+	}
+	if s.NearConfirmedUpsertFailures != 0 {
+		t.Errorf("NearConfirmedUpsertFailures = %d, mau 0", s.NearConfirmedUpsertFailures)
+	}
 }
 
 // TestStatsCreatedCounter — Stats().Created naik setiap event baru.
@@ -204,6 +210,14 @@ func TestStatsIndividualGettersMatchStats(t *testing.T) {
 	}
 	if got := h.trk.StateLogSkipped(); got != s.StateLogSkipped {
 		t.Errorf("StateLogSkipped() = %d, Stats().StateLogSkipped = %d", got, s.StateLogSkipped)
+	}
+	if got := h.trk.NearConfirmedDropped(); got != s.NearConfirmedDropped {
+		t.Errorf("NearConfirmedDropped() = %d, Stats().NearConfirmedDropped = %d",
+			got, s.NearConfirmedDropped)
+	}
+	if got := h.trk.NearConfirmedUpsertFailures(); got != s.NearConfirmedUpsertFailures {
+		t.Errorf("NearConfirmedUpsertFailures() = %d, Stats().NearConfirmedUpsertFailures = %d",
+			got, s.NearConfirmedUpsertFailures)
 	}
 	if got := h.trk.Transitions(StateUnconfirmed); got != s.TransitionToUnconfirmed {
 		t.Errorf("Transitions(UNCONFIRMED) = %d, Stats().TransitionToUnconfirmed = %d", got, s.TransitionToUnconfirmed)

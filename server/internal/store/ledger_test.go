@@ -253,15 +253,32 @@ func TestMigration000006DownRestoresSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("baca migrasi down: %v", err)
 	}
-	up, err := os.ReadFile(filepath.Join(dir, "000006_add_observation_ledger.up.sql"))
-	if err != nil {
-		t.Fatalf("baca migrasi up: %v", err)
+	// Pemulihan harus menerapkan ULANG SELURUH migrasi yang menyentuh kedua tabel
+	// ini, bukan hanya 000006. down 000006 melakukan DROP TABLE, jadi kolom yang
+	// DITAMBAHKAN 000007 (attempt_no, detrigger_ts, ws_client_count, ...) dan
+	// 000008 (event_state, event_revision) ikut hilang bersama tabelnya. Menerapkan
+	// ulang 000006 saja meninggalkan database uji pada skema Fase 1 dan membuat
+	// SETIAP test yang berjalan SETELAH berkas ini gagal dengan 42703 — kegagalan
+	// yang tampak seperti bug pada test itu, bukan pada test ini.
+	ups := make([]string, 0, 3)
+	for _, name := range []string{
+		"000006_add_observation_ledger.up.sql",
+		"000007_observation_provenance.up.sql",
+		"000008_event_lifecycle.up.sql",
+	} {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("baca migrasi up %s: %v", name, err)
+		}
+		ups = append(ups, string(b))
 	}
 
 	// Apa pun hasilnya, database uji harus keluar dalam keadaan termigrasi.
 	t.Cleanup(func() {
-		if _, err := st.pool.Exec(ctx, string(up)); err != nil {
-			t.Fatalf("gagal menerapkan ulang migrasi setelah rollback: %v", err)
+		for i, up := range ups {
+			if _, err := st.pool.Exec(ctx, up); err != nil {
+				t.Fatalf("gagal menerapkan ulang migrasi ke-%d setelah rollback: %v", i+6, err)
+			}
 		}
 	})
 

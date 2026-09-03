@@ -36,6 +36,22 @@ type reloadAnchor struct {
 // mencatatnya dan tetap menyala, dan sweeper ResolveStaleEvents lama tetap menjadi
 // jaring terakhir yang sudah ada.
 func (t *Tracker) Reconcile(ctx context.Context) error {
+	// Catatan near-confirmation durable dimuat LEBIH DULU, dan lewat assertion
+	// tipenya SENDIRI (P4-M2′, D-012).
+	//
+	// Lebih dulu, karena sebuah event yang menyeberangi restart dapat langsung
+	// mengubah entri near-confirmed-nya pada transisi rekonsiliasi di bawah — dan
+	// bila tabelnya dimuat SESUDAH itu, entri yang baru saja berubah akan menang
+	// atas barisnya sendiri dan riwayat sebelum restart akan hilang tepat pada
+	// event yang paling menarik.
+	//
+	// Assertion sendiri, karena kedua kemampuan itu tidak datang berpasangan:
+	// sebuah toko yang dapat memuat event terbuka tetapi belum menjalankan migrasi
+	// 000009 tetap sah, dan uji paket ini justru dibangun begitu.
+	if nr, ok := t.loc.(nearConfirmedReader); ok {
+		t.LoadNearConfirmed(ctx, nr)
+	}
+
 	st, ok := t.loc.(eventStore)
 	if !ok {
 		// Bukan galat: Tracker yang dipasangi sumber lokasi saja tetap sah, dan uji

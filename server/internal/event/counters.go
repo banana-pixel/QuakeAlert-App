@@ -25,6 +25,20 @@ type counters struct {
 	upsertFailures   int64
 	stateLogFailures int64
 	stateLogSkipped  int64
+
+	// Kedua counter P4-M2′ dihitung TERPISAH dari persistDropped/upsertFailures,
+	// dan pemisahannya adalah keseluruhan alasannya ada: satuan event yang hilang
+	// berarti baris earthquake_events yang hilang, sedangkan catatan
+	// near-confirmation yang hilang berarti JAWABAN forensik yang hilang pada
+	// event yang barisnya mungkin tertulis sempurna. Satu counter untuk keduanya
+	// akan membuat kedua kerugian itu tidak dapat dibedakan justru saat seseorang
+	// perlu membedakannya.
+	//
+	// Keduanya DILAPORKAN, dan tidak ada target nol untuk keduanya (D-011 batasan
+	// 1, S1): antreannya sengaja boleh membuang, jadi sebuah SLO nol-buangan hanya
+	// dapat ditepati dengan memblokir jalur peringatan.
+	nearConfirmedDropped        int64
+	nearConfirmedUpsertFailures int64
 }
 
 func newCounters() counters {
@@ -65,6 +79,8 @@ func (t *Tracker) logCounters(reason string) {
 		"event_upsert_failures_total", c.upsertFailures,
 		"event_state_log_failures_total", c.stateLogFailures,
 		"event_state_log_skipped_total", c.stateLogSkipped,
+		"event_near_confirmed_persist_dropped_total", c.nearConfirmedDropped,
+		"event_near_confirmed_upsert_failures_total", c.nearConfirmedUpsertFailures,
 		"event_open_gauge", open,
 		"event_tombstone_gauge", tombs,
 		// Latensi tahap server (P4-M3′). Dicetak bersama counter lain dengan
@@ -105,6 +121,11 @@ type TrackerStats struct {
 	StateLogFailures   int64 `json:"event_state_log_failures_total"`
 	StateLogSkipped    int64 `json:"event_state_log_skipped_total"`
 
+	// Akuntansi pembuangan/kegagalan catatan near-confirmation durable (P4-M2′,
+	// D-012). DILAPORKAN, tidak pernah diklaim nol.
+	NearConfirmedDropped        int64 `json:"event_near_confirmed_persist_dropped_total"`
+	NearConfirmedUpsertFailures int64 `json:"event_near_confirmed_upsert_failures_total"`
+
 	// Transisi per state tujuan.
 	TransitionToUnconfirmed int64 `json:"event_transitions_to_unconfirmed_total"`
 	TransitionToConfirmed   int64 `json:"event_transitions_to_confirmed_total"`
@@ -139,17 +160,21 @@ func (t *Tracker) Stats() TrackerStats {
 	t.mu.Unlock()
 
 	return TrackerStats{
-		Created:                 c.created,
-		ForcedResolutions:       c.forcedResolutions,
-		ReonsetSplits:           c.reonsetSplits,
-		DiameterRejections:      c.diameterRejections,
-		StaleAbsorbed:           c.staleAbsorbed,
-		TombstoneEvictions:      c.tombstoneEvictions,
-		Reconciled:              c.reconciled,
-		PersistDropped:          c.persistDropped,
-		UpsertFailures:          c.upsertFailures,
-		StateLogFailures:        c.stateLogFailures,
-		StateLogSkipped:         c.stateLogSkipped,
+		Created:            c.created,
+		ForcedResolutions:  c.forcedResolutions,
+		ReonsetSplits:      c.reonsetSplits,
+		DiameterRejections: c.diameterRejections,
+		StaleAbsorbed:      c.staleAbsorbed,
+		TombstoneEvictions: c.tombstoneEvictions,
+		Reconciled:         c.reconciled,
+		PersistDropped:     c.persistDropped,
+		UpsertFailures:     c.upsertFailures,
+		StateLogFailures:   c.stateLogFailures,
+		StateLogSkipped:    c.stateLogSkipped,
+
+		NearConfirmedDropped:        c.nearConfirmedDropped,
+		NearConfirmedUpsertFailures: c.nearConfirmedUpsertFailures,
+
 		TransitionToUnconfirmed: c.transitions[StateUnconfirmed],
 		TransitionToConfirmed:   c.transitions[StateConfirmed],
 		TransitionToResolved:    c.transitions[StateResolved],
@@ -205,6 +230,12 @@ func (t *Tracker) StateLogFailures() int64 {
 }
 func (t *Tracker) StateLogSkipped() int64 {
 	return t.readCounter(func(c *counters) int64 { return c.stateLogSkipped })
+}
+func (t *Tracker) NearConfirmedDropped() int64 {
+	return t.readCounter(func(c *counters) int64 { return c.nearConfirmedDropped })
+}
+func (t *Tracker) NearConfirmedUpsertFailures() int64 {
+	return t.readCounter(func(c *counters) int64 { return c.nearConfirmedUpsertFailures })
 }
 
 // Transitions mengembalikan event_transitions_total untuk satu state tujuan.

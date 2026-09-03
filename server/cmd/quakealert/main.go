@@ -608,17 +608,21 @@ type trackerStatsAdapter struct{ t *event.Tracker }
 func (a trackerStatsAdapter) Stats() api.TrackerStatsJSON {
 	s := a.t.Stats()
 	return api.TrackerStatsJSON{
-		Created:                 s.Created,
-		ForcedResolutions:       s.ForcedResolutions,
-		ReonsetSplits:           s.ReonsetSplits,
-		DiameterRejections:      s.DiameterRejections,
-		StaleAbsorbed:           s.StaleAbsorbed,
-		TombstoneEvictions:      s.TombstoneEvictions,
-		Reconciled:              s.Reconciled,
-		PersistDropped:          s.PersistDropped,
-		UpsertFailures:          s.UpsertFailures,
-		StateLogFailures:        s.StateLogFailures,
-		StateLogSkipped:         s.StateLogSkipped,
+		Created:            s.Created,
+		ForcedResolutions:  s.ForcedResolutions,
+		ReonsetSplits:      s.ReonsetSplits,
+		DiameterRejections: s.DiameterRejections,
+		StaleAbsorbed:      s.StaleAbsorbed,
+		TombstoneEvictions: s.TombstoneEvictions,
+		Reconciled:         s.Reconciled,
+		PersistDropped:     s.PersistDropped,
+		UpsertFailures:     s.UpsertFailures,
+		StateLogFailures:   s.StateLogFailures,
+		StateLogSkipped:    s.StateLogSkipped,
+
+		NearConfirmedDropped:        s.NearConfirmedDropped,
+		NearConfirmedUpsertFailures: s.NearConfirmedUpsertFailures,
+
 		TransitionToUnconfirmed: s.TransitionToUnconfirmed,
 		TransitionToConfirmed:   s.TransitionToConfirmed,
 		TransitionToResolved:    s.TransitionToResolved,
@@ -642,10 +646,18 @@ func latencyJSON(l event.LatencyStats) api.LatencyStatsJSON {
 	}
 }
 
-func (a trackerStatsAdapter) NearConfirmedLog() []api.NearConfirmedEntryJSON {
-	entries := a.t.NearConfirmedLog()
-	out := make([]api.NearConfirmedEntryJSON, len(entries))
-	for i, e := range entries {
+// NearConfirmedReport menyalin jawaban near-confirmed BESERTA selubung
+// cakupannya (B1, P4-M2′). Selubung itu ikut menyeberang justru karena entri-nya
+// bisa kosong: pada fleet satu-node kosong adalah jawaban yang benar (S2), dan
+// hanya selubung ini yang membedakannya dari tidak adanya jawaban.
+//
+// Provenance (Source, UpdatedInProcess) dibawa apa adanya, tidak disimpulkan
+// ulang di sini: sebuah entri yang dibaca dari tabel durable tidak boleh
+// mengaku disaksikan oleh proses ini.
+func (a trackerStatsAdapter) NearConfirmedReport() api.NearConfirmedReportJSON {
+	rep := a.t.NearConfirmedReport()
+	out := make([]api.NearConfirmedEntryJSON, len(rep.Entries))
+	for i, e := range rep.Entries {
 		out[i] = api.NearConfirmedEntryJSON{
 			EventID:                e.EventID,
 			FirstTwoIndependentAt:  e.FirstTwoIndependentAt,
@@ -654,9 +666,29 @@ func (a trackerStatsAdapter) NearConfirmedLog() []api.NearConfirmedEntryJSON {
 			ConfirmedAt:            e.ConfirmedAt,
 			TerminalState:          e.TerminalState,
 			TerminalAt:             e.TerminalAt,
+			MinIndependentCells:    e.MinIndependentCells,
+			AlgoVer:                e.AlgoVer,
+			Source:                 e.Source,
+			UpdatedInProcess:       e.UpdatedInProcess,
 		}
 	}
-	return out
+	c := rep.Coverage
+	return api.NearConfirmedReportJSON{
+		Entries: out,
+		Coverage: api.NearConfirmedCoverageJSON{
+			ProcessStartedAtMs:       c.ProcessStartedAtMs,
+			AsOfMs:                   c.AsOfMs,
+			DurableReadAttempted:     c.DurableReadAttempted,
+			DurableReadOK:            c.DurableReadOK,
+			DurableReadAtMs:          c.DurableReadAtMs,
+			DurableRowsLoaded:        c.DurableRowsLoaded,
+			DurableReadError:         c.DurableReadError,
+			EntriesRecordedInProcess: c.EntriesRecordedInProcess,
+			EntriesLoadedFromDurable: c.EntriesLoadedFromDurable,
+			AlgoVer:                  c.AlgoVer,
+			MinIndependentCells:      c.MinIndependentCells,
+		},
+	}
 }
 
 // Loop ini aman terhadap node sah: predikat penghapusan menuntut verified=FALSE

@@ -1,0 +1,40 @@
+-- ============================================================================
+-- QuakeAlert — Migration 000009 (DOWN): Batalkan durabilitas near-confirmation
+--
+-- Satu DROP TABLE IF EXISTS, dan tidak ada yang lain. Tidak ada kolom yang
+-- dikembalikan tipenya, tidak ada indeks yang dipulihkan, tidak ada baris tabel
+-- lain yang tersentuh — karena migrasi 000009 (UP) tidak mengubah apa pun di
+-- luar tabelnya sendiri.
+--
+-- URUTAN ROLLBACK YANG BENAR (kode LEBIH DULU, lalu skema):
+--
+--   1. Turunkan biner ke versi pra-P4-M2′, ATAU jalankan biner P4-M2′ dengan
+--      basis data yang masih memiliki tabel ini.
+--   2. Baru jalankan migrasi turun ini.
+--
+-- Alasannya: biner P4-M2′ yang berjalan di atas skema yang sudah diturunkan akan
+-- gagal pada SETIAP penulisan near-confirmation. Kegagalan itu TERBATAS pada
+-- pencatatan — ia dihitung sebagai event_near_confirmed_upsert_failures_total dan
+-- dicatat ke log, dan ia TIDAK dapat menghalangi emisi peringatan (S1, §9.5:
+-- "pencatatan boleh gagal, jalur peringatan tidak"). Jalur peringatan, jalur
+-- ingest, dan seluruh lima state lifecycle tetap berfungsi penuh. Yang hilang
+-- hanyalah jawaban atas pertanyaan forensik.
+--
+-- Tidak ada FK yang perlu diurutkan: tabel ini SENGAJA tidak memiliki foreign key
+-- (lihat justifikasinya di 000009 UP), sehingga ia dapat dijatuhkan sendiri dan
+-- tidak ada tabel lain yang bergantung padanya.
+--
+-- YANG HILANG PERMANEN: seluruh riwayat persilangan ambang independensi —
+-- termasuk setiap persilangan SUNYI, yaitu persilangan yang tidak pernah
+-- menghasilkan transisi state dan karena itu TIDAK memiliki jejak di
+-- event_state_log maupun di earthquake_events. Baris itu tidak dapat dibangun
+-- ulang dari tabel mana pun yang tersisa: puncak independensi tidak pernah
+-- disimpan di tempat lain, dan menghitungnya ulang dari koordinat node sekarang
+-- akan menilai keputusan lampau dengan parameter yang tidak menghasilkannya
+-- (U-007). Setelah migrasi ini dijalankan, jawaban P4-M2′ kembali menjadi
+-- "hanya sejak proses ini dimulai".
+--
+-- Idempoten: aman dijalankan dua kali.
+-- ============================================================================
+
+DROP TABLE IF EXISTS event_near_confirmed;

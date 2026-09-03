@@ -60,12 +60,30 @@ func (f *fakeEventStore) callLog() []string {
 type recObs struct {
 	mu                                       sync.Mutex
 	dropped, upsertFail, logSkip, logFailure int
+	nearDropped, nearUpsertFail              int
 }
 
 func (r *recObs) EventPersistDropped()  { r.mu.Lock(); r.dropped++; r.mu.Unlock() }
 func (r *recObs) EventUpsertFailed()    { r.mu.Lock(); r.upsertFail++; r.mu.Unlock() }
 func (r *recObs) EventStateLogSkipped() { r.mu.Lock(); r.logSkip++; r.mu.Unlock() }
 func (r *recObs) EventStateLogFailed()  { r.mu.Lock(); r.logFailure++; r.mu.Unlock() }
+
+// Akuntansi near-confirmation dihitung TERPISAH dari akuntansi event unit: sebuah
+// unit event yang hilang dan sebuah jawaban forensik yang hilang bukan kerugian
+// yang sama, jadi keduanya tidak boleh runtuh menjadi satu angka (P4-M2′).
+func (r *recObs) EventNearConfirmedDropped() { r.mu.Lock(); r.nearDropped++; r.mu.Unlock() }
+
+func (r *recObs) EventNearConfirmedUpsertFailed() {
+	r.mu.Lock()
+	r.nearUpsertFail++
+	r.mu.Unlock()
+}
+
+func (r *recObs) nearSnapshot() (dropped, upsertFail int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.nearDropped, r.nearUpsertFail
+}
 
 func (r *recObs) snapshot() (dropped, upsertFail, logSkip, logFailure int) {
 	r.mu.Lock()

@@ -33,6 +33,28 @@ type persister interface {
 	RecordEventUnit(u *store.EventUnit)
 }
 
+// nearPersister menerima catatan near-confirmation durable (P4-M2′, D-012).
+// Interface KEDUA, dan bukan sebuah metode tambahan pada persister, dengan alasan
+// yang sama seperti pemisahan ledger.eventPersister dari ledger.ledgerStore:
+// sebuah antrean yang belum mengenal Fase 4 harus tetap dapat dipakai sebagai
+// persister, bukan gagal dikompilasi karena P4-M2′ ada. Dideteksi lewat type
+// assertion di SetLedger.
+//
+// Sama seperti persister, ia tanpa error dan tanpa blocking: Tracker tidak boleh
+// punya CARA untuk menulis catatan ini secara sinkron (§9.5).
+type nearPersister interface {
+	RecordNearConfirmed(r *store.NearConfirmedRow)
+}
+
+// nearConfirmedReader adalah satu-satunya hal yang dibutuhkan jalur boot P4-M2′
+// dari basis data: seluruh baris event_near_confirmed. TERPISAH dari eventStore,
+// dan dideteksi lewat type assertion sendiri, supaya sebuah toko yang dapat
+// memuat event terbuka tetapi belum menjalankan migrasi 000009 tidak gagal
+// dikompilasi — dan supaya uji paket ini dapat menyediakan satu tanpa yang lain.
+type nearConfirmedReader interface {
+	ListNearConfirmed(ctx context.Context) ([]store.NearConfirmedRow, error)
+}
+
 // eventStore adalah seluruh yang dibutuhkan Tracker dari basis data: koordinat
 // node pada jalur masuk, dan event terbuka pada saat boot (§15.3). Interface
 // sempit, mengikuti pola ingest.nodeSource dan ledger.ledgerStore.

@@ -26,7 +26,7 @@ IMPLEMENTED only.
 | Phase 3 event tracker | yes | no | yes, private VPS — **enabled** | No confirmed event has occurred in production. |
 | Phase 2 consensus engine | yes | yes (Phase 2) | retained as rollback path | Removal is **U-008**. |
 | Global spatial correctness (Phase 3.x) | yes | no | yes, private VPS | Proven by test at every latitude; no field data outside one location. |
-| Near-confirmation observability log | yes | no | yes, private VPS | In-memory, resets on restart. |
+| Near-confirmation observability log | yes | **yes — restart survival demonstrated 2026-09-03 against a real PostgreSQL database** | in-memory version: yes, private VPS · durable version (P4-M2′): **committed, not deployed** | Durable since P4-M2′/D-012: crossings are written to `event_near_confirmed` (migration `000009`) through the bounded drop-oldest ledger queue, and the read path answers with an explicit coverage envelope. Silent crossings (no state transition) are recorded too. Restart survival, terminal state outliving its parent row, persistence failure not blocking emission, and recorded `algo_ver`/`min_independent_cells` surviving a **different** running configuration are all demonstrated — see *Demonstrated*. The in-memory map remains the authority (§9.5); the table is a follower. |
 | Admin tracker endpoints | yes | no | yes, private VPS | Behind the admin API key. |
 | WebSocket delivery | yes | partial | yes, private VPS | Advisory frames observed; alert frames not observed in production. |
 | Push delivery | yes | no | yes, private VPS | Never triggered in production; one device vendor only in testing. |
@@ -144,6 +144,31 @@ de-duplication — **not** at-least-once (D-008).
   4301. These used `POST /api/v1/admin/test-alert`, which writes no
   `earthquake_events` row and carries no `event_state` — so they say nothing about
   History, about CANCELLED wording, or about a release build.
+- **Near-confirmation durability across a real process restart — P4-M2′, isolated
+  PostgreSQL, 2026-09-03.** Owner-approved SATISFIED. Migration `000009` applied to
+  a throwaway PostGIS container reached only over loopback; 14 integration tests
+  that had never executed before now pass (11 in
+  `server/internal/store/near_confirmed_test.go`, 3 in
+  `server/internal/event/nearconfirmed_pg_test.go`), with 19 pre-existing Postgres
+  tests re-run green on the same schema. Restart was then reproduced through the
+  HTTP surface across four service runs of a locally built binary: two signed MQTT
+  triggers 12 km apart produced a real **silent** crossing — `source=RECORDED`, a
+  durable row, and **no** `event_state_log` row for the crossing itself, only
+  `DETECTED→UNCONFIRMED` (cells=1) and `UNCONFIRMED→RESOLVED` (cells=2) — after
+  which the process was terminated and the same entries came back `source=LOADED`.
+  A run configured `ic=5`/threshold 3, different from every stored row, returned
+  per-entry `algo_ver` `[ic=5, ic=5, ic=9]` and per-entry `min_independent_cells` 2
+  against `coverage.algo_ver = ic=5` and `coverage.min_independent_cells = 3`, and
+  the durable rows were byte-identical after boot: the running configuration does
+  not rewrite recorded history (V3/V6, D-006). On an empty database the endpoint
+  answered `entries: []` with `durable_read_attempted: true`,
+  `durable_read_ok: true`, `durable_rows_loaded: 0` — the honest empty answer this
+  criterion asks for on a one-node fleet. All five captured 200 bodies validated
+  against `contracts/openapi/openapi.yaml` with zero undocumented fields; both 401
+  bodies validated against `Error`; `EVENT_TRACKER_ENABLED=false` still returns 503.
+  **This says nothing about production:** the code is committed and not deployed,
+  and the runs used a locally built binary against a test database, never the
+  production stack.
 
 ## NOT demonstrated
 
@@ -224,6 +249,27 @@ only presence in *Demonstrated* is** (`PROJECT_RULES.md` §8).
 
 ---
 
+## Active phase
+
+`ROADMAP.md` ACTIVE PHASE is **Phase 4 — Self-Measurement & Forensics**, status
+`IN_PROGRESS` as of 2026-09-01, scoped by **D-011** to acceptance criteria
+P4-M1′ … P4-M6′. Phase 4 is instrumentation and read-only forensics on a
+**one-node** fleet: it changes no threshold, quorum, radius, event semantic, or
+notification policy — the single contract change it carries is the additive,
+operator-only one the owner authorized in **D-012**, behind `X-Admin-Key`.
+**P4-M3′** (server-side stage latency reported) is owner-approved SATISFIED as of
+2026-09-01. **P4-M2′** (near-confirmation log queryable and surviving a restart) is
+owner-approved SATISFIED / `VALIDATED` as of 2026-09-03, on the real-PostgreSQL
+evidence in *Demonstrated*; committed, **not deployed**. P4-M1′, P4-M4′, P4-M5′ and
+P4-M6′ are not met.
+
+Phase F remains `BLOCKED` on the owner deploying additional nodes. Every item in
+*NOT demonstrated* that requires a confirmed event, multiple nodes, or a
+population of events stays there for the duration of Phase 4 — that is expected,
+not a Phase 4 failure.
+
+---
+
 ## Known open defects
 
 - `docs/SYSTEM_SPEC.md` and `docs/GAP_ANALYSIS.md` describe superseded Phase 2
@@ -232,6 +278,13 @@ only presence in *Demonstrated* is** (`PROJECT_RULES.md` §8).
   publish (**U-006**).
 - `docs/CHAT_DESIGN.md` versus `docs/GAP_ANALYSIS.md` disagree on whether chat
   is in scope (**U-005**).
+- The 503 body of both admin tracker endpoints returns `code: TRACKER_DISABLED`
+  (`server/internal/api/admin.go:297,309`), a value absent from the `Error.code`
+  enum in `contracts/openapi/openapi.yaml`. **Pre-existing and unrelated to Phase
+  4:** introduced by `1ad1777` with the Phase 3.x stats endpoint, found during
+  P4-M2′ validation on 2026-09-03, deliberately left unfixed because it lies
+  outside D-012's scope. Either the enum gains the value or the handler uses an
+  existing one; that is a Phase 3.x decision, not a Phase 4 one.
 
 ## Maintenance
 

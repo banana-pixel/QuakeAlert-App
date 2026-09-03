@@ -10,10 +10,14 @@ import (
 // fakeTrackerStats adalah TrackerStatsSource yang mengembalikan potret tetap.
 // Cukup untuk menguji BENTUK JSON yang dijanjikan kontrak; keakuratan angkanya
 // diuji di paket event, tempat pengukurannya sebenarnya terjadi.
-type fakeTrackerStats struct{ stats TrackerStatsJSON }
+type fakeTrackerStats struct {
+	stats  TrackerStatsJSON
+	report NearConfirmedReportJSON
+}
 
-func (f *fakeTrackerStats) Stats() TrackerStatsJSON                    { return f.stats }
-func (f *fakeTrackerStats) NearConfirmedLog() []NearConfirmedEntryJSON { return nil }
+func (f *fakeTrackerStats) Stats() TrackerStatsJSON { return f.stats }
+
+func (f *fakeTrackerStats) NearConfirmedReport() NearConfirmedReportJSON { return f.report }
 
 // newTrackerStatsServer membangun handler dengan kunci operator dan sumber
 // statistik terpasang.

@@ -178,6 +178,120 @@ delivery tier, no notification-policy change, and no contract change, so it can
 proceed while U-010 (alert validity), U-011 (concurrent alarms), U-012 (in-use
 delivery) and U-013 (raise-path logging) stay open.
 
+**Cross-reference (added 2026-09-02; nothing above is rewritten):** D-012 narrows
+the "no contract change" clause of the paragraph above — it authorizes one
+additive change to the **operator-only** admin contract for P4-M2′, plus the
+`000009` migration. The scope of Phase 4, the three constraints, and every other
+claim in this entry stand exactly as written; U-001 … U-013 remain unresolved.
+
+### D-012 — The near-confirmation record is persisted, and the answer states its own coverage
+**Status:** ACCEPTED · **Owner-approved:** 2026-09-02 · **See:** `ROADMAP.md`
+§ Phase 4 (P4-M2′), D-011,
+`contracts/db/migrations/000009_near_confirmation_durability.up.sql`
+
+The near-confirmation crossing is written to a durable table, and the
+near-confirmed read path answers with an explicit coverage envelope beside the
+list. Two parts, decided together:
+
+**A2 — persist the crossing.** A new additive table `event_near_confirmed`, one
+row per event, records the crossing as it happened: `first_two_independent_at`,
+`independent_count_at_peak` with its paired `node_count_at_peak`,
+`min_independent_cells` and `algo_ver` *as they were at that moment*, plus
+`confirmed_at` / `terminal_state` / `terminal_at` where they apply. Writes travel
+the existing bounded drop-oldest ledger queue, asynchronously, outside the
+Tracker lock.
+
+**B1 — make the answer self-describing.** `GET /api/v1/admin/tracker/near-confirmed`
+gains a `coverage` object stating the window the answer covers
+(`process_started_at_ms`, `as_of_ms`), whether the durable read was attempted and
+whether it succeeded, how many rows it loaded, and the provenance split of the
+entries returned. `entries` stays a top-level array under the same name; the
+envelope is additive.
+
+**Because:** P4-M2′ requires the record to survive a restart, and re-deriving it
+read-only cannot recover it faithfully. A crossing can happen with **no state
+transition at all** — `UNCONFIRMED → UNCONFIRMED` is illegal (§5.2), so there is
+no revision, no `event_state_log` row and no emitted frame — and those silent
+crossings are the common case on a small fleet. `earthquake_events` cannot answer
+either: it is mutable by design and holds only the latest independence count, so
+an event that reached three independent contributors and then fell back to one
+reads as never having come close. And on a one-node fleet the correct list is
+**empty** (S2 — CONFIRMED is unreachable), so an empty list must be
+distinguishable from "nothing could be answered"; without the envelope both ship
+as identical bytes. Forensic correctness is worth more here than a smaller schema.
+
+**This decision explicitly authorizes,** and nothing beyond:
+1. **The migration.** `000009_near_confirmation_durability` — one new table,
+   additive and idempotent, no `ALTER`, no `DROP`, no type change, no rewrite of
+   existing rows. Pre-000009 binaries keep running against this schema.
+2. **The durable record.** Writing near-confirmation rows from the alert path,
+   including for crossings that produce no state transition.
+3. **The contract change.** The additive `coverage` object and the four added
+   entry fields (`min_independent_cells`, `algo_ver`, `source`,
+   `updated_in_process`) in `contracts/openapi/openapi.yaml`, plus two new
+   counters in the tracker stats response.
+
+**Constraints carried by this decision, stated so they cannot be read away:**
+1. **Persistence never blocks emission (S1, §9.5).** The queue stays bounded and
+   drop-oldest. Drops and upsert failures are *reported* —
+   `event_near_confirmed_persist_dropped_total`,
+   `event_near_confirmed_upsert_failures_total` — and counted **separately** from
+   the event-unit counters. Neither is ever asserted zero: D-011 constraint 1
+   applies unchanged, and a zero-drop target here could only be met by blocking
+   the warning path.
+2. **In-memory Tracker stays the authority (§9.5, D-002).** The table is a
+   follower. The boot-time read plants rows only for events not already in
+   memory; it never overwrites a live entry.
+3. **No recomputation from current state.** The recorded threshold and `algo_ver`
+   are carried as written and frozen on conflict (V3/V6, D-006). Historical
+   independence is never recomputed from current node coordinates — **U-007 is
+   not reopened.** Judging a past decision with parameters that did not produce it
+   is not a correction.
+4. **`event_state_log` is untouched.** That table means one row per state
+   *transition*; a threshold crossing is not a transition. No non-transition row
+   is added to it, and its semantics are unchanged.
+5. **`entries: []` remains an honest answer.** On the current one-node fleet the
+   list may legitimately stay empty for all of Phase 4. The envelope reports
+   coverage and provenance; it does not grade them. There is deliberately no
+   `complete`, `healthy` or `valid` field.
+
+**Affects:** schema (one new table), the near-confirmed read path, the admin
+contract, observability counters. **Reversible:** yes — `000009` down is a single
+`DROP TABLE`, and the code degrades to "since this process started". What is
+**not** recoverable after that rollback is the crossing history itself, silent
+crossings included: they exist in no other table and cannot be re-derived.
+
+**Does not decide:** nothing about what the system decides. Quorum, thresholds
+(`MinPGAGal`, `MinNodesConfirmed`, `MinIndependentCells`), attach radius, the
+legal state transitions and event semantics are all unchanged; this is a record
+and a read path. U-001 … U-013 **remain unresolved**, U-007 included. D-011 is
+**not** superseded: its scope, its three constraints and its reasoning stand as
+written. Its "Does not decide" paragraph says Phase 4 "adds no wire field, no
+delivery tier, no notification-policy change, and no contract change" — the
+first, second and third of those remain true, and this decision narrows the
+fourth: it authorizes **one additive admin-contract change**, on an
+operator-only endpoint behind `X-Admin-Key`, with no change to any client-facing
+or wire contract. The four unresolved questions D-011 names (U-010, U-011, U-012,
+U-013) stay open and untouched.
+
+**Validation record (appended 2026-09-03; nothing above is rewritten).** P4-M2′ is
+**owner-approved SATISFIED / `VALIDATED` 2026-09-03**. Evidence: migration `000009`
+applied to an isolated PostgreSQL database (`TEST_DATABASE_URL`, loopback-only
+container), 14 previously-never-executed integration tests green — 11 in
+`server/internal/store/near_confirmed_test.go` and 3 in
+`server/internal/event/nearconfirmed_pg_test.go` — plus 19 pre-existing Postgres
+tests re-run green on the same schema, and restart reproduced end-to-end through
+the HTTP surface: a real silent crossing recorded with **no** `event_state_log`
+row for the crossing, `source` moving `RECORDED → LOADED` across a process
+termination, and per-entry `algo_ver`/`min_independent_cells` preserved verbatim
+under a running configuration that differed from every stored row. Constraint 5
+was exercised directly: on an empty database the answer was `entries: []` with
+`durable_read_attempted: true`, `durable_read_ok: true`, `durable_rows_loaded: 0`.
+`event_state_log` semantics are unchanged, and **U-001 … U-013 remain unresolved,
+U-007 included** — nothing in this validation reopened any of them. Not deployed:
+the code is committed only. Full detail in `docs/CURRENT_STATE.md` § Demonstrated
+and `ROADMAP.md` § Phase 4 (P4-M2′).
+
 ---
 
 ## Unresolved questions

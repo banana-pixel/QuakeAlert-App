@@ -284,3 +284,169 @@ func (s *Store) ListActiveNodeLocations(ctx context.Context) ([]NodeLocation, er
 	}
 	return out, nil
 }
+
+// ---------------------------------------------------------------------------
+// Persistensi durable catatan near-confirmation (P4-M2′, migrasi 000009, D-012).
+//
+// Satu baris per EVENT yang pernah melampaui ambang independensi. Ia BUKAN baris
+// riwayat transisi, dan itu sebabnya ia bukan baris event_state_log: sebuah
+// persilangan ambang dapat terjadi TANPA transisi state sama sekali —
+// UNCONFIRMED -> UNCONFIRMED ilegal (§5.2), sehingga kontributor independen
+// kedua yang tiba pada event yang sudah UNCONFIRMED tidak menaikkan revisi,
+// tidak menghasilkan baris riwayat, dan tidak menghasilkan frame. Persilangan
+// sunyi itu tepat kasus yang paling umum pada fleet kecil, dan sebelum P4-M2′ ia
+// hanya ada di sebuah map yang lenyap bersama prosesnya.
+//
+// Penulisnya menempuh antrean ledger yang sama dengan satuan event: asinkron,
+// berbatas, dan boleh membuang yang tertua (D17/D-002/S1). Karena itu ia tunduk
+// pada aturan yang sama seperti UpsertEvent — dua penulisan untuk satu event
+// harus aman dalam URUTAN APA PUN — dan itulah yang dijawab bentuk ON CONFLICT
+// di bawah.
+
+// NearConfirmedRow adalah satu baris event_near_confirmed.
+//
+// ConfirmedAt, TerminalState dan TerminalAt bertipe pointer karena kolomnya boleh
+// NULL, dan NULL di sini punya arti yang sempit: BELUM PERNAH TERJADI, bukan nol.
+// Sebuah event yang tidak pernah CONFIRMED bukan event yang CONFIRMED pada epoch,
+// dan perbedaan itu harus utuh sampai ke pemanggil.
+//
+// MinIndependentCells adalah ambang yang BERLAKU saat persilangan, dibawa apa
+// adanya. Tanpanya "mencapai 2" tidak dapat ditafsirkan oleh pembaca yang
+// MIN_INDEPENDENT_CELLS-nya sudah berbeda — dan menghitungnya ulang dari
+// konfigurasi sekarang berarti menilai keputusan lampau dengan parameter yang
+// tidak menghasilkannya.
+type NearConfirmedRow struct {
+	EventID                string
+	FirstTwoIndependentAt  int64 // ms epoch UTC, jam server
+	IndependentCountAtPeak int
+	NodeCountAtPeak        int
+	MinIndependentCells    int
+	ConfirmedAt            *int64
+	TerminalState          *string
+	TerminalAt             *int64
+	AlgoVer                string
+}
+
+// UpsertNearConfirmed menulis atau menggabungkan satu baris event_near_confirmed.
+//
+// ON CONFLICT-nya adalah penggabungan MONOTON, bukan penimpaan, dan itu bukan
+// selera: satuan-satuannya diantre dan boleh dibuang, jadi baris ini dapat
+// menerima pembaruan yang tiba TERLAMBAT atau TIDAK URUT, atau kehilangan salah
+// satu pembaruan sama sekali. Setiap kolom karena itu digabung dengan aturan yang
+// hasilnya tidak bergantung pada urutan kedatangan:
+//
+//	first_two_independent_at  LEAST     — "pertama kali" hanya bisa bergerak MAJU
+//	                                      ke masa lalu; kedatangan yang lebih tua
+//	                                      lebih dekat pada kebenaran.
+//	independent_count_at_peak GREATEST  — PUNCAK, jadi ia tidak pernah turun.
+//	                                      Independensi boleh turun setelah
+//	                                      invalidasi kontributor; puncaknya tidak.
+//	node_count_at_peak        mengikuti  — bergerak HANYA bersama puncak yang baru.
+//	                                      Tiga node di satu atap bukan tiga bukti,
+//	                                      jadi kedua angka hanya bermakna
+//	                                      berpasangan dan tidak boleh berasal dari
+//	                                      dua saat yang berbeda.
+//	confirmed_at              COALESCE  — yang pertama non-NULL menang, cermin dari
+//	                                      penjaga `== 0` di memori.
+//	terminal_state/terminal_at COALESCE — keduanya bergerak BERSAMA; sebuah state
+//	                                      terminal tanpa waktunya tidak dapat
+//	                                      ditafsirkan.
+//	min_independent_cells     yang ada  — parameter saat persilangan, tidak pernah
+//	algo_ver                  yang ada    ditulis ulang (V3/V6, D-006). Ditulis
+//	                                      eksplisit alih-alih dihilangkan supaya
+//	                                      "yang pertama menang" terbaca di kueri.
+func (s *Store) UpsertNearConfirmed(ctx context.Context, r *NearConfirmedRow) error {
+	const q = `
+		INSERT INTO event_near_confirmed (
+			event_id, first_two_independent_at,
+			independent_count_at_peak, node_count_at_peak,
+			min_independent_cells,
+			confirmed_at, terminal_state, terminal_at, algo_ver
+		) VALUES ($1::uuid, $2, $3, $4, $5, $6, NULLIF($7,''), $8, $9)
+		ON CONFLICT (event_id) DO UPDATE SET
+			first_two_independent_at =
+				LEAST(event_near_confirmed.first_two_independent_at,
+				      EXCLUDED.first_two_independent_at),
+			independent_count_at_peak =
+				GREATEST(event_near_confirmed.independent_count_at_peak,
+				         EXCLUDED.independent_count_at_peak),
+			node_count_at_peak = CASE
+				WHEN EXCLUDED.independent_count_at_peak
+				     > event_near_confirmed.independent_count_at_peak
+				THEN EXCLUDED.node_count_at_peak
+				ELSE event_near_confirmed.node_count_at_peak
+			END,
+			min_independent_cells = event_near_confirmed.min_independent_cells,
+			confirmed_at   = COALESCE(event_near_confirmed.confirmed_at,   EXCLUDED.confirmed_at),
+			terminal_state = COALESCE(event_near_confirmed.terminal_state, EXCLUDED.terminal_state),
+			terminal_at    = COALESCE(event_near_confirmed.terminal_at,    EXCLUDED.terminal_at),
+			algo_ver = event_near_confirmed.algo_ver`
+	if _, err := s.pool.Exec(ctx, q,
+		r.EventID, r.FirstTwoIndependentAt,
+		r.IndependentCountAtPeak, r.NodeCountAtPeak,
+		r.MinIndependentCells,
+		r.ConfirmedAt, derefString(r.TerminalState), r.TerminalAt, r.AlgoVer,
+	); err != nil {
+		return fmt.Errorf("upsert event_near_confirmed: %w", err)
+	}
+	return nil
+}
+
+// ListNearConfirmed mengembalikan SELURUH baris event_near_confirmed, diurutkan
+// (first_two_independent_at, event_id).
+//
+// Tanpa jendela dan tanpa batas, dan keduanya disengaja. Jendela waktu akan
+// mengalahkan maksud tabel ini: pertanyaannya "apakah pernah ada persilangan",
+// dan sebuah jawaban yang dipotong pada 24 jam terakhir tidak dapat membedakan
+// "tidak pernah ada" dari "ada, lebih lama dari itu". Batas baris akan melakukan
+// hal yang sama secara diam-diam. Kardinalitasnya adalah jumlah event yang PERNAH
+// melampaui ambang independensi — nol pada fleet satu-node, dan pada fleet mana
+// pun beberapa urutan besaran lebih kecil daripada ledger observasi — dan ia
+// dibaca SEKALI saat boot, bukan per permintaan.
+//
+// Urutannya sama dengan urutan yang dipakai Tracker di memori, sehingga sebuah
+// jawaban yang dibangun ulang dari basis data tidak dapat dibedakan dari jawaban
+// yang lahir di proses ini KECUALI oleh field provenance-nya — yang memang harus
+// menjadi satu-satunya perbedaan yang terlihat.
+func (s *Store) ListNearConfirmed(ctx context.Context) ([]NearConfirmedRow, error) {
+	const q = `
+		SELECT event_id, first_two_independent_at,
+		       independent_count_at_peak, node_count_at_peak,
+		       min_independent_cells,
+		       confirmed_at, terminal_state, terminal_at, algo_ver
+		FROM event_near_confirmed
+		ORDER BY first_two_independent_at ASC, event_id ASC`
+	rows, err := s.pool.Query(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("query event_near_confirmed: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]NearConfirmedRow, 0, 32)
+	for rows.Next() {
+		var r NearConfirmedRow
+		if err := rows.Scan(
+			&r.EventID, &r.FirstTwoIndependentAt,
+			&r.IndependentCountAtPeak, &r.NodeCountAtPeak,
+			&r.MinIndependentCells,
+			&r.ConfirmedAt, &r.TerminalState, &r.TerminalAt, &r.AlgoVer,
+		); err != nil {
+			return nil, fmt.Errorf("scan event_near_confirmed: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate event_near_confirmed: %w", err)
+	}
+	return out, nil
+}
+
+// derefString meratakan *string menjadi string kosong supaya NULLIF di kueri yang
+// memutuskan NULL, bukan dua cabang parameter di Go. Pola yang sama dengan
+// NULLIF($11,”) pada UpsertEvent.
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}

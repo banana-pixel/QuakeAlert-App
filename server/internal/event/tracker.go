@@ -85,6 +85,27 @@ type Tracker struct {
 	// kontributor independen. Tidak dihapus saat event terminal atau dievakuasi:
 	// tujuannya rekonstruksi pasca-kejadian. Lihat nearconfirmed.go.
 	nearConfirmed map[string]*NearConfirmedEntry
+
+	// nearPending memegang entri near-confirmed yang BERUBAH di bawah kunci dan
+	// belum diantrekan. Ia ada karena kedua sifat ini harus berlaku sekaligus:
+	// perubahan hanya dapat dilihat di bawah kunci, dan pengantrean hanya boleh
+	// terjadi di luarnya. Dilindungi t.mu bersama counters — bukan kunci kedua.
+	nearPending []NearConfirmedEntry
+
+	// nearCoverage adalah fakta pembacaan durable saat boot (B1). Dilindungi
+	// t.mu; ditulis sekali oleh LoadNearConfirmed dan dibaca setiap laporan.
+	nearCoverage NearConfirmedCoverage
+
+	// nearPersist mengantre catatan near-confirmation durable. Nil = tidak
+	// dipersistensi, yang sah dan tidak mengubah satu pun keputusan.
+	nearPersist nearPersister
+
+	// startedAtMs adalah awal jendela yang DIJAMIN proses ini sendiri. Sebelum
+	// P4-M2′ tidak ada satu pun penanda seperti ini di seluruh server, dan
+	// ketiadaannya itulah yang membuat "sejak proses dimulai" tidak dapat
+	// dinyatakan sebagai angka. Ditulis sekali di NewTracker, tidak pernah
+	// bermutasi, jadi ia tidak memerlukan kunci.
+	startedAtMs int64
 }
 
 // NewTracker membuat Tracker. opt dianggap sudah divalidasi oleh config; nilai yang
@@ -106,7 +127,7 @@ func NewTracker(loc nodeSource, opt Options, log *slog.Logger) *Tracker {
 	if opt.MaxTombstones < 1 {
 		opt.MaxTombstones = 512
 	}
-	return &Tracker{
+	t := &Tracker{
 		loc:           loc,
 		log:           log,
 		opt:           opt,
@@ -117,6 +138,8 @@ func NewTracker(loc nodeSource, opt Options, log *slog.Logger) *Tracker {
 		counters:      newCounters(),
 		nearConfirmed: make(map[string]*NearConfirmedEntry),
 	}
+	t.startedAtMs = t.now().UnixMilli()
+	return t
 }
 
 // SetEmitter memasang tujuan emisi. Dipisahkan dari konstruktor karena dispatcher
@@ -126,7 +149,18 @@ func (t *Tracker) SetEmitter(e emitter) { t.emit = e }
 
 // SetLedger memasang antrean persistensi (pola Set* yang sama dengan
 // Dispatcher.SetLedger). Nil menonaktifkan penulisan durable.
-func (t *Tracker) SetLedger(p persister) { t.persist = p }
+//
+// Catatan near-confirmation durable (P4-M2′) menempuh antrean yang SAMA, dan
+// dideteksi lewat type assertion alih-alih lewat metode kedua pada persister:
+// sebuah antrean yang tidak mengenalnya tetap sah sebagai persister, dan
+// Tracker-nya tetap melacak — hanya jawabannya yang kembali hidup sepanjang satu
+// proses saja.
+func (t *Tracker) SetLedger(p persister) {
+	t.persist = p
+	if np, ok := p.(nearPersister); ok {
+		t.nearPersist = np
+	}
+}
 
 // Ingest adalah jalur masuk satu observasi terverifikasi.
 //
@@ -166,7 +200,15 @@ func (t *Tracker) Ingest(ctx context.Context, in Input) {
 // kegagalannya jauh lebih berbahaya: baris audit yang hilang ditemukan nanti oleh
 // sebuah query, peringatan yang hilang ditemukan oleh sebuah gempa.
 func (t *Tracker) publish(ctx context.Context, ts []Snapshot) {
+	// Pembilasan catatan near-confirmation (P4-M2′) menutup fungsi ini, dan
+	// itulah sebabnya jalur kosong TIDAK lagi kembali lebih awal di sini: sebuah
+	// persilangan ambang boleh terjadi tanpa satu pun transisi (UNCONFIRMED ->
+	// UNCONFIRMED ilegal, §5.2), jadi ts kosong adalah kasus NYATA yang tetap
+	// memiliki sesuatu untuk dicatat. Kembali lebih awal akan membuat justru
+	// persilangan sunyi — yang paling umum pada fleet kecil — menjadi satu-satunya
+	// yang tidak pernah durable.
 	if len(ts) == 0 {
+		t.flushNearConfirmed()
 		return
 	}
 
@@ -194,12 +236,33 @@ func (t *Tracker) publish(ctx context.Context, ts []Snapshot) {
 	// Persistensi menyusul, per transisi, satu satuan masing-masing. Tidak ada
 	// satu pun jalur di sini yang dapat mengembalikan galat ke pemanggil: satuan
 	// yang dibuang atau gagal hanya menjadi counter (§15.5).
-	if t.persist == nil {
-		return
+	if t.persist != nil {
+		for _, s := range ts {
+			t.persist.RecordEventUnit(t.unitFor(s))
+		}
 	}
-	for _, s := range ts {
-		t.persist.RecordEventUnit(t.unitFor(s))
-	}
+
+	// Catatan near-confirmation TERAKHIR, setelah emisi dan setelah satuan
+	// event-nya. Urutannya mengikuti alasan yang sama seperti seluruh §9.5:
+	// pencatatan tidak boleh berada di depan apa pun yang dilihat pengguna. Ia
+	// juga di luar cabang t.persist == nil, karena antreannya dideteksi terpisah
+	// (lihat SetLedger) dan salah satu dari keduanya boleh ada tanpa yang lain.
+	t.flushNearConfirmed()
+}
+
+// flushNearConfirmed mengantrekan setiap entri near-confirmed yang berubah sejak
+// pembilasan terakhir. WAJIB dipanggil di LUAR t.mu.
+//
+// Slice-nya DITUKAR di bawah kunci lalu dipakai di luarnya: mengantre di bawah
+// kunci akan berarti Tracker memegang mutex-nya sementara goroutine drain
+// mungkin memblokir, dan itu tepat hal yang membuat banner paket ini ada.
+func (t *Tracker) flushNearConfirmed() {
+	t.mu.Lock()
+	pending := t.nearPending
+	t.nearPending = nil
+	t.mu.Unlock()
+
+	t.persistNearConfirmed(pending)
 }
 
 // observeLatency mencatat kedua tahap latensi server untuk sekumpulan transisi
@@ -259,6 +322,17 @@ func (t *Tracker) EventStateLogSkipped() {
 }
 func (t *Tracker) EventStateLogFailed() {
 	t.bumpCounter(func(c *counters) { c.stateLogFailures++ })
+}
+
+// Kedua callback P4-M2′. Terpisah dari keempat di atas dengan alasan yang sama
+// seperti counter-nya terpisah: kehilangan baris earthquake_events dan kehilangan
+// jawaban forensik adalah dua kerugian berbeda, dan satu counter untuk keduanya
+// akan menyembunyikan yang mana yang sedang terjadi.
+func (t *Tracker) EventNearConfirmedDropped() {
+	t.bumpCounter(func(c *counters) { c.nearConfirmedDropped++ })
+}
+func (t *Tracker) EventNearConfirmedUpsertFailed() {
+	t.bumpCounter(func(c *counters) { c.nearConfirmedUpsertFailures++ })
 }
 
 // bumpCounter menaikkan satu counter di bawah kunci Tracker. Kunci yang SAMA,
@@ -623,7 +697,7 @@ func (t *Tracker) transitionLocked(e *Event, now int64, reason string) *Snapshot
 	// state sama".
 	// DETECTED dikecualikan: event yang belum pernah publik tidak boleh masuk log.
 	if e.State != StateDetected {
-		t.recordNearConfirmedLocked(e, now)
+		t.queueNearConfirmedLocked(e, now)
 	}
 	return t.forceTransitionLocked(e, next, now, reason)
 }
@@ -649,10 +723,22 @@ func (t *Tracker) forceTransitionLocked(e *Event, next State, now int64, reason 
 	t.counters.transitions[next]++
 
 	// Observability B: rekam kondisi near-confirmed setelah state baru diterapkan.
-	t.recordNearConfirmedLocked(e, now)
+	t.queueNearConfirmedLocked(e, now)
 
 	s := e.snapshot(from, reason)
 	return &s
+}
+
+// queueNearConfirmedLocked mencatat kondisi near-confirmed dan MENGUMPULKAN
+// perubahannya untuk diantrekan setelah kunci dilepas (P4-M2′).
+//
+// Terpisah dari recordNearConfirmedLocked supaya yang terakhir tetap murni
+// "perbarui memori dan laporkan apa yang berubah", dan supaya kedua pemanggilnya
+// tidak perlu mengulang pengumpulannya. WAJIB dipanggil dengan t.mu terkunci.
+func (t *Tracker) queueNearConfirmedLocked(e *Event, now int64) {
+	if changed := t.recordNearConfirmedLocked(e, now); changed != nil {
+		t.nearPending = append(t.nearPending, *changed)
+	}
 }
 
 // reasonFor memetakan state tujuan ke kosakata reason §5.3. Tertutup dan kecil:
