@@ -1,0 +1,77 @@
+================================================================================
+RECONSTRUCTION_NOTE.txt — why this archive exists and what it is
+
+RECONSTRUCTED FROM SESSION TRANSCRIPT — ORIGINAL /tmp BUNDLE LOST AFTER TMPFS REBOOT
+================================================================================
+
+WHAT WAS LOST
+  The P4-M1' production validation of 2026-09-03 archived its evidence to a
+  temporary directory on the workstation:
+
+      /tmp/m1-prod-20260903T125908Z
+
+  Seven files, mode 700 on the directory and 600 on each file, sealed with a
+  SHA256SUMS.txt whose six entries all verified OK at seal time.
+
+  `/tmp` on this workstation is a tmpfs mount:
+
+      findmnt -no FSTYPE,OPTIONS /tmp  ->  tmpfs rw,nosuid,nodev,...
+
+  A tmpfs lives in memory. A reboot empties it. The workstation rebooted at
+  2026-09-04T17:32:02 local, and the entire bundle ceased to exist. Two earlier
+  bundles from the same milestone were destroyed by the same reboot:
+  /tmp/m1-evidence-20260903T105023Z (the throwaway-PostgreSQL software leg) and
+  /tmp/m1-prod-attempt-20260903T123124Z (the documented failed-access attempt).
+
+  Nothing deleted them deliberately. No cleanup command was run against them.
+  The loss is a consequence of choosing a volatile location for evidence that
+  governance documents then cited by name.
+
+WHY THAT IS A DEFECT, NOT A FILING NIT
+  `PROJECT_RULES.md` §8 makes the named archived evidence part of what
+  `VALIDATED` means. ROADMAP.md and docs/CURRENT_STATE.md both cited
+  /tmp/m1-prod-20260903T125908Z as the evidence behind P4-M1' being owner-
+  approved SATISFIED / VALIDATED. Once that path stopped existing, both
+  documents pointed at nothing, and the milestone's evidence trail was broken
+  even though the measurement itself was sound.
+
+WHAT WAS DONE
+  The evidence was reconstructed from this session's own transcript, which
+  recorded the tool's stdout, both database snapshots, the tracker-stats body,
+  the algo_ver/emission distribution, and every shell command that wrote the
+  original metadata. The reconstruction was written to a DURABLE location
+  inside the repository:
+
+      docs/evidence/p4-m1/2026-09-03-production-trace/
+
+  Each file states its own provenance and says which parts are exact
+  transcript-preserved reproductions and which are reconstruction metadata.
+
+WHAT THIS IS NOT
+  - NOT a new validation run. No production validation was rerun. No SSH
+    session was opened, no database was connected to, no HTTP request was made,
+    no binary was cross-compiled, nothing was deployed.
+  - NOT a new measurement. Every recorded value is preserved exactly as the
+    2026-09-03 run reported it. Nothing was recomputed, improved, rounded, or
+    invented. The single value the transcript does not contain
+    (event_latency_decided_to_emit_ms p50/p95) is marked NOT RECOVERED rather
+    than filled in.
+  - NOT the original /tmp artifact. These are reconstructed files. Byte-identity
+    with the lost originals is NOT claimed and cannot be established after the
+    originals disappeared.
+  - NOT a change to the P4-M1' result. The milestone stays owner-approved
+    SATISFIED / VALIDATED on the same 2026-09-03 production measurement, with
+    the same limits: one node, membership-and-time linkage rather than causal,
+    ledger_drops UNKNOWN, and not multi-node field validation.
+
+SOURCE OF THE RECONSTRUCTION
+  The session transcript for this work, a local Claude Code session log:
+      ~/.claude/projects/-home-vitowiratara-QuakeAlert26/
+        51ba5920-3874-4b71-bbd7-178ed168fec9.jsonl
+  Only the P4-M1' production-validation records were read out of it. The
+  transcript itself was NOT copied into the repository, and no credential, DSN,
+  API key, private key or secret was carried across.
+
+PURPOSE
+  Evidence preservation. This archive exists so the milestone's cited evidence
+  survives in version control instead of in a memory-backed temporary directory.

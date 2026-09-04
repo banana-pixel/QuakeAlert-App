@@ -1,0 +1,31 @@
+# production_db_readonly_after.txt — P4-M1' PRODUCTION READ-ONLY PASS
+#
+# RECONSTRUCTED FROM SESSION TRANSCRIPT — ORIGINAL /tmp BUNDLE LOST AFTER TMPFS REBOOT
+#
+# original file : /tmp/m1-prod-20260903T125908Z/production_db_readonly_after.txt
+#                 (758 bytes, 16 lines). That path no longer exists.
+# status        : EXACT TRANSCRIPT-PRESERVED REPRODUCTION, from the single numbered
+#                 rendering of the whole file in the session transcript (record
+#                 1279). Merged payload is 16 lines / 758 bytes — the length
+#                 recorded for the original. Byte-identity is NOT claimed.
+# content       : post-run snapshot, SELECT-only. The original was fetched from the
+#                 VPS with scp, so it begins at its own first content line.
+#
+--- BEGIN REPRODUCED FILE (16 lines) ---
+# captured AFTER the trace tool ran. SELECT only.
+
+$ psql -tA 'row counts + schema version'   [SELECT only]
+observations=51 emissions=50 state_log=50 events=31 nodes=10
+schema_version=8 dirty=false
+
+$ psql 'pg_stat_user_tables ins/upd/del'   [SELECT only]
+       relname       | n_tup_ins | n_tup_upd | n_tup_del | n_live_tup 
+---------------------+-----------+-----------+-----------+------------
+ alert_emissions     |        50 |         0 |         0 |         50
+ earthquake_events   |        31 |        31 |         0 |         31
+ event_state_log     |        50 |         0 |         0 |         50
+ iot_nodes           |        13 |     10083 |         3 |         10
+ sensor_observations |        51 |         0 |         0 |         51
+(5 rows)
+
+--- END REPRODUCED FILE ---

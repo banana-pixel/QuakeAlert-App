@@ -1,0 +1,47 @@
+{
+  "_reconstruction": {
+    "banner": "RECONSTRUCTED FROM SESSION TRANSCRIPT — ORIGINAL /tmp BUNDLE LOST AFTER TMPFS REBOOT",
+    "original_file": "/tmp/m1-prod-20260903T125908Z/tracker_stats_prod.json (831 bytes)",
+    "original_path_exists": false,
+    "source": "GET https://api.quakealert.web.id/api/v1/admin/tracker/stats -> 200, fetched on the production VPS at 2026-09-03T15:38:04Z; re-fetched 2026-09-03T21:16:01Z with all ten compared counters identical.",
+    "status": "VALUES ARE EXACT TRANSCRIPT-PRESERVED REPRODUCTIONS. The transcript preserves them through a python3 -m json.tool pretty-printed rendering, NOT the original 831-byte serialization, so this file reproduces the recorded VALUES and not the original bytes. Byte-identity with the lost original is NOT claimed.",
+    "unrecovered_fields": [
+      "event_latency_decided_to_emit_ms.p50_ms",
+      "event_latency_decided_to_emit_ms.p95_ms"
+    ],
+    "unrecovered_reason": "The transcript rendering was piped through head -30 and stops after that struct's \"observed\" field. Those two values are NOT recoverable from the transcript. They are recorded below as null, meaning NOT RECOVERED — not measured as zero, and deliberately not invented, recomputed, or estimated.",
+    "secret_scan": "No credential, DSN, API key or token appears in this body. The stats payload is integer counters and latency summaries only (server/internal/event/counters.go, type TrackerStats)."
+  },
+  "event_created_total": 18,
+  "event_forced_resolutions_total": 0,
+  "event_reonset_splits_total": 0,
+  "event_diameter_rejections_total": 0,
+  "event_stale_evidence_absorbed_total": 0,
+  "event_tombstone_evictions_total": 0,
+  "event_reconciled_total": 0,
+  "event_persist_dropped_total": 0,
+  "event_upsert_failures_total": 0,
+  "event_state_log_failures_total": 0,
+  "event_state_log_skipped_total": 0,
+  "event_transitions_to_unconfirmed_total": 9,
+  "event_transitions_to_confirmed_total": 0,
+  "event_transitions_to_resolved_total": 9,
+  "event_transitions_to_cancelled_total": 0,
+  "event_open_gauge": 0,
+  "event_tombstone_gauge": 0,
+  "event_latency_onset_to_decided_sensor_ms": {
+    "observed": 5,
+    "p50_ms": 6166,
+    "p95_ms": 10212
+  },
+  "event_latency_onset_to_decided_publish_bound_ms": {
+    "observed": 4,
+    "p50_ms": 9444,
+    "p95_ms": 10367
+  },
+  "event_latency_decided_to_emit_ms": {
+    "observed": 18,
+    "p50_ms": null,
+    "p95_ms": null
+  }
+}

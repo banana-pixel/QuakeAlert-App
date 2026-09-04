@@ -1,0 +1,20 @@
+# SHA256SUMS.txt — P4-M1' production evidence, DURABLE RECONSTRUCTED ARCHIVE
+#
+# RECONSTRUCTED FROM SESSION TRANSCRIPT — ORIGINAL /tmp BUNDLE LOST AFTER TMPFS REBOOT
+#
+# These hashes cover the RECONSTRUCTED files in this directory as committed.
+# They are NOT the hashes from the lost original bundle's SHA256SUMS.txt (563
+# bytes, six entries, all verified OK at seal time on 2026-09-04). Those hash
+# values were never printed and are not recoverable, so they cannot be restated
+# and no claim of byte-identity with the originals is made.
+#
+# Verify with:  cd docs/evidence/p4-m1/2026-09-03-production-trace \
+#                 && sha256sum -c SHA256SUMS.txt
+#
+b3a1a3d20ee19b6a9089e3d7d81d085fdcdaccb46a94f3d721c982d3a743afa3  trace_triggers_stdout.txt
+b08f04b05dc20c8e9da04701a8794fd7c6f2da2dc7d7f5e7154d768d2f563f1c  production_db_readonly_before.txt
+e67505276289ce3c22e08829c8f46e07e886e621256022d31a5c79b53ab42677  production_db_readonly_after.txt
+0ebfe8f72004f7165791cb1059f3bdeaaac0bea340e5d2281d55e925f539be82  production_algover_and_emissions.txt
+b1acd713ab03460bfc3c798a35be117a23558ad02f863693ec5401683fc914d6  tracker_stats_prod.json
+aa076ef186baa7be835bf1704a8bef7e9878875c490b9f61e3df32666f761180  metadata.txt
+ad7051002fa77a00aebbe875e8054a4c7d3e59e9a4992517c75bf48d115060ba  RECONSTRUCTION_NOTE.txt

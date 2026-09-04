@@ -1,0 +1,50 @@
+# production_algover_and_emissions.txt — P4-M1' PRODUCTION EVIDENCE
+#
+# RECONSTRUCTED FROM SESSION TRANSCRIPT — ORIGINAL /tmp BUNDLE LOST AFTER TMPFS REBOOT
+#
+# original file : /tmp/m1-prod-20260903T125908Z/production_algover_and_emissions.txt
+#                 (1467 bytes, 33 lines). That path no longer exists.
+# status        : EXACT TRANSCRIPT-PRESERVED REPRODUCTION. The original was written
+#                 by a quoted heredoc whose body is recorded verbatim in the session
+#                 transcript (record 1351), so the reproduced body is that same
+#                 payload — 33 lines / 1467 bytes, the length recorded for the
+#                 original. Byte-identity is NOT claimed.
+# note          : the original file itself was already a TRANSCRIPTION of psql output
+#                 read on the VPS (its scp was blocked by the local permission
+#                 classifier). That is stated inside the file, below, unchanged.
+#
+--- BEGIN REPRODUCED FILE (33 lines) ---
+production algo_ver + emission distribution — P4-M1' production evidence pass
+SOURCE: read on the production VPS via docker exec psql over a
+        default_transaction_read_only=on session. TRANSCRIBED into this file
+        (the scp of the original was blocked by the local permission
+        classifier; the queries and their output are recorded verbatim below).
+
+-- select algo_ver||'  x'||c from (select algo_ver,count(*) c from event_state_log group by algo_ver) t order by 1;
+phase3-1.1/ic=5  x50
+
+-- same shape against alert_emissions:
+phase1-1.0  x50
+
+-- same shape against earthquake_events:
+phase3-1.1/ic=5  x25
+<NULL>  x6
+
+-- alert_emissions breakdown, alert_type|severity|event_state|ws_clients:
+EARTHQUAKE_ADVISORY|ADVISORY|UNCONFIRMED|ws=0  x14
+EARTHQUAKE_ADVISORY|ADVISORY|UNCONFIRMED|ws=1  x11
+EVENT_RESOLVED|CONFIRMED|RESOLVED|ws=0         x14
+EVENT_RESOLVED|CONFIRMED|RESOLVED|ws=1         x11
+
+-- event_state_log from_state->to_state:
+DETECTED->UNCONFIRMED  x25
+UNCONFIRMED->RESOLVED  x25
+
+READING OF THE DIVERGENCE
+  The three algo_ver axes disagree and that is expected, not a defect.
+  alert_emissions.algo_ver is stamped by internal/ledger/writer.go:42 with the
+  LEDGER schema version (phase1-1.0), never with the tracker's algorithm
+  version. earthquake_events' 6 NULL rows predate Phase 3. Nothing links on
+  algo_ver: ListEmissionsForTrace joins event_id + event_revision, which is why
+  all 26 qualifying chains still matched EXACTLY.
+--- END REPRODUCED FILE ---

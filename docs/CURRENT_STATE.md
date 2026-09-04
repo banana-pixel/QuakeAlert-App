@@ -224,8 +224,13 @@ de-duplication — **not** at-least-once (D-008).
 - **Every qualifying trigger in a bounded production window traces to a
   transition and an advisory — P4-M1′, real production database, 2026-09-04.**
   Owner-approved SATISFIED / `VALIDATED`, on the archived evidence at
-  `/tmp/m1-prod-20260903T125908Z` (verbatim stdout, before/after database
-  metadata, tracker-counter body, provenance, `SHA256SUMS.txt`). The measurement
+  `docs/evidence/p4-m1/2026-09-03-production-trace/` (verbatim stdout,
+  before/after database metadata, tracker-counter body, provenance,
+  `SHA256SUMS.txt`). That archive is a **durable reconstruction** committed
+  2026-09-04 after the original temporary bundle `/tmp/m1-prod-20260903T125908Z`
+  was destroyed by a tmpfs reboot; it was rebuilt from the session transcript
+  with every recorded value preserved exactly, is **not** a new validation run,
+  and changes no number below (**D-016**). The measurement
   tool is `server/scripts/trace_triggers.go` over three read-only `SELECT`s
   (`ListLastNObservations`, `ListStateLogForReplay`, `ListEmissionsForTrace`); it
   **measures and never enforces** — no exit code means “P4-M1′ passed”, and the
@@ -474,7 +479,8 @@ correlation*). It adds no migration and no contract change, so D-012 remains the
 phase's only authorized contract exception. **P4-M1′** (trigger durability,
 measured not asserted) is owner-approved SATISFIED / `VALIDATED` as of
 2026-09-04, on the archived **production** evidence in *Demonstrated*
-(`/tmp/m1-prod-20260903T125908Z`) — the only Phase 4 criterion so far carrying
+(`docs/evidence/p4-m1/2026-09-03-production-trace/`, a durable reconstruction of
+the lost temporary bundle — D-016) — the only Phase 4 criterion so far carrying
 evidence from the real production database, read under a server-enforced
 `default_transaction_read_only = on` session. That `VALIDATED` covers exactly the
 bounded window it measured — 51 ledger rows, 26 qualifying, 26 traced, 26 exact

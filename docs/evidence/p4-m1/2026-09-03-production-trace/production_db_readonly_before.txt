@@ -1,0 +1,54 @@
+# production_db_readonly_before.txt — P4-M1' PRODUCTION READ-ONLY PASS
+#
+# RECONSTRUCTED FROM SESSION TRANSCRIPT — ORIGINAL /tmp BUNDLE LOST AFTER TMPFS REBOOT
+#
+# original file : /tmp/m1-prod-20260903T125908Z/production_db_readonly_before.txt
+#                 (1661 bytes, 37 lines). That path no longer exists.
+# status        : EXACT TRANSCRIPT-PRESERVED REPRODUCTION. Merged from two numbered
+#                 renderings of the same file (transcript records 1045 and 1054),
+#                 which overlap; zero conflicts, zero gaps in lines 1..37. Merged
+#                 payload is 37 lines / 1661 bytes — the length recorded for the
+#                 original. Byte-identity is NOT claimed.
+# content       : pre-run production identity + SELECT/SHOW-only snapshot.
+#                 <prod> stands for the production IP in the original, which was
+#                 redacted there and stays redacted here.
+#
+--- BEGIN REPRODUCED FILE (37 lines) ---
+# production_db_readonly_before.txt — P4-M1' PRODUCTION READ-ONLY PASS
+# utc: 2026-09-03T13:02:12Z
+# all statements below are SELECT / SHOW only
+
+$ ssh opc@<prod> 'hostname; uname -sr'
+quakealert-server
+Linux 6.12.0-204.92.4.4.3.el9uek.aarch64
+docker: Docker version 29.7.2
+
+$ docker inspect quakealert-postgis  (compose identity)
+project=deploy config=/opt/quakealert/deploy/docker-compose.prod.yml image=imresamu/postgis@sha256:817959c176e1ceaab0da093fffb2be2152ca46bd1c3ab20d1b0cc67df57f7b5c started=2026-08-25T02:22:13.787503811Z
+
+$ docker inspect quakealert-server  (which binary wrote these rows)
+image=quakealert-server:prod started=2026-09-01T05:55:00.628516381Z
+EVENT_TRACKER_ENABLED=true
+
+$ cd /opt/quakealert && git rev-parse HEAD && git status --porcelain
+ca8262b6a8ce6ec0605546a2b31becd5720a963e
+ M deploy/docker-compose.prod.yml
+?? deploy/.env.prod.bak-20260825-102134
+?? server/cmd/canary_main.go
+?? server/internal/decrypttmp.go
+
+$ psql -tA -c 'row counts + schema version'   [SELECT only]
+observations=49 emissions=50 state_log=50 events=31 nodes=10
+schema_version=8 dirty=false
+
+$ psql -c 'pg_stat_user_tables ins/upd/del'   [SELECT only]
+       relname       | n_tup_ins | n_tup_upd | n_tup_del | n_live_tup 
+---------------------+-----------+-----------+-----------+------------
+ alert_emissions     |        50 |         0 |         0 |         50
+ earthquake_events   |        31 |        31 |         0 |         31
+ event_state_log     |        50 |         0 |         0 |         50
+ iot_nodes           |        13 |      9629 |         3 |         10
+ sensor_observations |        49 |         0 |         0 |         49
+(5 rows)
+
+--- END REPRODUCED FILE ---

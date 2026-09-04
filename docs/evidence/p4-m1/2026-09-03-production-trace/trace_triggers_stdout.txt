@@ -1,0 +1,177 @@
+# trace_triggers_stdout.txt — P4-M1' PRODUCTION TRACE, stdout
+#
+# RECONSTRUCTED FROM SESSION TRANSCRIPT — ORIGINAL /tmp BUNDLE LOST AFTER TMPFS REBOOT
+#
+# original file : /tmp/m1-prod-20260903T125908Z/trace_triggers_stdout.txt
+#                 (11515 bytes, 158 lines, recorded 2026-09-04T03:25 local)
+#                 That path no longer exists. See RECONSTRUCTION_NOTE.txt.
+# status        : EXACT TRANSCRIPT-PRESERVED REPRODUCTION of the tool's stdout.
+#                 Merged from three numbered renderings of the same file captured
+#                 in the session transcript (transcript records 1241, 1244, 1246),
+#                 which overlap. Zero conflicts on overlapping lines, zero gaps in
+#                 lines 1..158. The merged payload is 158 lines / 11515 bytes,
+#                 the same length recorded for the original.
+# NOT claimed   : byte-identity with the lost original. That cannot be established
+#                 once the original file is gone.
+# banner + this header are RECONSTRUCTION METADATA, not part of the measurement.
+#
+--- BEGIN VERBATIM TOOL STDOUT (158 lines) ---
+===========================================================================
+QuakeAlert P4-M1' — KETERLACAKAN PEMICU (PENGUKURAN, HANYA-BACA)
+===========================================================================
+YANG DIUKUR: setiap observasi dengan pga >= MIN_PGA_GAL di dalam jendela
+ini, dan apakah ia dapat DILACAK KE satu transisi UNCONFIRMED, event_id-nya,
+baris event_state_log-nya, dan emisi advisory-nya.
+
+YANG *TIDAK* DIBUKTIKAN — tiga batas, dan ketiganya struktural:
+  1. TAUTAN observasi->transisi adalah KEANGGOTAAN-DAN-WAKTU, BUKAN KAUSAL.
+     correlation_key dihitung dan tidak pernah disimpan (D12), event_state_log
+     tidak punya observation_id, dan tidak ada FK. Satu-satunya jalan pulang
+     adalah node_id di evidence_summary.contributors[] pada jendela waktu.
+  2. PEMETAAN N:1. Beberapa observasi di satu jendela korelasi BERBAGI satu
+     transisi: UNCONFIRMED->UNCONFIRMED bukan transisi yang sah. Baris yang
+     berbagi transisi TERLACAK — bukan terhitung dua kali.
+  3. COUNTER kegagalan persistensi kumulatif SEJAK PROSES DIMULAI dan tidak
+     bertanda waktu, jadi ia TIDAK dapat diatribusikan ke jendela ini.
+
+Alat ini TIDAK punya exit code yang berarti 'P4-M1' LULUS'. Nilai counter
+kegagalan TIDAK memengaruhi exit code: ini forensik, bukan SLO reliabilitas.
+---------------------------------------------------------------------------
+jendela        : 200 observasi TERAKHIR (diminta), 51 terbaca
+                 BATAS JUMLAH BARIS, bukan periode kalender.
+basis algoritma: phase3-1.1 (biner ini)
+--- profil parameter yang DIASSERSI ---------------------------------------
+  CORRELATION_WINDOW_MS = 20000
+  INDEPENDENCE_CELL_KM  = 5
+  LINK_TOLERANCE_MS     = 0   (kelonggaran di ATAS jendela korelasi)
+  MIN_PGA_GAL           = 16.6   (konstanta BINER, bukan env)
+  MIN_NODES_CONFIRMED   = 3    (konstanta BINER, bukan env)
+===========================================================================
+
+--- jendela --------------------------------------------------------------
+observasi        : 51 baris  (2026-08-29T09:07:42Z .. 2026-09-03T15:36:05Z UTC)
+rentang riwayat  : 1787994440936 .. 1788449767547  (dilebarkan ke belakang satu jendela korelasi)
+event_state_log  : 50 baris mentah
+alert_emissions  : 50 baris mentah
+node dalam jendela: 1 [NODE-52960B47]
+FLEET SATU-NODE (S2): CONFIRMED tidak terjangkau menurut kerapatan.
+  UNCONFIRMED adalah state tujuan yang BENAR di sini. Ketiadaan CONFIRMED
+  BUKAN cacat, dan tidak ada angka di bawah yang boleh dibaca demikian.
+
+--- penyebut (ketiganya berjumlah 51) -------------------------------------
+di bawah lantai  : 25  (pga < 16.6: bukan pemicu, bukan kegagalan)
+terkecuali       : 0  (>= lantai, tetapi konsensus sendiri membuangnya)
+memenuhi syarat  : 26  (inilah yang kriteria P4-M1' tanyakan)
+
+--- keterlacakan ---------------------------------------------------------
+TRACED                          : 26
+AMBIGUOUS_MULTIPLE_TRANSITIONS  : 0  (tak dapat diputuskan; bukan lulus, bukan gagal)
+NO_UNCONFIRMED_TRANSITION       : 0
+transisi UNCONFIRMED BERBEDA    : 25  (pemetaan N:1; lihat batas 2)
+
+--- emisi advisory (kaki WebSocket) --------------------------------------
+MATCHED_BY_EVENT_ID_AND_REVISION  : 26  (event_id + event_revision; bukti EKSAK)
+MATCHED_BY_TIME_ONLY_PRE_000008   : 0  (pra-000008; bukti LEBIH LEMAH)
+MISSING                           : 0
+NOT_APPLICABLE_NO_TRANSITION      : 0  (tak ada transisi untuk ditautkan)
+
+--- rantai per observasi memenuhi syarat ---------------------------------
+obs=1 node=NODE-52960B47 pga=33.4549 received=1787994462936
+    -> event=2822d8a9-5606-4764-a09c-34753bb65c57 rev1 decided_at=1787994462961 lag=+25ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=1 ws_clients=1
+obs=3 node=NODE-52960B47 pga=48.0001 received=1788019030999
+    -> event=084a4ac3-b9b6-41b3-a624-ad2a8f0f9fb2 rev1 decided_at=1788019031027 lag=+28ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=3 ws_clients=0
+obs=5 node=NODE-52960B47 pga=58.1532 received=1788055963882
+    -> event=55ab3682-ba3f-4f36-8fa0-65b8020d7176 rev1 decided_at=1788055963916 lag=+34ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=5 ws_clients=0
+obs=8 node=NODE-52960B47 pga=51.5535 received=1788062748037
+    -> event=d24ed6e4-27a2-4e9e-8d7d-faad7b0eba8e rev1 decided_at=1788062748067 lag=+30ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=7 ws_clients=1
+obs=9 node=NODE-52960B47 pga=90.4351 received=1788062985491
+    -> event=f5c4976c-498e-407c-9da9-7b7e9a07f913 rev1 decided_at=1788062985494 lag=+3ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=9 ws_clients=1
+obs=10 node=NODE-52960B47 pga=96.7147 received=1788064155488
+    -> event=c5aa378e-e7d7-4303-9989-34d8618ba59f rev1 decided_at=1788064155490 lag=+2ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=11 ws_clients=1
+obs=11 node=NODE-52960B47 pga=21.4951 received=1788066296407
+    -> event=976d658c-bdc3-4b21-a7ae-e8835ddbdb85 rev1 decided_at=1788066296465 lag=+58ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=13 ws_clients=1
+obs=12 node=NODE-52960B47 pga=118.1029 received=1788066404801
+    -> event=78d75b9a-195b-4f66-9bf2-8346237de020 rev1 decided_at=1788066404804 lag=+3ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=15 ws_clients=1
+obs=13 node=NODE-52960B47 pga=218.3747 received=1788076746584
+    -> event=8310e3cc-8cdb-487e-92fe-c4a9289eb2cd rev1 decided_at=1788076746610 lag=+26ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=17 ws_clients=0
+obs=14 node=NODE-52960B47 pga=55.1268 received=1788080555999
+    -> event=e44a9b07-8311-4a90-806a-bc7095eda136 rev1 decided_at=1788080556027 lag=+28ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=19 ws_clients=0
+obs=15 node=NODE-52960B47 pga=202.1807 received=1788080703876
+    -> event=3f008ce8-c83a-4be7-92a5-19f31a3646ff rev1 decided_at=1788080703878 lag=+2ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=21 ws_clients=1
+obs=16 node=NODE-52960B47 pga=42.9739 received=1788081355099
+    -> event=d0a12633-ad56-478f-9306-4a5beca564b2 rev1 decided_at=1788081355102 lag=+3ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=23 ws_clients=1
+obs=17 node=NODE-52960B47 pga=187.2039 received=1788083943928
+    -> event=3732e5a4-64ef-48de-a3a3-417b3066b52f rev1 decided_at=1788083943930 lag=+2ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=25 ws_clients=1
+obs=18 node=NODE-52960B47 pga=35.7323 received=1788084601027
+    -> event=536a1ed7-d72e-4cb3-b133-b6acd89f542a rev1 decided_at=1788084601054 lag=+27ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=27 ws_clients=1
+obs=19 node=NODE-52960B47 pga=231.6564 received=1788087440761
+    -> event=fb5a917f-7bd4-4383-a3f3-2b57e4c0c914 rev1 decided_at=1788087440765 lag=+4ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=29 ws_clients=1
+obs=20 node=NODE-52960B47 pga=25.2308 received=1788089375886
+    -> event=4feaff34-2179-45c3-b57d-cbae4916985c rev1 decided_at=1788089375911 lag=+25ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=31 ws_clients=0
+obs=21 node=NODE-52960B47 pga=122.9867 received=1788243307333
+    -> event=bebff65e-26e9-4383-9c19-9a8d7c90f59d rev1 decided_at=1788243307383 lag=+50ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=33 ws_clients=0
+obs=22 node=NODE-52960B47 pga=127.7455 received=1788244916345
+    -> event=62e81e68-48d6-40dd-97b8-d2dd18ef6948 rev1 decided_at=1788244916348 lag=+3ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=35 ws_clients=0
+obs=23 node=NODE-52960B47 pga=155.0029 received=1788245039187
+    -> event=164b8d72-c829-4a6d-8e65-a9ec27ff2571 rev1 decided_at=1788245039190 lag=+3ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=37 ws_clients=0
+obs=24 node=NODE-52960B47 pga=194.1993 received=1788245168452
+    -> event=29f97057-0978-449c-a096-12c37c2e9eb2 rev1 decided_at=1788245168454 lag=+2ms algo_ver=phase3-1.1/ic=5 obs_seq=UNAVAILABLE_V1
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=39 ws_clients=0
+obs=27 node=NODE-52960B47 pga=41.5344 received=1788254531109
+    -> event=7f7573c8-b795-4077-89b5-9593c48cea70 rev1 decided_at=1788254531113 lag=+4ms algo_ver=phase3-1.1/ic=5 obs_seq=EXACT
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=41 ws_clients=0
+obs=29 node=NODE-52960B47 pga=73.0537 received=1788255609087
+    -> event=3adf752d-48f1-4f81-b98e-d31e3775c923 rev1 decided_at=1788255609089 lag=+2ms algo_ver=phase3-1.1/ic=5 obs_seq=EXACT
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=43 ws_clients=0
+obs=31 node=NODE-52960B47 pga=121.7589 received=1788273699787
+    -> event=1c14355c-4256-46df-8c4a-5527063aaf56 rev1 decided_at=1788273699791 lag=+4ms algo_ver=phase3-1.1/ic=5 obs_seq=EXACT
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=45 ws_clients=0
+obs=40 node=NODE-52960B47 pga=47.5847 received=1788360906659
+    -> event=b19639f5-c242-42f2-8ec3-970f5488ef62 rev1 decided_at=1788360906684 lag=+25ms algo_ver=phase3-1.1/ic=5 obs_seq=EXACT
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=47 ws_clients=0
+obs=41 node=NODE-52960B47 pga=47.5847 received=1788360910702
+    -> event=b19639f5-c242-42f2-8ec3-970f5488ef62 rev1 decided_at=1788360906684 lag=-4018ms algo_ver=phase3-1.1/ic=5 obs_seq=EXACT
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=47 ws_clients=0
+obs=45 node=NODE-52960B47 pga=77.8888 received=1788435429751
+    -> event=4fcc3374-032a-440b-9d6f-609d8a4096ce rev1 decided_at=1788435429754 lag=+3ms algo_ver=phase3-1.1/ic=5 obs_seq=EXACT
+    -> emisi MATCHED_BY_EVENT_ID_AND_REVISION emission_id=49 ws_clients=0
+
+--- transisi UNCONFIRMED tanpa observasi terlacak ------------------------
+tidak ada.
+
+--- counter kegagalan persistensi (DILAPORKAN, BUKAN target nol) --------
+event_persist_dropped_total      : 0
+event_upsert_failures_total      : 0
+event_state_log_failures_total   : 0
+event_state_log_skipped_total    : 0
+Keempatnya KUMULATIF SEJAK PROSES DIMULAI dan tidak bertanda waktu, jadi
+TIDAK dapat diatribusikan ke jendela ini. Nilai bukan nol BUKAN kegagalan
+P4-M1' — jalur peringatan sengaja tidak pernah menunggu pencatatan (§9.5).
+
+--- kelengkapan jendela --------------------------------------------------
+ledger_drops    : TIDAK DIKETAHUI. ledger_drops_total hanya masuk log
+                  (D17/D30), jadi jendela ini DAPAT kehilangan observasi
+                  tanpa jejak di dalam tabel. Nol di sini bukan 'tidak ada'.
+
+Alat ini TIDAK menyatakan P4-M1' SATISFIED. Itu penilaian pemilik atas
+angka-angka di atas, bukan boolean yang dihitung alat ini.
+--- END VERBATIM TOOL STDOUT ---

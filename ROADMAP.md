@@ -129,15 +129,23 @@ may not be granted by the agent that implemented it (`PROJECT_RULES.md` §8, S9)
       the linking logic in `internal/event/trace.go`, and the operator tool
       `server/scripts/trace_triggers.go`, which **measures and never enforces** —
       no exit code means “P4-M1′ passed” and the four persistence counters do not
-      affect the exit code at all. Software leg archived at
+      affect the exit code at all. Software leg was archived at
       `/tmp/m1-evidence-20260903T105023Z`: 6 PG-gated trace tests that had never
       run before pass against a throwaway PostGIS database with all nine
-      migrations applied. It adds no migration and no contract change, so D-012
+      migrations applied. That temporary bundle no longer exists (tmpfs reboot,
+      D-016) and was not reconstructed — the software leg is reproducible from
+      the committed tests. It adds no migration and no contract change, so D-012
       remains the phase's only authorized contract exception.
       **Owner-approved SATISFIED / `VALIDATED` 2026-09-04**, on the archived
-      **production** evidence in `/tmp/m1-prod-20260903T125908Z` — verbatim
+      **production** evidence in
+      `docs/evidence/p4-m1/2026-09-03-production-trace/` — verbatim
       stdout, before/after database metadata, the tracker-counter body,
-      provenance, and `SHA256SUMS.txt`. Run against the **real production
+      provenance, and `SHA256SUMS.txt`. That archive is a **durable
+      reconstruction** committed 2026-09-04: the original bundle
+      `/tmp/m1-prod-20260903T125908Z` was destroyed by a tmpfs reboot and was
+      rebuilt from the session transcript, preserving every recorded value
+      exactly. It is **not** a new validation run and the measurement below is
+      unchanged (**D-016**). Run against the **real production
       database** on the private VPS at 2026-09-03T20:24:00Z with `LAST_N=200`
       requested and **51 rows read**, the whole ledger, spanning
       `2026-08-29T09:07:42Z .. 2026-09-03T15:36:05Z`: 25 below the `MinPGAGal`
