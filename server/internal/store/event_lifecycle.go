@@ -436,6 +436,167 @@ func (s *Store) ListStateLogForReplay(ctx context.Context, fromTS, toTS int64) (
 }
 
 // ---------------------------------------------------------------------------
+// Pembacaan untuk penelusuran keterlacakan pemicu (P4-M1′).
+//
+// Dua query di bawah melengkapi dua lubang yang membuat kriteria P4-M1′ tidak
+// dapat dijawab sama sekali sebelum ini:
+//
+//  1. JENDELA BERBATAS N-BARIS TERAKHIR. Kriterianya menyebut "last N ledger
+//     observations, bukan periode kalender tetap", jadi jendela berbasis
+//     received_ts (ListObservationsForReplay) tidak dapat memenuhinya: sebuah
+//     rentang kalender pada fleet satu-node dapat berisi nol baris atau ribuan,
+//     dan keduanya membuat angka hasilnya tidak dapat dibandingkan antar-jalan.
+//
+//  2. JALUR BACA alert_emissions. Sebelum ini paket ini hanya bisa MENULIS ke
+//     tabel itu (InsertAlertEmission); tidak ada satu pun SELECT di seluruh
+//     kode. Kaki "advisory WebSocket frame" pada kriteria karena itu durable
+//     tetapi tidak terbaca — sebuah baris yang ada tetapi tidak dapat ditanya
+//     sama saja dengan bukti yang tidak dimiliki.
+//
+// Keduanya READ-ONLY dan keduanya TIDAK MENYARING. Penyaringan (lantai PGA,
+// verify_result, node_location, tipe frame) dilakukan pemanggil, dengan alasan
+// yang sama seperti pada blok replay di atas: jumlah yang tersaring harus dapat
+// DILAPORKAN. Query yang menyaring sendiri akan membuat sebuah jendela tampak
+// terlacak seluruhnya padahal sebagian masukannya tidak pernah ikut dihitung.
+// ---------------------------------------------------------------------------
+
+// ListLastNObservations mengembalikan limit observasi TERBARU, lalu
+// mengembalikannya dalam urutan KANONIK naik (received_ts, observation_id).
+//
+// Dua urutan dalam satu query, dan itu disengaja: batas jendela ditentukan dari
+// ujung TERBARU (ORDER BY ... DESC LIMIT), sementara pemanggil membutuhkan baris
+// dalam urutan kedatangan supaya jendela yang sama dapat dibandingkan dengan
+// jendela riwayat yang juga naik. Membalik di Go akan mengharuskan pemanggil
+// mengetahui bahwa urutannya terbalik, dan pengetahuan seperti itu adalah
+// tepatnya yang hilang saat sebuah query dipakai ulang setahun kemudian.
+//
+// Batas berbasis JUMLAH BARIS, bukan waktu. Pada fleet satu-node sebuah jendela
+// kalender dapat berisi nol baris (node diam) atau ribuan (satu badai retry),
+// jadi "N observasi terakhir" adalah satu-satunya jendela yang membuat dua
+// jalan berbeda menghasilkan penyebut yang sebanding.
+//
+// limit <= 0 dianggap galat, bukan "semua": pembacaan tanpa batas atas pada
+// tabel ledger adalah hal yang tumbuh diam-diam sampai ia menjadi masalah
+// produksi.
+func (s *Store) ListLastNObservations(ctx context.Context, limit int) ([]ReplayObservation, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("list last N observations: limit harus > 0, diberi %d", limit)
+	}
+	const q = `
+		SELECT observation_id, node_id, phase, proto_ver, obs_seq,
+		       pga_gal::double precision AS pga_gal,
+		       dur_ms, publish_ts, received_ts,
+		       onset_ts, onset_ts_upper_bound, onset_ts_source,
+		       attempt_no, detrigger_ts,
+		       ST_Y(node_location::geometry) AS lat,
+		       ST_X(node_location::geometry) AS lon,
+		       verify_result
+		FROM (
+			SELECT *
+			FROM sensor_observations
+			ORDER BY received_ts DESC, observation_id DESC
+			LIMIT $1
+		) w
+		ORDER BY received_ts ASC, observation_id ASC`
+	rows, err := s.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query last N observations: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]ReplayObservation, 0, limit)
+	for rows.Next() {
+		var o ReplayObservation
+		if err := rows.Scan(
+			&o.ObservationID, &o.NodeID, &o.Phase, &o.ProtoVer, &o.ObsSeq,
+			&o.PGAGal, &o.DurMs, &o.PublishTS, &o.ReceivedTS,
+			&o.OnsetTS, &o.OnsetTSUpperBound, &o.OnsetTSSource,
+			&o.AttemptNo, &o.DetriggerTS,
+			&o.Lat, &o.Lon, &o.VerifyResult,
+		); err != nil {
+			return nil, fmt.Errorf("scan last N observation: %w", err)
+		}
+		out = append(out, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate last N observations: %w", err)
+	}
+	return out, nil
+}
+
+// TraceEmission adalah satu baris alert_emissions sebagaimana dibaca untuk
+// penelusuran P4-M1′. Bukan store.AlertEmission: yang itu adalah bentuk TULIS,
+// tidak membawa emission_id, dan membawa kolom (mmi, centroid, fcm_*) yang tidak
+// dipakai penelusuran. Bentuk baca yang lebih sempit dipilih supaya tidak ada
+// pembaca yang menyangka satu baris hasil penelusuran dapat ditulis kembali.
+//
+// Pointer pada EventID/EventState/EventRevision/WSClientCount bukan kerapian:
+//
+//	EventID NULL       — ADVISORY Fase 1 tidak punya identitas event sama sekali.
+//	EventState NULL    — baris ditulis SEBELUM migrasi 000008. Ia tetap bukti
+//	                     bahwa sebuah frame diputuskan, hanya tanpa state.
+//	WSClientCount NULL — hasil pengiriman TIDAK PERNAH DILAPORKAN (000007),
+//	                     BUKAN nol klien. Membedakan keduanya adalah seluruh
+//	                     alasan kolomnya nullable.
+type TraceEmission struct {
+	EmissionID    int64
+	EventID       *string
+	AlertType     string
+	Status        string
+	Audience      string
+	DecidedAt     int64
+	AlgoVer       string
+	EventState    *string
+	EventRevision *int
+	WSClientCount *int
+}
+
+// ListEmissionsForTrace membaca alert_emissions pada satu jendela decided_at.
+//
+// Ini SELECT pertama terhadap tabel ini di seluruh kode. Sebelumnya tabel ini
+// hanya ditulis (InsertAlertEmission), yang berarti kaki "satu frame advisory
+// WebSocket" pada kriteria P4-M1′ durable tetapi tidak dapat ditanya.
+//
+// TIDAK menyaring alert_type maupun audience: penelusuran perlu MELIHAT baris
+// bertetangga (mis. sebuah EARTHQUAKE_ALERT di jendela yang sama) untuk dapat
+// mengatakan "tidak ada baris advisory" alih-alih "tidak ada baris apa pun".
+// Keduanya kesimpulan yang berbeda.
+//
+// Jendela di sini berbasis WAKTU, bukan jumlah baris, dan itu benar: batas
+// N-baris ditentukan di sisi observasi, lalu diterjemahkan menjadi batas waktu
+// oleh pemanggil. Membatasi sisi emisi dengan LIMIT juga akan memotong justru
+// baris yang dicari saat sebuah jendela padat.
+func (s *Store) ListEmissionsForTrace(ctx context.Context, fromTS, toTS int64) ([]TraceEmission, error) {
+	const q = `
+		SELECT emission_id, event_id::text, alert_type, status, audience,
+		       decided_at, algo_ver, event_state, event_revision, ws_client_count
+		FROM alert_emissions
+		WHERE decided_at >= $1 AND decided_at <= $2
+		ORDER BY decided_at ASC, emission_id ASC`
+	rows, err := s.pool.Query(ctx, q, fromTS, toTS)
+	if err != nil {
+		return nil, fmt.Errorf("query emissions for trace: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]TraceEmission, 0, 32)
+	for rows.Next() {
+		var e TraceEmission
+		if err := rows.Scan(
+			&e.EmissionID, &e.EventID, &e.AlertType, &e.Status, &e.Audience,
+			&e.DecidedAt, &e.AlgoVer, &e.EventState, &e.EventRevision, &e.WSClientCount,
+		); err != nil {
+			return nil, fmt.Errorf("scan trace emission: %w", err)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate trace emissions: %w", err)
+	}
+	return out, nil
+}
+
+// ---------------------------------------------------------------------------
 // Persistensi durable catatan near-confirmation (P4-M2′, migrasi 000009, D-012).
 //
 // Satu baris per EVENT yang pernah melampaui ambang independensi. Ia BUKAN baris

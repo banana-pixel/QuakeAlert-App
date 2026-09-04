@@ -221,6 +221,67 @@ de-duplication — **not** at-least-once (D-008).
   recorded, and a divergence caused by a historical drop is indistinguishable
   from one caused by a defect. One event on one node, so the `CONFIRMED` path
   stays unexercised by replay (S2).
+- **Every qualifying trigger in a bounded production window traces to a
+  transition and an advisory — P4-M1′, real production database, 2026-09-04.**
+  Owner-approved SATISFIED / `VALIDATED`, on the archived evidence at
+  `/tmp/m1-prod-20260903T125908Z` (verbatim stdout, before/after database
+  metadata, tracker-counter body, provenance, `SHA256SUMS.txt`). The measurement
+  tool is `server/scripts/trace_triggers.go` over three read-only `SELECT`s
+  (`ListLastNObservations`, `ListStateLogForReplay`, `ListEmissionsForTrace`); it
+  **measures and never enforces** — no exit code means “P4-M1′ passed”, and the
+  persistence counters do not affect the exit code. Because production is
+  `aarch64` and carries no Go toolchain, the tool was cross-compiled
+  (`GOOS=linux GOARCH=arm64 CGO_ENABLED=0 -trimpath`) and its SHA-256 verified
+  identical on both hosts before it ran. Run 2026-09-03T20:24:00Z with
+  `LAST_N=200` requested and **51 rows read** — the whole ledger — spanning
+  `2026-08-29T09:07:42Z .. 2026-09-03T15:36:05Z`, against `event_state_log` 50
+  raw rows and `alert_emissions` 50 raw rows. The three denominators sum to 51:
+  **25 below the `MinPGAGal` floor** (not triggers, not failures), **0
+  excluded**, **26 qualifying**. Of those 26: **TRACED 26**, AMBIGUOUS 0,
+  NO_UNCONFIRMED_TRANSITION 0, over **25** distinct `UNCONFIRMED` transitions —
+  N:1, because observations inside one correlation window share one transition
+  (`UNCONFIRMED→UNCONFIRMED` is not a legal transition), so shared rows are
+  traced rather than counted twice, and the one negative lag in the report
+  (`obs=41`, `-4018 ms`) is that documented sibling and not an anomaly. The
+  advisory leg matched **`MATCHED_BY_EVENT_ID_AND_REVISION` 26** — the exact
+  proof, `event_id` + `event_revision` — with `TIME_ONLY` 0, `MISSING` 0,
+  `NOT_APPLICABLE` 0; `ws_clients` was 1 on 11 frames and 0 on 15, reported and
+  never required non-zero, and no unattributed `UNCONFIRMED` transition remained.
+  All 26 chains carry `algo_ver=phase3-1.1/ic=5`. The three `algo_ver` axes
+  diverge in production and that is not a defect: `alert_emissions` carries
+  `phase1-1.0` (the ledger schema version stamped at
+  `server/internal/ledger/writer.go:42`) and `earthquake_events` carries 25
+  `phase3-1.1/ic=5` plus 6 pre-Phase-3 `NULL`s, while the emission link joins
+  `event_id` + `event_revision` and never `algo_ver`. **Reported alongside, never
+  as a zero-valued acceptance requirement:** `event_persist_dropped_total` 0,
+  `event_upsert_failures_total` 0, `event_state_log_failures_total` 0,
+  `event_state_log_skipped_total` 0 — cumulative since process start and
+  untimestamped, so **not attributable to this window**; byte-identical when
+  re-read after the run, which is itself evidence the trace drove no tracker
+  activity. **Read-only was server-enforced rather than asserted:** the session
+  carried `default_transaction_read_only = on`, confirmed by
+  `show transaction_read_only` immediately before the run, so PostgreSQL would
+  have rejected any write; `pg_stat_user_tables` for `alert_emissions`,
+  `event_state_log` and `earthquake_events` was byte-identical before and after.
+  Live ingest did add two `sensor_observations` rows (`pga` 4.9489, below the
+  floor) and node-heartbeat `iot_nodes` updates during the run; both are recorded
+  as **production ingest, not trace writes**, because a frozen database was never
+  claimed. No control write was attempted against production, no database role
+  was created (one pre-existing login role before and after), and the temporary
+  binary and scripts were removed from the host afterwards. What this does
+  **not** claim: the observation→transition link is **membership-and-time, not
+  causal** — `correlation_key` is computed and never stored (D-012),
+  `event_state_log` has no `observation_id`, `sensor_observations` has no
+  `event_id`, and there is no FK either way, so the only path back is
+  `evidence_summary.contributors[].node_id` over a time window; `ledger_drops` is
+  **UNKNOWN** — `ledger_drops_total` reaches only the log (D-017/D-030), so this
+  window **may** be missing observations with no trace in any table, and a zero
+  there would be a number that lies; **one node only** (`NODE-52960B47`), so this
+  is production validation and **not** multi-node field validation, with the
+  `CONFIRMED` path unreachable by density (S9, S2); production runs
+  `schema_version = 8`, so migration `000009` is **not deployed**; and M1′ has no
+  evidence emitter of its own, so the provenance in the bundle was captured by
+  hand rather than written by the tool.
 - **The two simulation harnesses execute in CI and archive their own evidence —
   P4-M5′, software simulation, 2026-09-03.** IMPLEMENTED under **D-014**;
   **owner-approved SATISFIED / `VALIDATED` 2026-09-03**, on the archived evidence
@@ -410,7 +471,18 @@ and **nothing beyond it**: the evidence is software simulation only (S9, D-011
 constraint 2), and each artifact names what it does not claim (*field validation*,
 *production validation*, *real multi-node sensor performance*, *real multi-node
 correlation*). It adds no migration and no contract change, so D-012 remains the
-phase's only authorized contract exception. P4-M1′ and P4-M6′ are not met.
+phase's only authorized contract exception. **P4-M1′** (trigger durability,
+measured not asserted) is owner-approved SATISFIED / `VALIDATED` as of
+2026-09-04, on the archived **production** evidence in *Demonstrated*
+(`/tmp/m1-prod-20260903T125908Z`) — the only Phase 4 criterion so far carrying
+evidence from the real production database, read under a server-enforced
+`default_transaction_read_only = on` session. That `VALIDATED` covers exactly the
+bounded window it measured — 51 ledger rows, 26 qualifying, 26 traced, 26 exact
+advisory matches, the four persistence counters reported alongside — and
+**nothing beyond it**: the observation→transition link is membership-and-time and
+not causal, `ledger_drops` is UNKNOWN, and the population is **one node**, so it
+is **not** multi-node field validation (S9, S2). It adds no migration and no
+contract change. P4-M6′ is not met.
 
 Phase F remains `BLOCKED` on the owner deploying additional nodes. Every item in
 *NOT demonstrated* that requires a confirmed event, multiple nodes, or a

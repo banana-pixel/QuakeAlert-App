@@ -118,12 +118,60 @@ Each is bound to `algo_ver = phase3-1.1/ic=<independence_km>`. Unit tests grant
 `IMPLEMENTED` only; `VALIDATED` needs the archived evidence named in each row and
 may not be granted by the agent that implemented it (`PROJECT_RULES.md` §8, S9).
 
-- [ ] **P4-M1′ — Trigger durability, measured not asserted.** Over a bounded
+- [x] **P4-M1′ — Trigger durability, measured not asserted.** Over a bounded
       window (last N ledger observations, **not** a fixed calendar period), every
       `sensor_observations` row with `pga ≥ MinPGAGal` has exactly one
       `event_state_log` transition into `UNCONFIRMED` and one advisory WebSocket
       frame; `event_persist_dropped_total` and `event_upsert_failures_total` are
       **reported alongside**, never required to be zero.
+      `IMPLEMENTED` 2026-09-03: three read-only `SELECT`s
+      (`ListLastNObservations`, `ListStateLogForReplay`, `ListEmissionsForTrace`),
+      the linking logic in `internal/event/trace.go`, and the operator tool
+      `server/scripts/trace_triggers.go`, which **measures and never enforces** —
+      no exit code means “P4-M1′ passed” and the four persistence counters do not
+      affect the exit code at all. Software leg archived at
+      `/tmp/m1-evidence-20260903T105023Z`: 6 PG-gated trace tests that had never
+      run before pass against a throwaway PostGIS database with all nine
+      migrations applied. It adds no migration and no contract change, so D-012
+      remains the phase's only authorized contract exception.
+      **Owner-approved SATISFIED / `VALIDATED` 2026-09-04**, on the archived
+      **production** evidence in `/tmp/m1-prod-20260903T125908Z` — verbatim
+      stdout, before/after database metadata, the tracker-counter body,
+      provenance, and `SHA256SUMS.txt`. Run against the **real production
+      database** on the private VPS at 2026-09-03T20:24:00Z with `LAST_N=200`
+      requested and **51 rows read**, the whole ledger, spanning
+      `2026-08-29T09:07:42Z .. 2026-09-03T15:36:05Z`: 25 below the `MinPGAGal`
+      floor, 0 excluded, **26 qualifying** — of which **TRACED 26**, AMBIGUOUS 0,
+      NO_UNCONFIRMED_TRANSITION 0, across **25** distinct `UNCONFIRMED`
+      transitions (N:1, because several observations inside one correlation
+      window share one transition and `UNCONFIRMED→UNCONFIRMED` is not a legal
+      transition; shared rows are traced, not counted twice). The advisory leg
+      matched **`MATCHED_BY_EVENT_ID_AND_REVISION` 26**, `TIME_ONLY` 0, `MISSING`
+      0, `NOT_APPLICABLE` 0; `ws_clients` was 1 on 11 frames and 0 on 15,
+      reported and not required non-zero. All 26 chains carry
+      `algo_ver=phase3-1.1/ic=5`. **Reported alongside, never as a zero target:**
+      `event_persist_dropped_total` 0, `event_upsert_failures_total` 0,
+      `event_state_log_failures_total` 0, `event_state_log_skipped_total` 0 — all
+      four cumulative since process start and untimestamped, so none of them is
+      attributable to this window; identical when re-read after the run.
+      Read-only was **server-enforced, not asserted**: the session carried
+      `default_transaction_read_only = on`, verified by
+      `show transaction_read_only` before the run, and `pg_stat_user_tables` for
+      `alert_emissions`, `event_state_log` and `earthquake_events` was
+      byte-identical before and after. No control write was attempted against
+      production and no database role was created.
+      **Still not demonstrated:** the observation→transition link is
+      **membership-and-time, not causal** — `correlation_key` is computed and
+      never stored (D-012), `event_state_log` carries no `observation_id` and
+      there is no FK either way, so the only path back is
+      `evidence_summary.contributors[].node_id` over a time window;
+      `ledger_drops` is **UNKNOWN** — `ledger_drops_total` reaches only the log
+      (D-017/D-030), so this window **may** be missing observations with no trace
+      in any table, and a zero there would be a number that lies; **one node
+      only** (`NODE-52960B47`), so this is production validation and **not**
+      multi-node field validation, and the `CONFIRMED` path stays unreachable by
+      density (S9, S2); and production runs `schema_version = 8`, so migration
+      `000009` is **not deployed**.
 - [x] **P4-M2′ — Near-confirmation log is queryable and survives a restart.**
       With one node the correct answer is **empty**, and it must still be empty —
       and answerable — after the process restarts, rather than merely absent
