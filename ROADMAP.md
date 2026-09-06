@@ -378,9 +378,38 @@ may not be granted by the agent that implemented it (`PROJECT_RULES.md` §8, S9)
       that are database rows** with hand-picked coordinates (S9, D-011 constraint
       2); the fleet remains one physical ESP32, and Phase F owns the field
       evidence. Not deployed.
-- [ ] **P4-M6′ — Forensic timeline for one event.** A read-only path returns, for
-      one `event_id`, the event row, its ordered `event_state_log` history, the
-      `evidence_summary` per revision, and the contributing observations.
+- [x] **P4-M6′ — Forensic timeline for one event.** A read-only operator CLI
+      returns, for one `event_id`, the event row, its ordered `event_state_log`
+      history, the `evidence_summary` per revision, and the contributing
+      observations (membership-and-time, explicitly NON-CAUSAL).
+      `IMPLEMENTED` with the v2 read-only proof delta (same-pool
+      `SessionReadOnly`: `default_transaction_read_only=on/client` plus
+      effective `transaction_read_only=on`, fail-closed, safe
+      `application_name` correlation); committed with the sealed production
+      bundle below. It adds no migration and no contract change, so D-012
+      remains the phase's only authorized contract exception.
+      **Owner-approved SATISFIED / `VALIDATED` 2026-09-06**, on the committed
+      **production** evidence in
+      `docs/evidence/p4-m6/2026-09-06-production-event-4fcc3374/` — verbatim
+      stdout (9141 bytes, 143 lines), stderr 0 bytes, exit 0, before/after
+      database metadata, provenance, and `SHA256SUMS.txt` (18/18). Single v2
+      invocation against the live production database for locked event
+      `4fcc3374-032a-440b-9d6f-609d8a4096ce` (schema `8|f`): in-CLI banner
+      `default_transaction_read_only=on/client`,
+      `transaction_read_only=on/override`, `application_name` correlation;
+      `pg_stat_user_tables` write counters unchanged on all 47 tables (only
+      read counters advanced); all four required outputs OBSERVED (event row,
+      2-revision history, 2 parsed evidence summaries, 1 `TRACED` candidate);
+      tolerance 2000 ms `M1_DEFAULT` over correlation window 20000 ms;
+      `algo_ver` rows `[phase3-1.1/ic=5]`. The separate synthetic fixture leg
+      (`timeline_fixture_test.go`, committed, software evidence only) covers
+      what one node cannot produce. **Still not demonstrated:** attribution is
+      membership-and-time, not causal; `ledger_drops` is UNKNOWN (log-only);
+      **one node only** (`NODE-52960B47`), so this is production validation and
+      **not** multi-node field validation, and the `CONFIRMED` path stays
+      unreachable by density (S9, S2). Phase F owns field evidence and stays
+      `BLOCKED`. Prior v1 bundle remains preserved as INCOMPLETE and is never
+      cited as the successful measurement.
 
 #### Explicitly **out of scope** for Phase 4
 - Any external catalogue as ground truth (`PROJECT_RULES.md` §2).

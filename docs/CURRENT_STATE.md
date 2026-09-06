@@ -353,6 +353,35 @@ de-duplication — **not** at-least-once (D-008).
   mutation-tested red) pinning the delivery contract that no assertion inside the
   harnesses was watching. No simulation semantics, threshold, coordinate, or
   confirmation rule changed. Not deployed.
+- **Forensic timeline for one event — P4-M6′, one-node production leg plus
+  separate synthetic leg, 2026-09-06.** Owner-approved SATISFIED /
+  `VALIDATED` per **D-015**. Production leg: single v2 CLI invocation for
+  locked event `4fcc3374-032a-440b-9d6f-609d8a4096ce` against the live
+  production database (schema `8|f`), exit 0, stderr 0 bytes, stdout 9141
+  bytes / 143 lines archived verbatim at
+  `docs/evidence/p4-m6/2026-09-06-production-event-4fcc3374/` with
+  `SHA256SUMS.txt` 18/18. In-CLI banner from the same `pgxpool` as the
+  forensic reads: `default_transaction_read_only=on/client`,
+  `transaction_read_only=on/override` (effective `override` is correct on
+  PostgreSQL by design — owner-approved correction), `application_name`
+  correlation only, pool-wide limitation stated. `pg_stat_user_tables`
+  before→after: all write counters unchanged on all 47 tables
+  (`alert_emissions` 52, `earthquake_events` 32/32, `event_state_log` 52,
+  `sensor_observations` 53), only read counters advanced. All four required
+  outputs OBSERVED: event row (`RESOLVED` rev2, SENSOR origin, 77.8888 gal, 1
+  node / 1 cell, `phase3-1.1/ic=5`), 2-row history (`FLOOR_MET` then
+  `NO_NEW_EVIDENCE`), 2 parsed evidence summaries (single `NODE-52960B47`
+  contributor), 1 `TRACED` candidate (`obs=45`, lag +3 ms, `EXACT`; 2 rows
+  read, 1 below floor, 0 excluded/unattributed/ambiguous). Tolerance 2000 ms
+  `M1_DEFAULT` over correlation window 20000 ms; terminal `RESOLVED`
+  recorded; `ledger_drops` UNKNOWN (log-only); absence never proof of
+  absence. Synthetic leg (`server/internal/event/timeline_fixture_test.go`,
+  committed, software evidence only) covers `CONFIRMED`, multi-contributor,
+  `independent_cells >= 2`, `mixed_provenance`, terminal and ambiguity
+  shapes the fleet cannot produce. Prior v1 bundle stays preserved as
+  INCOMPLETE and is never cited as success. What this does **not** claim:
+  no `CONFIRMED` production path, no multi-node field correlation, no
+  lead-time, population, or reliability claim. Phase F remains `BLOCKED`.
 
 ## NOT demonstrated
 
@@ -487,8 +516,19 @@ bounded window it measured — 51 ledger rows, 26 qualifying, 26 traced, 26 exac
 advisory matches, the four persistence counters reported alongside — and
 **nothing beyond it**: the observation→transition link is membership-and-time and
 not causal, `ledger_drops` is UNKNOWN, and the population is **one node**, so it
-is **not** multi-node field validation (S9, S2). It adds no migration and no
-contract change. P4-M6′ is not met.
+   is **not** multi-node field validation (S9, S2). It adds no migration and no
+   contract change. **P4-M6′** (forensic timeline for one event) is
+   owner-approved SATISFIED / `VALIDATED` as of 2026-09-06 per **D-015**, on
+   the committed production evidence plus the separate synthetic fixture leg
+   in *Demonstrated*
+   (`docs/evidence/p4-m6/2026-09-06-production-event-4fcc3374/`): a one-node
+   timeline only, read-only proved in-CLI
+   (`default_transaction_read_only=on/client` plus effective
+   `transaction_read_only=on`), attribution membership-and-time and NON-CAUSAL.
+   That `VALIDATED` covers exactly the single locked event it measured and
+   **nothing beyond it**: no `CONFIRMED` production path, no multi-node field
+   correlation, and no lead-time/population/reliability claim. It adds no
+   migration and no contract change.
 
 Phase F remains `BLOCKED` on the owner deploying additional nodes. Every item in
 *NOT demonstrated* that requires a confirmed event, multiple nodes, or a
