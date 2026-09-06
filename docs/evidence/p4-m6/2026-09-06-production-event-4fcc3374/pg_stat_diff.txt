@@ -1,0 +1,40 @@
+--- /home/opc/qa-m6-prod-20260906T065713Z/pg_stat_before.txt	2026-09-06 07:03:52.585990683 +0000
++++ /home/opc/qa-m6-prod-20260906T065713Z/pg_stat_after.txt	2026-09-06 07:03:52.717991847 +0000
+@@ -1,13 +1,13 @@
+-       db_utc_before        
++        db_utc_after        
+ ----------------------------
+- 2026-09-06 07:03:52.581944
++ 2026-09-06 07:03:52.714424
+ (1 row)
+ 
+          relname          | n_tup_ins | n_tup_upd | n_tup_del | n_tup_hot_upd | n_live_tup | n_dead_tup | seq_scan | idx_scan 
+ --------------------------+-----------+-----------+-----------+---------------+------------+------------+----------+----------
+  addr                     |         0 |         0 |         0 |             0 |          0 |          0 |        3 |        0
+  addrfeat                 |         0 |         0 |         0 |             0 |          0 |          0 |        5 |        0
+- alert_emissions          |        52 |         0 |         0 |             0 |         52 |          0 |       19 |        9
++ alert_emissions          |        52 |         0 |         0 |             0 |         52 |          0 |       20 |       10
+  bg                       |         0 |         0 |         0 |             0 |          0 |          0 |        1 |        0
+  broadcasts               |         0 |         0 |         0 |             0 |          0 |          0 |       10 |        0
+  chat_channels            |         2 |        11 |         0 |            11 |          2 |         11 |      115 |       22
+@@ -17,9 +17,9 @@
+  countysub_lookup         |         0 |         0 |         0 |             0 |          0 |          0 |        3 |        0
+  cousub                   |         0 |         0 |         0 |             0 |          0 |          0 |        3 |        0
+  direction_lookup         |        28 |         0 |         0 |             0 |         28 |          0 |        2 |        0
+- earthquake_events        |        32 |        32 |         0 |             6 |         32 |         26 |      140 |      371
++ earthquake_events        |        32 |        32 |         0 |             6 |         32 |         26 |      141 |      371
+  edges                    |         0 |         0 |         0 |             0 |          0 |          0 |        4 |        0
+- event_state_log          |        52 |         0 |         0 |             0 |         52 |          0 |       85 |       63
++ event_state_log          |        52 |         0 |         0 |             0 |         52 |          0 |       86 |       63
+  faces                    |         0 |         0 |         0 |             0 |          0 |          0 |        4 |        0
+  featnames                |         0 |         0 |         0 |             0 |          0 |          0 |        4 |        0
+  geocode_settings         |         0 |         0 |         0 |             0 |          0 |          0 |        2 |        0
+@@ -36,7 +36,7 @@
+  place_lookup             |         0 |         0 |         0 |             0 |          0 |          0 |        3 |        0
+  schema_migrations        |        16 |         0 |         0 |             0 |          1 |          0 |       40 |        5
+  secondary_unit_lookup    |        39 |         0 |         0 |             0 |         39 |          0 |        2 |        0
+- sensor_observations      |        53 |         0 |         0 |             0 |         53 |          0 |       39 |        4
++ sensor_observations      |        53 |         0 |         0 |             0 |         53 |          0 |       40 |        4
+  spatial_ref_sys          |      8500 |         0 |         0 |             0 |       8500 |          0 |        1 |     8592
+  state                    |         0 |         0 |         0 |             0 |          0 |          0 |        4 |        0
+  state_lookup             |        59 |        59 |         0 |             0 |         59 |          0 |        5 |        0

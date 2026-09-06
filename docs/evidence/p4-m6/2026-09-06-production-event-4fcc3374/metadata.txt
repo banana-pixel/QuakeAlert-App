@@ -1,0 +1,71 @@
+# metadata.txt — P4-M6' PRODUCTION FORENSIC TIMELINE v2 (READ-ONLY)
+evidence_class    : PRODUCTION
+milestone         : P4-M6' (D-015)
+outcome           : PRODUCTION MEASUREMENT OBTAINED (v2, single invocation)
+
+event_id          : 4fcc3374-032a-440b-9d6f-609d8a4096ce
+schema_version    : 8 (live read, schema_version.txt)
+schema_dirty      : f (live read)
+utc_before        : 2026-09-06T07:03:52.528948099Z (utc_before.txt)
+utc_after         : 2026-09-06T07:03:52.734572634Z (utc_after.txt)
+cli_exit_code     : 0 (m6_exit_code.txt)
+cli_stdout        : 9141 bytes, 143 lines (m6_timeline_stdout.txt, verbatim)
+cli_stderr        : 0 bytes (m6_timeline_stderr.txt, expected empty)
+binary_sha256     : 8cd199fec6abda9ec7eba70760f4e0156d6497a4a9ca0da65037e2ceb60471d2
+binary_path_vps   : /home/opc/qa_timeline_arm64_v2 (chmod 700, hash verified MATCH before run)
+binary_size       : 13495413 bytes
+binary_source     : server/scripts/event_timeline.go + server/internal/store/event_readonly.go @ workstation HEAD 460d808 (v2 proof delta, owner-approved)
+env_passed_to_cli : SCHEMA_VERSION=8 (operator assertion, live 8|f verified), APPLICATION_NAME=m6-4fcc3374-20260906T065713Z (correlation only), LINK_TOLERANCE_MS unset -> M1_DEFAULT, LEDGER_DROPS_KNOWN unset -> TIDAK DIKETAHUI, INCLUDE_EMISSIONS default (on)
+
+readonly_session  : on (psql_readonly.txt SHOW via PGOPTIONS psql session — correlation only, NOT Go proof)
+readonly_mechanism: DSN options=-c default_transaction_read_only=on for the Go CLI (pgx honors DSN options, ignores PGOPTIONS); PGOPTIONS only for the psql steps
+in_cli_proof      : YES — stdout line 1, same pgxpool as forensic reads:
+  sesi read-only : default_transaction_read_only=on/client effective_transaction_read_only=on/override application_name=m6-4fcc3374-20260906T065713Z
+  default_transaction_read_only = on
+  default_transaction_read_only source = client
+  transaction_read_only = on
+  transaction_read_only source = override
+  application_name = m6-4fcc3374-20260906T065713Z
+proof_meaning     : default on/client proves the read-only startup parameter was supplied by the client connection configuration; effective on proves the resulting session is effectively read-only. Do NOT require transaction_read_only.source=client (technically incorrect on PostgreSQL: effective is always override by design, even when writable off|override — owner-approved correction).
+pool_limitation   : the check proves the answering pgxpool connection(s) use the enforced read-only configuration; it is NOT an exhaustive census of every physical backend in the pool (maxConns/minConns, same DATABASE_URL for all backends).
+application_note  : application_name is correlation metadata only and MUST NOT be treated as proof of read-only state.
+
+FOUR REQUIRED OUTPUTS (actual statuses in stdout):
+  1 earthquake_events row      : OBSERVED (RESOLVED rev2, SENSOR origin, 77.8888 gal, 1 node / 1 cell, phase3-1.1/ic=5)
+  2 event_state_log history    : OBSERVED (2 rows revision ASC: rev1 DETECTED->UNCONFIRMED FLOOR_MET, rev2 UNCONFIRMED->RESOLVED NO_NEW_EVIDENCE)
+  3 evidence_summary parsed    : OBSERVED (2 parsed, 0 broken; single NODE-52960B47 contributor, obs_seq 1507339)
+  4 contributing observations  : OBSERVED (1 unique candidate obs=45 TRACED->rev1 lag+3ms EXACT; 2 rows read, 1 below floor, 0 excluded/unattributed, 0 ambiguous)
+OBSERVED vs NOT OBSERVABLE vs NOT RECOVERED: three distinct states; all four outputs here are OBSERVED. No output is NOT OBSERVABLE. No field is NOT RECOVERED in this stdout.
+
+algo_ver rows     : [phase3-1.1/ic=5] (stdout coverage)
+algo_ver binary   : phase3-1.1
+link tolerance    : 2000 ms provenance=M1_DEFAULT (same M1 tolerance, additive above correlation window; no new tolerance)
+correlation window: 20000 ms
+coverage block    : no revision gap rev1-2; first rev1 (DETECTED never a row, not a gap); ledger_drops TIDAK DIKETAHUI; no retention/purge job; terminal RESOLVED recorded, history CLOSED.
+optional emissions: rev1 UNCONFIRMED MATCHED_BY_EVENT_ID_AND_REVISION emission 49 EARTHQUAKE_ADVISORY ws=0; rev2 RESOLVED MATCHED emission 50 EVENT_RESOLVED ws=0 — additional info only, never acceptance (D-015 constraint 1).
+
+ONE-NODE LIMITATION
+  The fleet has ONE physical ESP32 sensor. Quorum requires >=3 verified contributors across >=2 independence cells, which a one-physical-node fleet cannot produce (S2). Any such shape is NOT OBSERVABLE here. NO CONFIRMED, multi-contributor or multi-cell FIELD validation is claimed. Phase F holds field validation and stays separate.
+
+ATTRIBUTION LIMIT
+  Observation->revision links are MEMBERSHIP-AND-TIME, explicitly NON-CAUSAL. event_state_log carries no observation_id, no correlation_key and no FK to sensor_observations; correlation_key is computed and never persisted (D12); evidence_summary is a snapshot, not a join. Every listed row is a CANDIDATE.
+
+ABSENCE
+  Absence in the record is NOT proof of absence. Ledger writes are queued, bounded, drop-oldest (D17/D30); ledger_drops_total is log-only; DETECTED never becomes a row, so a history not starting at the lowest revision is NOT a gap.
+
+WRITE-ABSENCE (pg_stat_user_tables BEFORE->AFTER, 0.13 s bracket):
+  alert_emissions 52/0/0/0/52 seq 19->20 idx 9->10; earthquake_events 32/32/0/6/32/26 seq 140->141; event_state_log 52/0/0/0/52 seq 85->86; sensor_observations 53/0/0/0/53 seq 39->40. All ins/upd/del/hot/live/dead unchanged on all 47 tables. Only read counters advanced, consistent with five SELECTs (one proof + four forensic). No unrelated writes in bracket; production live, frozen never claimed.
+
+PRIOR BUNDLES
+  v1 bundle /home/opc/qa-m6-prod-20260905T131500Z/ preserved untouched as INCOMPLETE (missing Go-session SHOW; psql SHOW does not count). mtime 2026-09-05 23:15:07.71Z unchanged.
+  v2 wrapper pre-measurement DSN-parse failure (literal backslash before &, TLS sslmode invalid, exit 1, stdout 0, no DB connection) shredded including credential-bearing stderr; NOT archived. Classified PRE-MEASUREMENT / NO DATABASE CONNECTION. Single successful v2 invocation only in this bracket.
+
+ENVIRONMENT (narrow selectors, no env dump; see vps_identity.txt)
+  ssh_target: opc@<prod-tailscale> (redacted; key auth, value never read)
+  host: quakealert-server; db image pinned digest in vps_identity.txt, started 2026-08-25; app quakealert-server:prod started 2026-09-01; VPS repo HEAD ca8262b (dirty pre-existing, untouched); go NOT FOUND (cross-compiled arm64 reason).
+
+NOT VALIDATED BY THIS FILE
+  This measurement does not grant SATISFIED or VALIDATED. D-015 constraint 5 and PROJECT_RULES section 8/9 reserve that for the owner, and D-015 requires BOTH legs: this production leg AND the synthetic software leg, kept separate.
+
+synthetic_leg     : server/internal/event/timeline_fixture_test.go and timeline_pg_test.go — SEPARATE, not part of this bundle, software evidence only.
+durable_archive   : NOT yet promoted to docs/evidence/p4-m6/ (explicitly out of scope for sealing).

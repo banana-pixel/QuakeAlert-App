@@ -1,0 +1,143 @@
+sesi read-only : default_transaction_read_only=on/client effective_transaction_read_only=on/override application_name=m6-4fcc3374-20260906T065713Z
+                   (pg_settings lewat pool yang sama; bukan sensus per-backend pool)
+===========================================================================
+QuakeAlert P4-M6' — GARIS WAKTU FORENSIK SATU EVENT (HANYA-BACA)
+===========================================================================
+YANG DIUKUR: untuk SATU event_id — baris earthquake_events-nya, riwayat
+event_state_log-nya terurut revision ASC, evidence_summary yang sudah
+DIURAI per revisi, dan observasi yang BERKONTRIBUSI. Empat keluaran itu.
+
+YANG *TIDAK* DIBUKTIKAN — empat batas, dan keempatnya struktural:
+  1. TAUTAN observasi->revisi adalah KEANGGOTAAN-DAN-WAKTU, BUKAN KAUSAL.
+     event_state_log tidak punya observation_id, tidak punya correlation_key
+     dan tidak punya FK ke sensor_observations; correlation_key dihitung dan
+     tidak pernah disimpan (D12). evidence_summary adalah POTRET, bukan join.
+     Satu-satunya jalan pulang adalah node_id di contributors[] pada sebuah
+     jendela waktu. Setiap baris di bawah adalah KANDIDAT (D-015).
+  2. AMBIGUITAS bukan kecocokan dan bukan kehilangan. Jendela dua revisi yang
+     berdekatan BERTUMPANG-TINDIH, jadi satu observasi dapat menjadi kandidat
+     dua revisi. Itu dilaporkan, tidak dipilih salah satunya.
+  3. KETIADAAN DI DALAM CATATAN BUKAN BUKTI KETIADAAN. Satuan persistensi
+     diantre, berbatas, dan boleh dibuang-tertua (D17/D30); ledger_drops_total
+     HANYA masuk log; DETECTED tidak pernah menjadi baris (§9.5), jadi riwayat
+     yang tidak dimulai dari revisi terendah BUKAN lubang.
+  4. earthquake_events DITIMPA saat eskalasi: barisnya menunjukkan bentuk
+     TERAKHIR saja. Hanya event_state_log yang membuktikan sebuah state
+     PERNAH dipegang.
+
+Alat ini TIDAK punya exit code yang berarti 'P4-M6' LULUS'. Bagian yang KOSONG
+atau TIDAK DAPAT DIAMATI tidak memengaruhi exit code: ini forensik.
+---------------------------------------------------------------------------
+event_id       : 4fcc3374-032a-440b-9d6f-609d8a4096ce
+basis algoritma: phase3-1.1 (biner ini)
+schema_version : 8 (DIASSERSI OPERATOR, bukan dibaca alat ini)
+                 event_near_confirmed (000009) TIDAK dibaca alat ini; tidak
+                 satu pun dari empat keluaran bergantung padanya (D-015).
+--- profil parameter yang DIASSERSI ---------------------------------------
+  CORRELATION_WINDOW_MS = 20000
+  INDEPENDENCE_CELL_KM  = 5   (dibawa untuk provenance; M6' tidak menghitung sel)
+  toleransi tautan      = 2000 ms  asal=M1_DEFAULT
+                          Toleransi M1' yang SAMA, aditif di ATAS jendela
+                          korelasi. Tidak ada toleransi baru di M6'.
+  MIN_PGA_GAL           = 16.6   (konstanta BINER, bukan env)
+  MIN_NODES_CONFIRMED   = 3    (konstanta BINER, bukan env)
+===========================================================================
+
+--- kelengkapan keempat keluaran WAJIB -----------------------------------
+1 baris earthquake_events : OBSERVED
+2 riwayat event_state_log : OBSERVED  (2 baris, revision ASC)
+3 evidence_summary/revisi : OBSERVED  (2 terurai, 0 TIDAK terurai)
+4 observasi berkontribusi : OBSERVED  (1 kandidat unik)
+OBSERVED = ada dan terbaca. EMPTY = pembacaan BERHASIL dan hasilnya nol
+baris. NOT_OBSERVABLE = tidak dapat diamati pada skema atau data ini.
+Ketiganya BERBEDA, dan tidak satu pun berarti 'tidak pernah terjadi'.
+
+=== 1. baris earthquake_events ===========================================
+event_id          : 4fcc3374-032a-440b-9d6f-609d8a4096ce
+event_state       : RESOLVED   revision=2
+status (proyeksi) : RESOLVED
+origin_ts         : 1788435421341  (2026-09-03T11:37:01Z UTC)  sumber=SENSOR
+                    WAKTU TANAH BERGERAK, bukan waktu baris dibuat.
+started_at        : 1788435421686  (2026-09-03T11:37:01Z UTC)  — kapan barisnya lahir
+centroid          : -6.856209, 107.528962  (Kecamatan Ngamprah, Jawa Barat, ID)
+                    ESTIMASI CENTROID, bukan episenter.
+max_pga           : 77.8888 gal   mmi=V (moderate)
+triggered_nodes   : 1   independent_cells=1
+algo_ver          : phase3-1.1/ic=5
+Baris ini DITIMPA pada setiap eskalasi: ia bentuk TERAKHIR, bukan riwayat.
+
+=== 2+3. riwayat event_state_log + evidence_summary per revisi ===========
+
+rev1   DETECTED -> UNCONFIRMED alasan=FLOOR_MET              decided_at=1788435429754 (2026-09-03T11:37:09Z UTC)
+       node_count=1 independent_cells=1 peak_pga=77.8888 algo_ver=phase3-1.1/ic=5
+       evidence: independent_cells=1 cells=[{2394 -153}] origin_ts_source=SENSOR mixed_provenance=false
+         kontributor node=NODE-52960B47 peak_pga=77.8888 phase=FINAL onset_ts=1788435421341 sumber=SENSOR obs_seq=1507339 cell=(2394,-153)
+       jendela kandidat received_ts: [1788435407754 .. 1788435431754]  (2026-09-03T11:36:47Z .. 2026-09-03T11:37:11Z UTC)
+       kandidat=1  di bawah lantai=1  terkecuali=0
+
+rev2   UNCONFIRMED -> RESOLVED    alasan=NO_NEW_EVIDENCE        decided_at=1788435521061 (2026-09-03T11:38:41Z UTC)
+       node_count=1 independent_cells=1 peak_pga=77.8888 algo_ver=phase3-1.1/ic=5
+       evidence: independent_cells=1 cells=[{2394 -153}] origin_ts_source=SENSOR mixed_provenance=false
+         kontributor node=NODE-52960B47 peak_pga=77.8888 phase=FINAL onset_ts=1788435421341 sumber=SENSOR obs_seq=1507339 cell=(2394,-153)
+       jendela kandidat received_ts: [1788435499061 .. 1788435523061]  (2026-09-03T11:38:19Z .. 2026-09-03T11:38:43Z UTC)
+       kandidat=0  di bawah lantai=0  terkecuali=0
+
+=== 4. observasi yang BERKONTRIBUSI (KANDIDAT, NON-KAUSAL) ================
+jendela baca : received_ts [1788435407754 .. 1788435523061]  (2026-09-03T11:36:47Z .. 2026-09-03T11:38:43Z UTC)
+node ditanya : 1 (union contributors[] SELURUH revisi)
+baris terbaca: 2
+KONTRIBUTOR SATU NODE (S2): quorum butuh >=3 kontributor terverifikasi di
+  >=2 sel independensi, dan itu TIDAK TERJANGKAU pada fleet satu-node fisik.
+  Ketiadaan CONFIRMED di sini adalah fakta KERAPATAN JARINGAN, bukan cacat,
+  dan tidak ada angka di bawah yang boleh dibaca demikian.
+
+penyebut (ketiganya berjumlah <= baris terbaca) ---------------------------
+memenuhi syarat  : 1 baris unik  (inilah yang kriteria P4-M6' tanyakan)
+di bawah lantai  : 1  (pga < 16.6: bukan pemicu, bukan kegagalan)
+terkecuali       : 0  (>= lantai, tetapi konsensus sendiri membuangnya)
+tak-teratribusi  : 0  (terbaca, tetapi TIDAK memenuhi keanggotaan-dan-waktu
+                   satu revisi pun — node yang sama, waktu di luar jendela)
+pasangan revisi  : 1  (satu baris dapat menjadi kandidat >1 revisi)
+AMBIGU           : 0  (tak dapat diputuskan; bukan lulus, bukan gagal)
+
+per baris ----------------------------------------------------------------
+obs=45 node=NODE-52960B47 pga=77.8888 received=1788435429751 (2026-09-03T11:37:09Z UTC) obs_seq=1507339
+    -> TRACED ke rev1  lag=+3ms  obs_seq=EXACT
+
+Setiap baris di atas adalah KANDIDAT menurut KEANGGOTAAN-DAN-WAKTU. Tidak
+satu pun terbukti MENYEBABKAN revisinya: kolom yang akan membuktikannya
+tidak ada di skema (D12, tanpa observation_id, tanpa FK).
+
+--- revisi TANPA satu pun observasi kandidat ------------------------------
+rev2   -> RESOLVED    alasan=NO_NEW_EVIDENCE        decided_at=1788435521061 nodes=[NODE-52960B47]
+    -> BUKAN DIPICU OBSERVASI. Alasan ini lahir dari penjadwal atau
+       pencabutan, bukan dari bukti yang tiba, jadi jendela kandidat yang
+       kosong DIHARAPKAN di sini — bukan observasi yang hilang.
+
+--- 5 (OPSIONAL, BUKAN kriteria) emisi advisory per revisi ----------------
+Kriteria P4-M6' menyebut EMPAT keluaran. Bagian ini informasi tambahan dan
+TIDAK boleh menjadi penentu lulus atau tidaknya milestone (D-015 batasan 1).
+rev1   -> UNCONFIRMED decided_at=1788435429754  MATCHED_BY_EVENT_ID_AND_REVISION emission_id=49
+    -> alert_type=EARTHQUAKE_ADVISORY ws_clients=0
+rev2   -> RESOLVED    decided_at=1788435521061  MATCHED_BY_EVENT_ID_AND_REVISION emission_id=50
+    -> alert_type=EVENT_RESOLVED ws_clients=0
+
+--- kelengkapan dan KETIDAKLENGKAPAN -------------------------------------
+lubang revisi    : tidak ada di antara rev1 dan rev2
+revisi pertama   : rev1
+                   Riwayat yang TIDAK dimulai dari revisi terendah BUKAN
+                   lubang: DETECTED tidak pernah menjadi baris (§9.5).
+ledger_drops     : TIDAK DIKETAHUI. ledger_drops_total HANYA masuk log
+                   (D17/D30), jadi observasi dapat hilang tanpa jejak di
+                   dalam tabel. Nol di sini bukan 'tidak ada'.
+retensi          : TIDAK ADA job retensi atau purge pada sensor_observations,
+                   event_state_log, alert_emissions atau earthquake_events.
+                   Riwayat tidak dipangkas di bawah pembacaan ini.
+algo_ver baris   : [phase3-1.1/ic=5]
+algo_ver biner   : phase3-1.1
+toleransi tautan : 2000 ms  asal=M1_DEFAULT  (jendela korelasi 20000 ms)
+state terminal   : RESOLVED tercatat. Riwayat ini SELESAI.
+
+Alat ini TIDAK menyatakan P4-M6' SATISFIED dan TIDAK memberi VALIDATED. Itu
+penilaian pemilik atas angka-angka di atas (PROJECT_RULES.md §8/§9), bukan
+boolean yang dihitung alat ini.

@@ -1,0 +1,17 @@
+# vps identity — narrow selectors only, no env dump
+## host
+quakealert-server
+Linux 6.12.0-204.92.4.4.3.el9uek.aarch64
+Docker version 29.7.2, build a7dcaa6
+## db container
+project=deploy image=sha256:817959c176e1ceaab0da093fffb2be2152ca46bd1c3ab20d1b0cc67df57f7b5c started=2026-08-25T02:22:13.787503811Z health=healthy
+## app container that wrote the rows
+image=quakealert-server:prod started=2026-09-01T05:55:00.628516381Z
+## repo state on the VPS
+ca8262b6a8ce6ec0605546a2b31becd5720a963e
+ M deploy/docker-compose.prod.yml
+?? deploy/.env.prod.bak-20260825-102134
+?? server/cmd/canary_main.go
+?? server/internal/decrypttmp.go
+## go toolchain
+go: NOT FOUND

@@ -608,6 +608,171 @@ of them. Not deployed: the code is committed only. Full detail in
 
 ---
 
+### D-015 — The forensic timeline reads one event through a read-only operator CLI, and its attribution is non-causal
+**Status:** ACCEPTED · **Owner-approved:** 2026-09-05 · **See:** `ROADMAP.md`
+§ Phase 4 (P4-M6′), `docs/CURRENT_STATE.md` § Active phase, `PROJECT_RULES.md`
+§8/§9/§11, `contracts/db/migrations/000008_event_lifecycle.up.sql`,
+`server/internal/event/trace.go`, `server/internal/store/event_lifecycle.go`
+
+P4-M6′ is satisfied by a **read-only operator CLI** that takes one `event_id` and
+returns exactly four sections: the `earthquake_events` row, the `event_state_log`
+history ordered by `revision ASC`, the decoded `evidence_summary` per revision,
+and the contributing observations. Contributing observations are attributed by
+**membership-and-time, and that attribution is non-causal**: contributors are read
+from `evidence_summary.contributors[].node_id`, `obs_seq` is used where available,
+and candidates are the `sensor_observations` rows for those `node_id`s whose
+recorded `received_ts` falls inside the window around the relevant transition's
+`decided_at`. **Exact causal attribution is not claimed.** M6′ adds **no schema
+migration, no persistent observation↔event link, no contract change and no admin
+HTTP endpoint**: the tool is a `//go:build ignore` `package main` program under
+`server/scripts/`, in the shape already set by `trace_triggers.go`,
+`replay_window.go` and `ledger_analysis.sql`. Every answer carries explicit
+incompleteness/coverage information, and **absence from the records is never
+represented as proof of absence**.
+
+**Because the link the criterion names does not exist in the schema, and M6′ is
+not where it gets created.** `event_state_log` (000008) has no `observation_id`,
+no `correlation_key` and no foreign key toward `sensor_observations`; that
+migration's own header states `evidence_summary` is a **snapshot, not a join**,
+precisely because contributing observations travel a bounded drop-oldest queue.
+`correlation_key` is computed and never persisted (D12), and
+`server/internal/ingest/ledger_test.go` structurally forbids the field on
+`ledger.Observation`. Under `schema_version = 8` — what production runs — exact
+causal attribution is **not recoverable**, so a read path that implied it would be
+asserting something the records cannot support. The alternative considered and
+**rejected** was a persistent link by migration plus a write-path change: it is
+materially larger, it lands a third migration on a database still two behind
+(`000009` is not deployed), and the write-path half is weaker than it looks —
+because the ledger writer is asynchronous, bounded and drop-oldest by design
+(D-002/S1), at the moment a transition is decided the observation row may not be
+written yet and may never be written at all, so the stored link would be nullable
+and sometimes dangling. And it would not remove the need for this decision:
+D-006/V4 forbid a migration rewriting history, so every event recorded before such
+a migration would still be readable only by membership-and-time.
+
+**Because membership-and-time is already the owner-approved link, not a new
+invention.** It is the link P4-M1′ was validated on: `server/internal/event/trace.go`
+states the constraint in its header — the only way home from a transition to its
+observations is `node_id` inside `evidence_summary.contributors[]` over a time
+window — and implements it in `unconfirmedTransitions`, `obsSeqLink` and
+`excludeReason`. M6′ is the reverse direction of that approved relation. The
+already validated M1′ trace behaviour is therefore **consumed, not modified**:
+`trace.go` and `snapshot.go` stand as they are, and shared logic is called rather
+than edited, because editing them to serve M6′ would silently change behaviour
+that an owner already signed off on.
+
+**Because the CLI costs no governance exception and the endpoint would.** The CLI
+needs no `contracts/openapi/openapi.yaml` change, so it needs no second contract
+exception — **D-012 remains Phase 4's only authorized contract exception** — no
+deployment, no `ADMIN_API_KEY` in production, and it puts no per-event forensic
+payload on the network behind a single shared static key. The accepted tradeoff is
+operator custody of read-only database access and a one-shot rather than repeatable
+read; that is the same tradeoff D-016 already accepted for the M1′ production read.
+
+**Because the coverage block is load-bearing, not decoration.** Ledger drops are
+log-only (`ledger_drops_total` in `server/internal/ledger/writer.go`), so
+observation rows may never have reached disk; `alert_emissions.event_id` is
+nullable and rows written before `000008` carry no `event_state`/`event_revision`,
+so their link is time-only; `obs_seq` is absent on v1 contributor rows; and
+`earthquake_events` is overwritten on escalation, so the event row shows only the
+latest shape while `event_state_log` is the only place a state is proved to have
+been held. Reported without that envelope, a gap in the records would read as a
+fact about the earthquake. One fact runs the other way and is stated with the rest:
+there is **no retention or purge job** on `sensor_observations`, `event_state_log`,
+`alert_emissions` or `earthquake_events` — the only deletes in the codebase are the
+chat-message purge and unverified/abandoned `iot_nodes` — so history is not being
+trimmed underneath the read.
+
+**Authorized scope.** Read-only per-`event_id` store queries (the existing
+`LoadOpenEvents` LATERAL pattern is the template; the window-scoped readers
+`ListObservationsForReplay`, `ListStateLogForReplay`, `ListEmissionsForTrace`,
+`ListLastNObservations` and `ListNearConfirmed` are left unmodified); assembly of
+the four-section timeline; contributing-observation attribution under the
+non-causal rule above; one operator CLI; unit and isolated PostgreSQL integration
+tests; the validation evidence below; and governance closeout. **No runtime
+hot-path change** — nothing in ingest, consensus, dispatch, the Tracker or the
+ledger writer. The Tracker is **not** read: it is authority for live state
+(D-002/§9.5) but holds no revision history, which exists only in the database.
+
+**Five constraints carried by this decision, stated so they cannot be read away:**
+1. **Four required outputs, exactly.** Emissions may appear **only as optional
+   additional information** and **must not affect M6′ acceptance**: the criterion
+   in `ROADMAP.md` lists four outputs, and an optional fifth section may never be
+   what makes the milestone pass or fail.
+2. **The tolerance is M1′'s, and it is visible.** `TraceProfile.LinkToleranceMs`
+   default `defaultLinkToleranceMs = 2000` ms, additive above
+   `CorrelationWindowMs`. **No new scientific tolerance is invented here.** The
+   effective value and its provenance — default or operator-asserted — are printed
+   in the CLI output beside the results, per D-013's operator-asserted-parameter
+   rule, together with the `algo_ver` carried by each row.
+3. **Attribution is labelled, every time.** The closed vocabularies are reported
+   as themselves: `TRACED` / `AMBIGUOUS_MULTIPLE_TRANSITIONS` /
+   `NO_UNCONFIRMED_TRANSITION` for the link, `EXACT` / `CONSISTENT_LE` /
+   `LATER_GT` / `UNAVAILABLE_V1` for the `obs_seq` relation, and
+   `VERIFY_RESULT_NOT_OK` / `NODE_LOCATION_NULL` / `NO_ONSET_ANCHOR` for
+   exclusions. Ambiguity is neither a match nor a miss. Nothing read is silently
+   discarded: rows read, qualifying and excluded are counted and reported.
+4. **Undeployed schema degrades, never blocks.** `event_near_confirmed` (`000009`)
+   is not deployed at `schema_version = 8`; no required output may depend on it.
+5. **The implementing agent does not grant `VALIDATED`** (`PROJECT_RULES.md` §8,
+   §9): tests earn `IMPLEMENTED`, and `VALIDATED` is the owner's to give against
+   the archive below.
+
+**Validation and evidence.** `IMPLEMENTED` requires the unit and integration tests
+**and** synthetic multi-revision fixture coverage — that fixture is **required for
+`IMPLEMENTED`**, not deferred to validation. `VALIDATED` requires **both** legs:
+(i) **real production evidence** — one read of one real `event_id` against the live
+database, read-only *proved* rather than asserted (connection with
+`options=-c default_transaction_read_only%3Don`, `show transaction_read_only`
+recorded as `on`, `pg_stat_user_tables` captured before and after to show no write
+counter moved, plus static read-only verification of the tool source and stated
+credential handling with no DSN, key or secret in the archive); and (ii)
+**synthetic software evidence** for what one node cannot produce — `CONFIRMED`
+history rows, multi-contributor `contributors[]`, `independent_cells >= 2`,
+`mixed_provenance`, terminal `RESOLVED` / `CANCELLED` rows, and an overlapping-window
+ambiguity case. The archive is **durably committed** at
+`docs/evidence/p4-m6/<date>-<label>/` and **`/tmp` is never the durable archive**
+(D-016 exists because a tmpfs reboot destroyed the M1′ bundle). It must record: the
+exact `event_id`; the `schema_version` at read time; `algo_ver` / configuration
+provenance; the effective tolerance and where it came from; the coverage and
+incompleteness statement as produced; **which of the four required outputs were
+actually observable and which were `NOT OBSERVABLE`**; the one-node limitations;
+the evidence class of each leg — **production** versus **synthetic software** —
+kept distinct and never merged; and `SHA256SUMS.txt` over the bundle. Anything not
+recovered is written as `NOT RECOVERED`, never filled in.
+
+**The one-node boundary.** The production leg can validate a **one-node event
+timeline** and nothing wider. `CONFIRMED` and multi-contributor history are **not
+field-validated** by M6′ and are not claimable from it: quorum needs ≥3 verified
+contributors across ≥2 independence cells, which is unreachable on a one-physical-node
+fleet (S2 — a network-density fact, not a defect), so those cases are marked
+`NOT OBSERVABLE` in the production archive. The simulation leg exercises richer
+timelines but **remains software evidence only** (D-011 constraint 2, S9); it is
+never field correlation. **Phase F remains separate and blocked by the real sensor
+fleet requirement**, and it alone owns field evidence.
+
+**Affects:** the forensics surface only — read-only per-event store readers, one
+operator CLI, tests and evidence. **Reversible:** yes — the tool may be removed or
+re-scoped by a later owner decision; nothing here changes what the system decides,
+detects, confirms or emits.
+
+**Does not decide:** **U-001 … U-013 remain unresolved, U-007 included**; nothing
+here reopens, reinterprets or resolves any of them, and M6′ needs none of them.
+**D-011, D-012, D-013, D-014 and D-016 are unchanged in meaning** — Phase 4's scope
+stays its six criteria, D-012 stays Phase 4's only authorized contract exception,
+the operator-asserted-parameter and elapsed-offset rules stand, simulation stays
+software evidence only, and milestone evidence still belongs in version control.
+Also not decided: any detection or confirmation threshold; any BMKG or catalogue
+ingestion, automated ground truth or automated false-positive classification; any
+Phase 3 redesign; any reliability target; whether a persistent observation↔event
+link should exist in some later phase; and the fate of the undeployed `000009`
+migration. **No schema migration and no contract change are authorized by this
+decision.** Not implemented: this record authorizes the work and does not perform
+it — `ROADMAP.md` and `docs/CURRENT_STATE.md` are unchanged until the
+implementation lands.
+
+---
+
 ### D-016 — Milestone evidence lives in the repository, and the lost M1′ bundle is reconstructed rather than re-measured
 **Status:** ACCEPTED · **Owner-approved:** 2026-09-04 · **See:** `ROADMAP.md`
 § Phase 4 (P4-M1′), `docs/CURRENT_STATE.md` § Demonstrated, `PROJECT_RULES.md` §8,

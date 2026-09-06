@@ -1,0 +1,5 @@
+ transaction_read_only 
+-----------------------
+ on
+(1 row)
+

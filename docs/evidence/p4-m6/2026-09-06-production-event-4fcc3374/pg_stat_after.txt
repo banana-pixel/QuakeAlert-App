@@ -1,0 +1,56 @@
+        db_utc_after        
+----------------------------
+ 2026-09-06 07:03:52.714424
+(1 row)
+
+         relname          | n_tup_ins | n_tup_upd | n_tup_del | n_tup_hot_upd | n_live_tup | n_dead_tup | seq_scan | idx_scan 
+--------------------------+-----------+-----------+-----------+---------------+------------+------------+----------+----------
+ addr                     |         0 |         0 |         0 |             0 |          0 |          0 |        3 |        0
+ addrfeat                 |         0 |         0 |         0 |             0 |          0 |          0 |        5 |        0
+ alert_emissions          |        52 |         0 |         0 |             0 |         52 |          0 |       20 |       10
+ bg                       |         0 |         0 |         0 |             0 |          0 |          0 |        1 |        0
+ broadcasts               |         0 |         0 |         0 |             0 |          0 |          0 |       10 |        0
+ chat_channels            |         2 |        11 |         0 |            11 |          2 |         11 |      115 |       22
+ chat_messages            |         1 |         0 |         1 |             0 |          0 |          1 |      302 |      217
+ county                   |         0 |         0 |         0 |             0 |          0 |          0 |        3 |        0
+ county_lookup            |         0 |         0 |         0 |             0 |          0 |          0 |        3 |        0
+ countysub_lookup         |         0 |         0 |         0 |             0 |          0 |          0 |        3 |        0
+ cousub                   |         0 |         0 |         0 |             0 |          0 |          0 |        3 |        0
+ direction_lookup         |        28 |         0 |         0 |             0 |         28 |          0 |        2 |        0
+ earthquake_events        |        32 |        32 |         0 |             6 |         32 |         26 |      141 |      371
+ edges                    |         0 |         0 |         0 |             0 |          0 |          0 |        4 |        0
+ event_state_log          |        52 |         0 |         0 |             0 |         52 |          0 |       86 |       63
+ faces                    |         0 |         0 |         0 |             0 |          0 |          0 |        4 |        0
+ featnames                |         0 |         0 |         0 |             0 |          0 |          0 |        4 |        0
+ geocode_settings         |         0 |         0 |         0 |             0 |          0 |          0 |        2 |        0
+ geocode_settings_default |         7 |         0 |         0 |             0 |          7 |          0 |        2 |        0
+ iot_nodes                |        13 |     11947 |         3 |         11941 |         10 |         24 |    12345 |      106
+ layer                    |         0 |         0 |         0 |             0 |          0 |          0 |        2 |        0
+ loader_lookuptables      |        13 |         0 |         0 |             0 |         13 |          0 |        2 |        0
+ loader_platform          |         2 |         0 |         0 |             0 |          2 |          0 |        1 |        2
+ loader_variables         |         1 |         0 |         0 |             0 |          1 |          0 |        2 |        0
+ pagc_gaz                 |       835 |         0 |         0 |             0 |        835 |          0 |        2 |        1
+ pagc_lex                 |      2938 |         0 |         0 |             0 |       2938 |          0 |        2 |        1
+ pagc_rules               |      4354 |      4354 |         0 |             3 |       4354 |          0 |        2 |        1
+ place                    |         0 |         0 |         0 |             0 |          0 |          0 |        3 |        0
+ place_lookup             |         0 |         0 |         0 |             0 |          0 |          0 |        3 |        0
+ schema_migrations        |        16 |         0 |         0 |             0 |          1 |          0 |       40 |        5
+ secondary_unit_lookup    |        39 |         0 |         0 |             0 |         39 |          0 |        2 |        0
+ sensor_observations      |        53 |         0 |         0 |             0 |         53 |          0 |       40 |        4
+ spatial_ref_sys          |      8500 |         0 |         0 |             0 |       8500 |          0 |        1 |     8592
+ state                    |         0 |         0 |         0 |             0 |          0 |          0 |        4 |        0
+ state_lookup             |        59 |        59 |         0 |             0 |         59 |          0 |        5 |        0
+ street_type_lookup       |       609 |         0 |         0 |             0 |        609 |          0 |        3 |        0
+ tabblock                 |         0 |         0 |         0 |             0 |          0 |          0 |        1 |        0
+ tabblock20               |         0 |         0 |         0 |             0 |          0 |          0 |        1 |        0
+ topology                 |         0 |         0 |         0 |             0 |          0 |          0 |        2 |        0
+ tract                    |         0 |         0 |         0 |             0 |          0 |          0 |        1 |        0
+ user_profiles            |        26 |        77 |         0 |            60 |         26 |         27 |      249 |      387
+ zcta5                    |         0 |         0 |         0 |             0 |          0 |          0 |        2 |        0
+ zip_lookup               |         0 |         0 |         0 |             0 |          0 |          0 |        1 |        0
+ zip_lookup_all           |         0 |         0 |         0 |             0 |          0 |          0 |        0 |        0
+ zip_lookup_base          |         0 |         0 |         0 |             0 |          0 |          0 |        1 |        0
+ zip_state                |         0 |         0 |         0 |             0 |          0 |          0 |        1 |        0
+ zip_state_loc            |         0 |         0 |         0 |             0 |          0 |          0 |        1 |        0
+(47 rows)
+

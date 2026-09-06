@@ -1,0 +1,6 @@
+ revision | from_state  |  to_state   |     reason      |  decided_at   | node_count | independent_cells |    algo_ver     | has_evidence 
+----------+-------------+-------------+-----------------+---------------+------------+-------------------+-----------------+--------------
+        1 | DETECTED    | UNCONFIRMED | FLOOR_MET       | 1788435429754 |          1 |                 1 | phase3-1.1/ic=5 | t
+        2 | UNCONFIRMED | RESOLVED    | NO_NEW_EVIDENCE | 1788435521061 |          1 |                 1 | phase3-1.1/ic=5 | t
+(2 rows)
+

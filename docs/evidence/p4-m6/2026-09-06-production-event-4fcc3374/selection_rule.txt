@@ -1,0 +1,2 @@
+# SELECTION RULE for v2: locked event 4fcc3374-032a-440b-9d6f-609d8a4096ce reused for proof continuity (owner requirement). Live survey shows newer 5f3b63c9-... as row1; locked event is row2. Not re-picked. Whatever it shows is recorded.
+EV=4fcc3374-032a-440b-9d6f-609d8a4096ce
